@@ -135,11 +135,23 @@ chain halts. Every rule below exists because breaking it is easy:
   account id, because two nodes sorting equal-scored accounts differently
   would deleverage different traders.
 
-`state-root` is a 32-bit FNV-1a checksum, the same algorithm on both
-platforms. It detects divergence between replays. It is **not** a
-cryptographic commitment: not collision-resistant, no proofs about parts of
-the state. A production chain needs SHA-256 over a canonical encoding, and
-light clients would need an authenticated tree.
+`state-root` is **SHA-256** over a tagged, length-prefixed canonical encoding,
+via [`kotoba-lang/bytes`](https://github.com/kotoba-lang/bytes) — pure,
+synchronous, and identical on both platforms. It is safe to sign, which
+matters because `torihiki.log` does exactly that. (It was a 32-bit FNV-1a
+checksum first; signing a digest with no collision resistance authenticates
+every other preimage that collides with it.)
+
+The encoding hashes the **live** state, not the preallocated slabs, so a root
+costs what the book holds rather than what it could hold. It is tagged and
+length-prefixed so two different states cannot encode to the same bytes.
+
+It is still a **flat** digest: it commits to everything and proves nothing
+about any part. A light client that wants to verify one balance without
+replaying the chain needs an authenticated tree, and this is not one. Nor is
+it incremental — a root costs the whole state, which is right for the
+kilobytes a normal block touches and wrong for a book holding hundreds of
+thousands of resting orders.
 
 ## Platform
 
@@ -170,11 +182,10 @@ recorded rather than assumed.
   only the single-market case has been run.
 - **An oracle.** `:oracle` transactions carry an already-agreed price;
   aggregating validator submissions into that price is a consensus-layer job.
-- **Cryptographic state commitments.** See above.
 
 ## Test
 
 ```bash
-clojure -M:test          # 50 tests, 149 assertions
+clojure -M:test          # 55 tests, 163 assertions
 clojure -M:bench 3000000 # throughput
 ```

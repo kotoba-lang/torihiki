@@ -132,3 +132,50 @@
       (is (= [1] (mapv :account (liq/adl-ranking s 7 500 -1)))))
     (testing "and closing a long only by shorts"
       (is (= [2] (mapv :account (liq/adl-ranking s 7 500 1)))))))
+
+;; ── the state root as a commitment ──────────────────────────────────────────
+
+(deftest state-root-is-a-sha256-hex-digest
+  (let [r (st/state-root (fresh))]
+    (is (string? r))
+    (is (= 64 (count r)))
+    (is (re-matches #"[0-9a-f]{64}" r))))
+
+(deftest canonical-bytes-are-bytes
+  (let [bs (st/canonical-bytes (-> (fresh) (funded [10 11] 5000)))]
+    (is (pos? (count bs)))
+    (is (every? #(and (integer? %) (<= 0 % 255)) bs)
+        "anything outside 0..255 would not survive being hashed as a byte")))
+
+(deftest tagging-defeats-the-concatenation-ambiguity
+  (testing "two states that a naive encoder would flatten identically do not collide"
+    ;; account 12 holding 3, versus account 1 holding 23. Concatenated without
+    ;; delimiters both read as \"1\" \"2\" \"3\"; this is the classic reason a
+    ;; canonical encoding has to be length-prefixed and tagged.
+    (let [a (-> (fresh) (st/apply-tx {:tx :deposit :account 12 :amount 3}))
+          b (-> (fresh) (st/apply-tx {:tx :deposit :account 1 :amount 23}))]
+      (is (not= (st/canonical-bytes a) (st/canonical-bytes b)))
+      (is (not= (st/state-root a) (st/state-root b))))))
+
+(deftest the-root-commits-to-resting-orders-not-just-balances
+  (testing "two books with the same balances but different resting depth differ"
+    (let [mk (fn [qty]
+               (-> (fresh)
+                   (funded [10] 1000000)
+                   (st/apply-block {:height 1 :ts 1
+                                    :txs [{:tx :order :account 10 :market 1
+                                           :side bk/ask :level 1500 :qty qty}]})))]
+      (is (not= (st/state-root (mk 5)) (st/state-root (mk 6)))))))
+
+(deftest the-root-commits-to-time-priority
+  (testing "the same depth at the same level, queued in a different order, differs"
+    (let [mk (fn [[a b]]
+               (-> (fresh)
+                   (funded [10 11] 1000000)
+                   (st/apply-block {:height 1 :ts 1
+                                    :txs [{:tx :order :account a :market 1
+                                           :side bk/ask :level 1500 :qty 4}
+                                          {:tx :order :account b :market 1
+                                           :side bk/ask :level 1500 :qty 4}]})))]
+      (is (not= (st/state-root (mk [10 11])) (st/state-root (mk [11 10])))
+          "queue position is state — whoever is at the head fills first"))))

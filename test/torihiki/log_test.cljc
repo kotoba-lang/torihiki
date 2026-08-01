@@ -71,15 +71,15 @@
                               (log/block->wire (first (blocks)) (st/state-root ex1) nil)
                               nil)
           cid2 (chain/commit! put! get-fn
-                              (log/block->wire (second (blocks)) 123456789 nil)
+                              (log/block->wire (second (blocks)) "deadbeef" nil)
                               cid1)]
       (is (chain/verify-chain get-fn cid2)
           "verify-chain passes — the log is internally consistent")
       (let [v (log/replay get-fn cid2 fresh)]
         (is (not (:ok v)) "but replay contradicts it")
         (is (= 2 (:height v)))
-        (is (= 123456789 (:recorded v)))
-        (is (not= 123456789 (:recomputed v))))
+        (is (= "deadbeef" (:recorded v)))
+        (is (not= "deadbeef" (:recomputed v))))
       (is (pos? (count @raw))))))
 
 (deftest tampering-with-a-committed-block-breaks-the-chain
@@ -131,7 +131,7 @@
 (deftest the-signature-covers-the-parent-not-just-the-block
   (testing "the same block at a different position signs differently"
     (let [b (second (blocks))
-          root 42
+          root "some-root"
           at-genesis (log/signing-payload (:height b) (:ts b) root nil (:txs b))
           at-parent (log/signing-payload (:height b) (:ts b) root "bafyfake" (:txs b))]
       (is (not= at-genesis at-parent)
@@ -139,6 +139,6 @@
 
 (deftest the-signature-covers-the-state-root
   (let [b (second (blocks))]
-    (is (not= (log/signing-payload 2 200 1 nil (:txs b))
-              (log/signing-payload 2 200 2 nil (:txs b)))
+    (is (not= (log/signing-payload 2 200 "root-a" nil (:txs b))
+              (log/signing-payload 2 200 "root-b" nil (:txs b)))
         "a signature that ignored the root would authenticate an invented one")))

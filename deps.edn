@@ -5,7 +5,13 @@
         ;; it that way — they are the part a validator executes per order.
         io.github.kotoba-lang/chain
         {:git/url "https://github.com/kotoba-lang/chain.git"
-         :git/sha "f8f6db8bf8c689063d43297cbe6c06383cc6c3b6"}}
+         :git/sha "f8f6db8bf8c689063d43297cbe6c06383cc6c3b6"}
+        ;; Pure, synchronous, dependency-free SHA-256 that is identical on the
+        ;; JVM and in JS. Its own docstring says it exists so repos stop
+        ;; hand-rolling one each; taking it at its word is the point.
+        io.github.kotoba-lang/bytes
+        {:git/url "https://github.com/kotoba-lang/bytes.git"
+         :git/sha "5f977dd3e8ca73185488302841ade390e1979540"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner

@@ -424,6 +424,21 @@
   ^long [^Book b side level]
   (slab/get (.-lvl_qty b) (+ (* (long side) (long (.-n_levels b))) (long level))))
 
+(defn level-orders
+  "The resting queue at one price level, head first — i.e. in time priority.
+  Off the hot path: this is for the state root, for a depth view, and for
+  tests. Returns `[{:oid :owner :qty} ...]`."
+  [^Book b side level]
+  (let [o-next (.-o_next b) o-owner (.-o_owner b) o-qty (.-o_qty b)
+        k (+ (* (long side) (long (.-n_levels b))) (long level))]
+    (loop [slot (slab/get (.-lvl_head b) k) acc []]
+      (if (neg? slot)
+        acc
+        (recur (slab/get o-next slot)
+               (conj acc {:oid (oid-of b slot)
+                          :owner (slab/get o-owner slot)
+                          :qty (slab/get o-qty slot)}))))))
+
 (defn resting-count ^long [^Book b] (slab/get (.-ctl b) ctl-resting))
 (defn last-price    ^long [^Book b] (slab/get (.-ctl b) ctl-last-price))
 

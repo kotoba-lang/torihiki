@@ -14,20 +14,20 @@
 
   ## What a state root is here, and what it is not
 
-  `state-root` is a 32-bit FNV-1a checksum over a canonical serialisation. It
-  is enough to catch divergence between two replays, which is what it is for
-  and what the tests use it for. It is NOT a cryptographic commitment: it is
-  not collision-resistant, and it does not support proofs about parts of the
-  state. A production chain needs SHA-256 over a canonical encoding, and if
-  light clients ever need to prove individual balances it needs an
-  authenticated tree rather than a flat digest. Saying so here is cheaper
-  than letting someone discover it later."
+  `state-root` is SHA-256 over a tagged, length-prefixed canonical encoding,
+  returned as lowercase hex. It is safe to sign, which matters because
+  `torihiki.log` does exactly that.
+
+  It is still a FLAT digest: it commits to the whole state and proves nothing
+  about any part of it. A light client that wants to verify one balance
+  without replaying the chain needs an authenticated tree, and this is not
+  one. Saying so here is cheaper than letting someone discover it later."
   (:require [torihiki.fixed :as fx]
-            [torihiki.slab :as slab]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.funding :as fnd]
-            [torihiki.liquidation :as liq]))
+            [torihiki.liquidation :as liq]
+            [kotoba.bytes.sha256 :as sha]))
 
 ;; ── reserved account ids ────────────────────────────────────────────────────
 ;;
@@ -172,88 +172,129 @@
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
-;; FNV-1a, 32-BIT, on both platforms. The obvious implementation uses the
-;; 64-bit variant on the JVM and something narrower in JS, and that is exactly
-;; wrong: a state root computed by two different algorithms is not a check on
-;; agreement, it is a guarantee of disagreement. 32 bits is what JS can
-;; multiply exactly (`Math.imul`), so 32 bits is what both sides use.
+;; SHA-256 over a canonical byte encoding, via `kotoba.bytes.sha256` — pure,
+;; synchronous, and identical on the JVM and in JS. It replaced a 32-bit
+;; FNV-1a checksum, which was adequate for catching an honest divergence
+;; between two replays and NOT adequate for what the log then did with it:
+;; `torihiki.log` signs the state root, and signing a digest with no collision
+;; resistance authenticates every other preimage that collides with it.
 ;;
-;; Values are split into non-negative 32-bit chunks plus a sign bit before
-;; mixing, because `bit-and` in ClojureScript coerces through ToInt32 and
-;; would silently discard everything above bit 31 of a 53-bit value.
+;; Two things this encoding does deliberately:
+;;
+;; 1. IT HASHES THE LIVE STATE, NOT THE SLABS. The book preallocates arrays
+;;    sized for its capacity, so digesting them directly would hash megabytes
+;;    of zeros — cost proportional to how big the book COULD get rather than
+;;    to what it holds. Walking the occupied levels and their queues costs
+;;    what the state actually is.
+;;
+;; 2. IT IS TAGGED AND LENGTH-PREFIXED. Every section announces what it is and
+;;    how many items follow. Concatenating fields without delimiters lets two
+;;    different states encode to identical bytes (the classic length-extension
+;;    ambiguity: one account with id 12 and balance 3 versus id 1 and balance
+;;    23), which would hand out state-root collisions for free.
+;;
+;; Cost: this is Clojure arithmetic, not a native digest — right for the
+;; kilobytes a normal block touches, and NOT right for a book holding hundreds
+;; of thousands of resting orders. A production chain wants an incremental
+;; authenticated tree so a block's root costs the DELTA rather than the whole
+;; state. That is recorded as a follow-up, not solved here.
 
-(def ^:const fnv-offset-32 2166136261)
-(def ^:const fnv-prime-32 16777619)
-(def ^:const two32 4294967296)
+(def ^:const enc-tag-exchange 1)
+(def ^:const enc-tag-market 2)
+(def ^:const enc-tag-level 3)
+(def ^:const enc-tag-order 4)
+(def ^:const enc-tag-account 5)
+(def ^:const enc-tag-position 6)
 
-(defn- mix32
-  "One FNV-1a step over a 32-bit chunk."
-  [h x]
-  #?(:clj  (bit-and (unchecked-multiply (bit-xor (long h) (long x)) fnv-prime-32)
-                    0xFFFFFFFF)
-     :cljs (unsigned-bit-shift-right
-            (js/Math.imul (bit-xor (bit-or h 0) (bit-or x 0)) fnv-prime-32) 0)))
-
-(defn- mix
-  "Fold one i53 value into the digest: low chunk, high chunk, then sign."
-  [h v]
+(defn- enc-int
+  "One i53 as 8 bytes: a sign byte then seven big-endian magnitude bytes.
+  Seven bytes carry 56 bits, comfortably above the 53 the domain allows.
+  Written with division rather than bit shifts because ClojureScript's bitwise
+  operators coerce through ToInt32 and would silently drop everything above
+  bit 31."
+  [v]
   (let [v (or v 0)
         neg (if (neg? v) 1 0)
         a (fx/abs* v)]
-    (-> h
-        (mix32 (fx/fmod a two32))
-        (mix32 (fx/fdiv a two32))
-        (mix32 neg))))
+    (loop [i 6 a a acc (transient [neg])]
+      (if (neg? i)
+        (persistent! acc)
+        (let [d (long (Math/pow 256 i))]
+          (recur (dec i) (fx/fmod a d) (conj! acc (fx/fdiv a d))))))))
 
-(defn- hash-slab
-  [h a]
-  (let [n (slab/size a)]
-    (loop [i 0 h h]
-      (if (>= i n) h (recur (inc i) (mix h (slab/get a i)))))))
+(defn- enc-ints [xs] (into [] (mapcat enc-int) xs))
 
-(defn- hash-clearing
-  "Fold the clearinghouse into the digest in SORTED key order. Clojure map
-  iteration order is unspecified — folding in map order would make the state
-  root depend on insertion history rather than on state, and two validators
-  holding identical balances would disagree."
-  [h clearing]
-  (let [h (mix h (or (:insurance-fund clearing) 0))
-        h (mix h (or (:fees-collected clearing) 0))
-        h (mix h (or (:funding-residue clearing) 0))]
+(defn- encode-book
+  "Occupied levels, each with its resting queue in time order."
+  [b]
+  (loop [side bk/bid out []]
+    (if (> side bk/ask)
+      out
+      (let [levels (loop [l (bk/best b side) acc []]
+                     (if (neg? l)
+                       acc
+                       (recur (bk/next-occupied b side l) (conj acc l))))
+            side-bytes
+            (reduce
+             (fn [acc l]
+               (let [orders (bk/level-orders b side l)]
+                 (-> acc
+                     (into (enc-ints [enc-tag-level side l (bk/level-qty b side l)
+                                      (count orders)]))
+                     (into (mapcat (fn [{:keys [owner qty]}]
+                                     (enc-ints [enc-tag-order owner qty]))
+                                   orders)))))
+             (enc-ints [enc-tag-market side (count levels)])
+             levels)]
+        (recur (inc side) (into out side-bytes))))))
+
+(defn- encode-clearing
+  "Accounts in sorted id order, each with its positions in sorted market order.
+  Sorted because Clojure map iteration order is unspecified — folding in map
+  order would make the root depend on insertion history rather than on state."
+  [clearing]
+  (let [accts (sort (keys (:accounts clearing)))]
     (reduce
-     (fn [h acct]
-       (let [{:keys [collateral positions]} (get-in clearing [:accounts acct])
-             h (mix h acct)
-             h (mix h (or collateral 0))]
-         (reduce (fn [h mkt]
-                   (let [p (get positions mkt)]
-                     (-> h
-                         (mix mkt)
-                         (mix (:size p))
-                         (mix (:entry-notional p))
-                         (mix (or (:isolated p) 0)))))
-                 h
-                 (sort (keys positions)))))
-     h
-     (sort (keys (:accounts clearing))))))
+     (fn [acc a]
+       (let [{:keys [collateral positions]} (get-in clearing [:accounts a])
+             mkts (sort (keys positions))]
+         (reduce (fn [acc m]
+                   (let [p (get positions m)]
+                     (into acc (enc-ints [enc-tag-position m (:size p)
+                                          (:entry-notional p)
+                                          (or (:isolated p) 0)]))))
+                 (into acc (enc-ints [enc-tag-account a (or collateral 0)
+                                      (count mkts)]))
+                 mkts)))
+     (enc-ints [enc-tag-account (count accts)
+                (or (:insurance-fund clearing) 0)
+                (or (:fees-collected clearing) 0)
+                (or (:funding-residue clearing) 0)])
+     accts)))
+
+(defn canonical-bytes
+  "The exact byte sequence `state-root` digests. Exposed because a state root
+  is only auditable if the thing under the hash can be inspected."
+  [ex]
+  (let [mkts (sort (keys (:books ex)))]
+    (reduce
+     (fn [acc m]
+       (-> acc
+           (into (enc-ints [enc-tag-market m
+                            (get-in ex [:oracle m] 0)
+                            (get-in ex [:marks m] 0)]))
+           (into (encode-book (get-in ex [:books m])))))
+     (into (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
+           (encode-clearing (:clearing ex)))
+     mkts)))
 
 (defn state-root
-  "A digest of the whole exchange. Equal roots mean two replays agreed; see
-  this namespace's docstring for what this is not."
+  "A SHA-256 commitment to the whole exchange, as lowercase hex.
+
+  Unlike the checksum this replaced, it is safe to sign: finding a second
+  state with the same root is as hard as finding a SHA-256 collision. It is
+  still a FLAT digest — it commits to everything and proves nothing about any
+  part — so a light client that needs to verify one balance without replaying
+  the chain needs an authenticated tree, which this is not."
   [ex]
-  (let [h (-> fnv-offset-32
-              (mix (:height ex))
-              (mix (:ts ex)))
-        h (reduce (fn [h mkt]
-                    (let [b (get-in ex [:books mkt])]
-                      (-> h
-                          (mix mkt)
-                          (mix (get-in ex [:oracle mkt] 0))
-                          (mix (get-in ex [:marks mkt] 0))
-                          (hash-slab (:lvl-qty b))
-                          (hash-slab (:o-qty b))
-                          (hash-slab (:o-level b))
-                          (hash-slab (:o-owner b)))))
-                  h
-                  (sort (keys (:books ex))))]
-    (hash-clearing h (:clearing ex))))
+  (sha/sha256-hex (canonical-bytes ex)))
