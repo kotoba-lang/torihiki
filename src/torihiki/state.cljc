@@ -27,6 +27,7 @@
             [torihiki.clearing :as cl]
             [torihiki.funding :as fnd]
             [torihiki.liquidation :as liq]
+            [torihiki.mark :as mk]
             [kotoba.bytes.sha256 :as sha]))
 
 ;; ── reserved account ids ────────────────────────────────────────────────────
@@ -55,7 +56,13 @@
                     :backstop-vault vault-account
                     :liquidation-clock {})
    :oracle {}
+   ;; `:marks` is DERIVED (torihiki.mark) and is what margin and liquidation
+   ;; read. `:last` is the last traded price and exists only to be displayed —
+   ;; showing a trader the last print is right, margining them against it is
+   ;; how one thin fill liquidates somebody else.
    :marks {}
+   :last {}
+   :mark-params mk/default-params
    :funding {(:id market) fnd/empty-accumulator}
    :funding-params fnd/default-params
    :liq-params liq/default-params
@@ -81,6 +88,15 @@
   [ex {:keys [account amount]}]
   (update ex :clearing cl/withdraw account amount (:marks ex) (:markets ex)))
 
+(defn- reprice!
+  "Recompute the derived mark for `market` from the book and the oracle.
+  Called after anything that can move either — a fill or an oracle update."
+  [ex market]
+  (let [book (get-in ex [:books market])
+        oracle (get-in ex [:oracle market] 0)
+        oracle (if (pos? oracle) oracle (get-in ex [:last market] 0))]
+    (assoc-in ex [:marks market] (mk/mark-price book oracle (:mark-params ex)))))
+
 (defmethod apply-tx :order
   [ex {:keys [account market side level qty flags] :or {flags 0}}]
   (let [book (get-in ex [:books market])
@@ -94,16 +110,20 @@
     ;; only the taker and reconciling makers later would let an account's
     ;; margin be evaluated against a position it already holds but has not
     ;; been told about.
-    (reduce
-     (fn [ex' {:keys [taker-owner maker-owner level qty taker-side]}]
-       (let [taker-delta (if (= taker-side bk/bid) qty (- qty))
-             maker-delta (- taker-delta)]
-         (-> ex'
-             (update :clearing cl/apply-fill taker-owner market taker-delta level fee-rate)
-             (update :clearing cl/apply-fill maker-owner market maker-delta level maker-rate)
-             (assoc-in [:marks market] level))))
-     ex
-     fills)))
+    (-> (reduce
+         (fn [ex' {:keys [taker-owner maker-owner level qty taker-side]}]
+           (let [taker-delta (if (= taker-side bk/bid) qty (- qty))
+                 maker-delta (- taker-delta)]
+             (-> ex'
+                 (update :clearing cl/apply-fill taker-owner market taker-delta level fee-rate)
+                 (update :clearing cl/apply-fill maker-owner market maker-delta level maker-rate)
+                 ;; the fill sets the LAST price, never the mark
+                 (assoc-in [:last market] level))))
+         ex
+         fills)
+        ;; repriced once per order rather than once per fill: the mark is a
+        ;; function of the resulting book, not of each step through it
+        (reprice! market))))
 
 (defmethod apply-tx :cancel
   [ex {:keys [market oid]}]
@@ -115,7 +135,9 @@
   ;; Validator-submitted prices are consensus INPUT, so the aggregation that
   ;; turns many submissions into one number has to happen before this point,
   ;; in the block producer. What lands here is already the agreed value.
-  (assoc-in ex [:oracle market] price))
+  (-> ex
+      (assoc-in [:oracle market] price)
+      (reprice! market)))
 
 (defmethod apply-tx :funding-sample
   [ex {:keys [market]}]
@@ -138,6 +160,9 @@
   [ex {:keys [market]}]
   (let [book (get-in ex [:books market])
         mark (get-in ex [:marks market] (get-in ex [:oracle market] 0))
+        _ (when-not (pos? mark)
+            (throw (ex-info "torihiki.state: refusing to liquidate without a mark"
+                            {:market market})))
         ;; offering the slice to the real book is what makes stage 1 mean
         ;; something; a take-fn that always refuses would send every
         ;; liquidation straight to the vault
@@ -282,7 +307,8 @@
        (-> acc
            (into (enc-ints [enc-tag-market m
                             (get-in ex [:oracle m] 0)
-                            (get-in ex [:marks m] 0)]))
+                            (get-in ex [:marks m] 0)
+                            (get-in ex [:last m] 0)]))
            (into (encode-book (get-in ex [:books m])))))
      (into (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
            (encode-clearing (:clearing ex)))

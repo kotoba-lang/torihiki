@@ -86,6 +86,22 @@ ordinary immutable Clojure data. They run once per fill or once per hour, not
 once per order, so clarity is worth more there than speed — and clarity is
 worth a great deal, because that is where money is actually lost.
 
+`torihiki.mark` derives the **mark price** — what margin and liquidation are
+measured against. It is deliberately not the last trade:
+
+```
+mark = oracle + clamp(impact-mid - oracle, ±band)
+```
+
+Using the last print as the mark is a way to liquidate other people: one lot
+lifted through a thin book moves the mark, the mark decides who is under
+maintenance margin, and the attacker collects. So the mark is anchored to the
+oracle and may move only as far as the book can carry weight — `impact-mid`
+is the midpoint of what a *reference-sized* order would actually pay, and the
+band bounds the damage of even a well-funded manipulation. A book too thin to
+price the reference size does not get to price itself; the mark is the oracle.
+The last print is kept separately as `:last`, for display only.
+
 `torihiki.state` folds a block and computes a state root.
 
 ### The log (`torihiki.log`)
@@ -167,7 +183,7 @@ bit-identical anyway.
 clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   STATE ROOT  a1348e3361f50ac2320e21f740cd9415c41ce9f7af27371b5272e58cb440d964
+#   STATE ROOT  0c1b0655b6b99278b054d266e8f587823e675ec9db37ec3381bf078b7f8da055
 ```
 
 That check earns its place. A JVM-side optimization — reading the `Book`
@@ -202,6 +218,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 55 tests, 158 assertions
+clojure -M:test          # 63 tests, 177 assertions
 clojure -M:bench 3000000 # throughput
 ```

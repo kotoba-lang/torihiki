@@ -54,10 +54,16 @@
     (let [fair (fnd/premium b 1000 20000)]
       (is (some? fair))
       (is (< (fx/abs* fair) (fx/bps 20)) "a balanced book sits near zero premium")
-      (testing "one lot quoted absurdly high does not move the premium"
-        (bk/place! b bk/bid 1500 1 0 99)
-        (is (= fair (fnd/premium b 1000 20000))
-            "the impact price ignores a quote too small to fill the reference size")))))
+      (testing "one lot quoted inside the spread barely moves the premium"
+        ;; NOT at an absurd price: a bid above the best ask would CROSS and
+        ;; trade instead of resting, so the original version of this test
+        ;; never parked the quote it claimed to be testing. Inside the spread
+        ;; is where a manipulator can actually sit.
+        (bk/place! b bk/bid 1000 1 0 99)
+        (let [after (fnd/premium b 1000 20000)]
+          (is (some? after))
+          (is (< (fx/abs* (- after fair)) (fx/bps 2))
+              "one lot cannot fill the reference size, so it cannot set the price"))))))
 
 (deftest premium-is-nil-when-a-side-is-empty
   (let [b (bk/new-book {:n-levels 4096 :cap 1024 :ev-cap 64})]

@@ -483,26 +483,47 @@
 
 (defn impact-price
   "The average price a market order of `notional` would pay on `side`, in
-  ticks, or -1 if the book cannot absorb any of it.
+  ticks, or **-1 when the book cannot absorb the WHOLE reference size**.
 
-  This is the input to the premium index: the premium is measured against
-  what a REFERENCE-SIZED order would actually get, not against the top of
-  book, so a one-lot quote at an absurd price cannot drag funding around.
+  All-or-nothing is the load-bearing part, and the first version got it wrong.
+  This feeds the funding premium and the mark price, and both exist to be hard
+  to push around. Returning the average of a PARTIAL fill means a book holding
+  one lot can answer the question — and that one lot then sets the reference
+  price, which is exactly the manipulation the reference size was introduced
+  to prevent. A partial fill is not a cheaper answer, it is the wrong answer,
+  so it is refused.
+
   Following the occupied levels through the bit ladder keeps the cost
-  proportional to the levels actually consumed rather than to the width of
-  the ladder."
+  proportional to the levels actually consumed rather than to the width of the
+  ladder."
   [^Book b side notional]
-  (loop [level (best b side) left notional cost 0 filled 0]
-    (if (or (neg? level) (not (pos? left)))
-      (if (pos? filled) (fx/fdiv cost filled) -1)
+  (loop [level (best b side) left notional cost 0 filled 0 last-level 0]
+    (cond
+      ;; the reference size was absorbed exactly
+      (not (pos? left)) (if (pos? filled) (fx/fdiv cost filled) -1)
+
+      ;; The book ran out. Succeed only if what is left over is smaller than a
+      ;; single lot at the deepest price we touched — that is a rounding
+      ;; remainder, not a shortfall. Anything larger means the book genuinely
+      ;; could not carry the reference size, which is the case this function
+      ;; refuses to answer.
+      (neg? level) (if (and (pos? filled) (< left last-level))
+                     (fx/fdiv cost filled)
+                     -1)
+
+      :else
       (let [q (level-qty b side level)]
         (if (zero? q)
-          (recur (next-occupied b side level) left cost filled)
+          (recur (next-occupied b side level) left cost filled last-level)
           (let [take-q (min q (fx/fdiv left level))]
             (if (not (pos? take-q))
+              ;; cannot afford another lot even at this price, and prices only
+              ;; get worse from here — the remainder is sub-lot, so this is a
+              ;; complete answer
               (if (pos? filled) (fx/fdiv cost filled) -1)
               (let [spent (fx/notional level take-q)]
                 (recur (next-occupied b side level)
                        (- left spent)
                        (+ cost spent)
-                       (+ filled take-q))))))))))
+                       (+ filled take-q)
+                       level)))))))))
