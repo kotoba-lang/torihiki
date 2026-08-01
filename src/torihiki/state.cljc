@@ -30,6 +30,8 @@
             [torihiki.mark :as mk]
             [torihiki.trigger :as trg]
             [torihiki.api :as api]
+            [torihiki.auth :as auth]
+            [kotoba.bytes :as b]
             [kotoba.bytes.sha256 :as sha]))
 
 ;; ── reserved account ids ────────────────────────────────────────────────────
@@ -71,6 +73,11 @@
    ;; blocks do, so they are committed to by the state root.
    :triggers {}
    :trigger-seq 0
+   ;; Authentication state. Both are consensus state, not server state: every
+   ;; validator must agree on which nonces are spent and which key owns an
+   ;; account, or they disagree about what is a replay and who may trade.
+   :nonces {}
+   :account-keys {}
    ;; A fired trigger places an order, which moves the book, which reprices
    ;; the mark, which can arm more triggers. That cascade has to terminate.
    :max-trigger-rounds 8
@@ -294,15 +301,34 @@
   root — two validators must agree on what was refused as much as on what was
   executed, and without that a sequencer could quietly drop a transaction and
   still produce a matching root."
-  [ex {:keys [height ts txs]}]
-  (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))]
-    (doseq [[_ book] (:books ex)] (bk/reset-events! book))
-    (reduce (fn [e [i t]]
+  ([ex block] (apply-block ex block nil))
+  ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id] :as _opts}]
+   (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))]
+     (doseq [[_ book] (:books ex)] (bk/reset-events! book))
+     (reduce
+      (fn [e [i entry]]
+        (if verify-fn
+          ;; Authenticated: the entry is a signed envelope around a transaction.
+          (if-let [reason (auth/check e entry chain-id verify-fn)]
+            ;; Authentication failed, so this was never from the account —
+            ;; nothing is consumed and nothing is applied.
+            (update e :rejected conj {:index i :tx (:tx (:tx entry)) :reason reason})
+            ;; Authenticated. The nonce is consumed even if the transaction
+            ;; then fails validation: the holder authorised THAT nonce for THAT
+            ;; transaction, and leaving it unspent would make the signature
+            ;; reusable.
+            (let [e (auth/accept e entry)
+                  t (assoc (:tx entry) :account (:account entry))]
               (if-let [reason (api/validate e t)]
                 (update e :rejected conj {:index i :tx (:tx t) :reason reason})
-                (apply-tx e t)))
-            ex
-            (map-indexed vector txs))))
+                (apply-tx e t))))
+          ;; Unauthenticated mode: for tests, for replay of an already-agreed
+          ;; log, and for a sequencer that authenticates at its own edge.
+          (if-let [reason (api/validate e entry)]
+            (update e :rejected conj {:index i :tx (:tx entry) :reason reason})
+            (apply-tx e entry))))
+      ex
+      (map-indexed vector txs)))))
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
@@ -383,6 +409,28 @@
         (recur (inc side) (into out side-bytes))))))
 
 (def ^:const enc-tag-rejected 8)
+(def ^:const enc-tag-nonce 9)
+(def ^:const enc-tag-key 10)
+
+(defn- enc-string
+  "A string as its UTF-8 bytes, length-prefixed. Public keys are the only
+  strings in the state, and they still have to be committed to — an account
+  whose bound key is outside the root could be rebound without changing it."
+  [x]
+  (let [bs (b/utf8-encode (str x))]
+    (into (enc-int (count bs)) bs)))
+
+(defn- encode-auth
+  "Nonces and key bindings, accounts in sorted order."
+  [ex]
+  (let [accts (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex)))))]
+    (reduce (fn [acc a]
+              (-> acc
+                  (into (enc-ints [enc-tag-nonce a (get-in ex [:nonces a] 0)]))
+                  (into (enc-ints [enc-tag-key a]))
+                  (into (enc-string (get-in ex [:account-keys a] "")))))
+            (enc-ints [enc-tag-nonce (count accts)])
+            accts)))
 
 (def reason-codes
   "A stable integer per rejection reason. `clojure.core/hash` on a keyword is
@@ -467,6 +515,7 @@
            (into (encode-triggers (get-in ex [:triggers m] [])))))
      (-> (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
          (into (encode-rejections (:rejected ex [])))
+         (into (encode-auth ex))
          (into (encode-clearing (:clearing ex))))
      mkts)))
 

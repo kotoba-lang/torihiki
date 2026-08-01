@@ -140,6 +140,28 @@ Rejections are part of the state root. Two validators must agree on what was
 *refused* as much as on what was executed, or a sequencer could quietly drop a
 transaction and still produce a matching root.
 
+`torihiki.auth` answers **who is allowed to move an account**. Until it
+existed, `:account` was a number a client asserted — anyone could submit a
+transaction claiming to be account 5.
+
+It looks like a transport concern and it is not: two of its three parts are
+consensus state. The **nonce** is per-account state and every validator must
+agree on it or they disagree about what is a replay; the **key binding** is
+the same. Only the framing belongs to a transport, and that is the easy half.
+
+The signed payload covers the chain id (a testnet signature must not authorise
+a mainnet transaction), the account, the nonce, and every field that can
+change what the transaction does. Nonces are strictly sequential — a gap would
+let a key holder sign several transactions and choose their order later.
+
+An authenticated transaction that then fails validation **still spends its
+nonce**: the holder authorised that nonce for that transaction, and leaving it
+unspent would keep the signature reusable. A failure of authentication spends
+nothing, because such a message was never from the account.
+
+Verification is injected (`verify-fn`), so this namespace imports no crypto —
+same reason as `torihiki.log`.
+
 `torihiki.state` folds a block and computes a state root.
 
 ### The log (`torihiki.log`)
@@ -221,7 +243,7 @@ bit-identical anyway.
 clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   STATE ROOT  5bdc5b84b106c35aa19a4afd6e7b21361a7bf8a033698ca71d243a5e081b414e
+#   STATE ROOT  11f8b37a7edc6102caa22c84fd412b7e24801a874fc40e94144cde2e80081fbb
 ```
 
 That check earns its place. A JVM-side optimization — reading the `Book`
@@ -256,6 +278,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 87 tests, 291 assertions
+clojure -M:test          # 103 tests, 332 assertions
 clojure -M:bench 3000000 # throughput
 ```
