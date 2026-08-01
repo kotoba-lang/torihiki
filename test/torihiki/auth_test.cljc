@@ -165,3 +165,68 @@
                                       :txs [{:tx :deposit :account 5 :amount 10}]})]
       (is (empty? (:rejected ex)))
       (is (= 10 (get-in ex [:clearing :accounts 5 :collateral]))))))
+
+;; ── which id a key may claim ────────────────────────────────────────────────
+
+(defn- signed
+  "An envelope whose signature actually verifies. The negative cases below
+  pass with a junk signature because the binding and the id are checked
+  BEFORE the signature — which is the right order and is why the positive
+  cases need a real one."
+  [account nonce pubkey tx]
+  {:tx tx :account account :nonce nonce :pubkey pubkey
+   :sig (sign pubkey (auth/signing-payload chain account nonce tx))})
+
+(defn- derive-fn
+  "A stand-in for a real hash: the id is the key's own digits. Enough to say
+  which id belongs to which key, which is the property under test."
+  [pubkey]
+  #?(:clj (Long/parseLong (subs pubkey 3))
+     :cljs (js/parseInt (subs pubkey 3) 10)))
+
+(deftest a-key-may-only-claim-the-id-derived-from-it
+  (testing "under a single sequencer the owner is always first, which is why
+            first-use binding looked fine. Under consensus the party ordering
+            transactions sees a pending binding before it commits and can
+            insert its own for that id first — and then the genuine owner is
+            refused on their own account, permanently."
+    (let [ex (fresh)]
+      (is (nil? (auth/check ex (signed 42 1 "pk-42" {:tx :order})
+                            chain verify derive-fn))
+          "its own id")
+      (is (= :not-your-account
+             (auth/check ex {:tx {:tx :order} :account 7 :nonce 1
+                             :sig "s" :pubkey "pk-42"}
+                         chain verify derive-fn))
+          "somebody else's"))))
+
+(deftest without-a-derive-fn-ids-stay-first-come
+  (testing "correct for replaying a history already agreed, and wrong anywhere
+            a proposer can front-run — so it is a decision the caller makes
+            rather than a default"
+    (is (nil? (auth/check (fresh) (signed 7 1 "pk-42" {:tx :order})
+                          chain verify)))))
+
+(deftest an-already-bound-account-is-unaffected
+  (testing "derivation decides who may CLAIM an id, not who may keep using one
+            they already hold — otherwise changing the derivation would
+            confiscate every existing account"
+    (let [ex (auth/accept (fresh) {:account 7 :nonce 1 :pubkey "pk-42"})]
+      (is (nil? (auth/check ex (signed 7 2 "pk-42" {:tx :order})
+                            chain verify derive-fn))
+          "the holder keeps using it")
+      (is (= :wrong-key
+             (auth/check ex {:tx {:tx :order} :account 7 :nonce 2
+                             :sig "s" :pubkey "pk-99"}
+                         chain verify derive-fn))
+          "and nobody else gets it"))))
+
+(deftest a-collision-is-refused-not-silent
+  (testing "the objection to derived ids was that a collision is worse than a
+            race. It is not: a collision is REFUSED and the loser can see it
+            and use another key, while the race is silent and permanent."
+    (let [ex (auth/accept (fresh) {:account 42 :nonce 1 :pubkey "pk-42"})]
+      (is (= :wrong-key
+             (auth/check ex {:tx {:tx :order} :account 42 :nonce 2
+                             :sig "s" :pubkey "pk-042"}
+                         chain verify derive-fn))))))

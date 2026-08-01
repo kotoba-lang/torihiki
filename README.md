@@ -7,6 +7,43 @@ for Hyperliquid's closed HyperCore.
 benchmarked; verifiable single-sequencer log implemented; not yet attached to
 consensus.
 
+## Which id a key may claim
+
+An account id was claimed by first use. Under a single sequencer the owner is
+always first, so this looked fine and shipped.
+
+Under consensus it is not fine. **The party ordering transactions sees a
+pending binding before it commits and can insert its own binding for that id
+first** — and then the genuine owner is refused `:wrong-key` on their own
+account, permanently. A Byzantine leader did exactly that in
+`engi`'s `torihiki-on-engi` harness: account 1 ended at −50, exactly the
+thief's order, while 34 of the owner's transactions were refused.
+
+With a `derive-fn` supplied, a key may only bind the id derived from it:
+
+```clojure
+(auth/check ex envelope chain verify-fn derive-fn)
+;; own id        -> nil
+;; somebody else's -> :not-your-account
+```
+
+Already-bound accounts are untouched — derivation decides who may **claim** an
+id, not who may keep using one they hold, or changing the derivation would
+confiscate every existing account.
+
+### The old note here had the comparison backwards
+
+It said deriving the id trades a registration race for an account collision,
+and that this was worse. It is not. **A collision is refused** — the second
+key gets `:wrong-key`, sees it, and can use another key — while **the race is
+silent, permanent, and profitable for whoever orders the transactions**. And
+the slab holds i53 rather than 32 bits, so a collision needs tens of millions
+of accounts rather than tens of thousands.
+
+Without a `derive-fn`, ids stay first-come, which is correct for replaying a
+history already agreed and wrong anywhere a proposer can front-run — so it is
+a decision the caller makes rather than a default.
+
 ## Collateral has to come from somewhere
 
 Every number the clearinghouse produces — initial margin, maintenance margin,

@@ -33,17 +33,32 @@
 
   ## Keys, accounts, and what this does not solve
 
-  An account id is claimed by first use: the first authenticated transaction
-  binds that id to its public key, and every later one must match. The KEY is
-  the identity; the id is a short handle for it. That is why binding is
+  The KEY is the identity; the id is a short handle for it. Binding is
   immutable — a rebindable account is an account that can be stolen from
   whoever holds the key.
 
-  Deriving the id from the key instead (as an address) would remove the
-  registration step entirely, and is the right answer once there is a real
-  address format. It is not done here because account ids are integers the
-  book stores in a slab, and truncating a hash into that space trades a
-  registration race for an account COLLISION, which is worse.
+  ## Which id a key may bind, and why first-use was not enough
+
+  With `derive-fn` supplied, a key may only bind the id DERIVED FROM IT. That
+  closes an attack that first-use binding does not survive under consensus:
+  the party ordering transactions sees a pending binding before it commits and
+  can insert its own binding for that id first. Under a single sequencer the
+  owner is always first, which is why this was invisible until four replicas
+  ran with a Byzantine leader — it claimed the account, and the genuine owner
+  was refused `:wrong-key` on their own id, permanently.
+
+  The earlier note here said deriving the id trades a registration race for an
+  account collision, and that this was worse. That was the wrong comparison. A
+  collision is REFUSED — the second key gets `:wrong-key`, sees it, and can
+  use another key — while the race is silent, permanent, and profitable for
+  whoever orders the transactions. And the slab holds i53, not 32 bits, so the
+  space is large enough that a collision needs tens of millions of accounts
+  rather than tens of thousands.
+
+  `derive-fn` is injected for the same reason `verify-fn` is: this namespace
+  has no crypto and a browser that cannot hash is still allowed to replay.
+  Without one, ids remain first-come — which is correct for replaying a
+  history already agreed and wrong anywhere a proposer can front-run.
 
   ## Injected verification
 
@@ -54,7 +69,8 @@
   (:require [clojure.string :as str]))
 
 (def reasons
-  #{:unsigned :bad-signature :bad-nonce :wrong-key :missing-account})
+  #{:unsigned :bad-signature :bad-nonce :wrong-key :missing-account
+    :not-your-account})
 
 (defn- tx-fields
   "Every transaction field that can change what a transaction DOES, in a fixed
@@ -93,17 +109,28 @@
 
 (defn check
   "nil when `signed` may be applied as `account`, otherwise a keyword from
-  `reasons`. Pure — `verify-fn` does the cryptography."
-  [ex {:keys [tx account nonce sig pubkey]} chain-id verify-fn]
-  (let [bound (get-in ex [:account-keys account])]
-    (cond
-      (not (integer? account)) :missing-account
-      (or (nil? sig) (nil? pubkey)) :unsigned
-      (and bound (not= bound pubkey)) :wrong-key
-      (not= nonce (expected-nonce ex account)) :bad-nonce
-      (not (verify-fn pubkey (signing-payload chain-id account nonce tx) sig))
-      :bad-signature
-      :else nil)))
+  `reasons`. Pure — `verify-fn` does the cryptography and `derive-fn` the
+  hashing.
+
+  `derive-fn` maps a public key to the only account id it may CLAIM. Supplying
+  one is what stops a proposer from binding an id it does not hold the key
+  for; omitting it leaves ids first-come. Already-bound accounts are unchanged
+  either way: the binding is immutable and the key must match."
+  ([ex signed chain-id verify-fn] (check ex signed chain-id verify-fn nil))
+  ([ex {:keys [tx account nonce sig pubkey]} chain-id verify-fn derive-fn]
+   (let [bound (get-in ex [:account-keys account])]
+     (cond
+       (not (integer? account)) :missing-account
+       (or (nil? sig) (nil? pubkey)) :unsigned
+       (and bound (not= bound pubkey)) :wrong-key
+       ;; Only checked when the account is UNBOUND: this decides who may claim
+       ;; an id, not who may keep using one they already hold.
+       (and (nil? bound) derive-fn (not= account (derive-fn pubkey)))
+       :not-your-account
+       (not= nonce (expected-nonce ex account)) :bad-nonce
+       (not (verify-fn pubkey (signing-payload chain-id account nonce tx) sig))
+       :bad-signature
+       :else nil))))
 
 (defn accept
   "Record that this account's nonce was consumed and its key is bound.

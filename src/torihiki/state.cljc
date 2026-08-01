@@ -353,14 +353,15 @@
   executed, and without that a sequencer could quietly drop a transaction and
   still produce a matching root."
   ([ex block] (apply-block ex block nil))
-  ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id] :as _opts}]
+  ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id derive-account]
+                                :as _opts}]
    (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))]
      (doseq [[_ book] (:books ex)] (bk/reset-events! book))
      (reduce
       (fn [e [i entry]]
         (if verify-fn
           ;; Authenticated: the entry is a signed envelope around a transaction.
-          (if-let [reason (auth/check e entry chain-id verify-fn)]
+          (if-let [reason (auth/check e entry chain-id verify-fn derive-account)]
             ;; Authentication failed, so this was never from the account —
             ;; nothing is consumed and nothing is applied.
             (update e :rejected conj {:index i :tx (:tx (:tx entry)) :reason reason})
