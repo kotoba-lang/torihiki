@@ -52,6 +52,10 @@
 
 (def ^:const flag-ioc 1)         ; cancel whatever does not fill immediately
 (def ^:const flag-post-only 2)   ; reject if it would take
+;; The book ignores this one — whether an order reduces a position is a
+;; clearinghouse question and the book holds no positions. It lives here so
+;; every flag has one home. `torihiki.state` enforces it.
+(def ^:const flag-reduce-only 4)
 (def ^:const gen-mod 1048576)    ; 2^20 generations before a slot id repeats
 
 ;; mutable scalars, kept in a slab so the book record itself stays immutable

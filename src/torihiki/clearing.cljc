@@ -210,3 +210,28 @@
 
 (defn new-state []
   {:accounts {} :fees-collected 0})
+
+;; ── reduce-only ─────────────────────────────────────────────────────────────
+
+(defn reducing-qty
+  "How much of `qty` on `side` would actually REDUCE the account's position in
+  `mkt` — 0 when the order would only increase it.
+
+  `side` follows the book's convention: 0 buys, 1 sells. A sell reduces a
+  long, a buy reduces a short, and neither can reduce a flat position.
+
+  Clamping rather than rejecting outright is deliberate. A trader closing a
+  position often sends slightly more size than they hold — because the
+  position moved between reading it and sending, or because they rounded. The
+  intent is unambiguous ('get me out'), so honour the intent and cap the size.
+  What must never happen is the excess silently opening a position on the
+  other side, which is exactly what reduce-only exists to prevent."
+  [state acct mkt side qty]
+  (let [size (:size (position state acct mkt))]
+    (cond
+      (zero? size) 0
+      ;; selling reduces a long
+      (and (= side 1) (pos? size)) (min qty size)
+      ;; buying reduces a short
+      (and (= side 0) (neg? size)) (min qty (- size))
+      :else 0)))

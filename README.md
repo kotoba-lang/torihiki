@@ -102,6 +102,29 @@ band bounds the damage of even a well-funded manipulation. A book too thin to
 price the reference size does not get to price itself; the mark is the oracle.
 The last print is kept separately as `:last`, for display only.
 
+`torihiki.trigger` holds **conditional orders** — stop-loss and take-profit.
+A trigger sits outside the book, invisible and consuming no depth, until the
+mark crosses its price; then it becomes an ordinary reduce-only order.
+
+Which triggers fire is a total function of (triggers, mark), and the ORDER
+they fire in is a consensus rule rather than an implementation detail: two
+validators that fire them differently produce different books. So the order is
+stated — by creation sequence, the one total order nobody can buy. Sorting by
+trigger price would let a trader purchase priority with a fractionally closer
+price.
+
+Firing moves the book, which reprices the mark, which can arm more triggers.
+That cascade is a real market event; the rounds are capped so it terminates,
+and anything still armed at the cap waits for the next transaction rather than
+being lost.
+
+**reduce-only** is enforced in the clearinghouse (the book holds no positions,
+so it cannot know). Oversized closes are clamped rather than rejected — the
+intent is unambiguous — but the excess can never open a position on the other
+side. Reduce-only orders do not rest: enforcing the check once at placement is
+only sound if the order cannot outlive the position it was checked against.
+Hyperliquid does let them rest; that is a stated difference.
+
 `torihiki.state` folds a block and computes a state root.
 
 ### The log (`torihiki.log`)
@@ -183,7 +206,7 @@ bit-identical anyway.
 clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   STATE ROOT  0c1b0655b6b99278b054d266e8f587823e675ec9db37ec3381bf078b7f8da055
+#   STATE ROOT  0bd836803fc3474f3fb45136fadb38fcbea641e2d3656fbc80f53443aeac65a6
 ```
 
 That check earns its place. A JVM-side optimization — reading the `Book`
@@ -218,6 +241,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 63 tests, 177 assertions
+clojure -M:test          # 78 tests, 221 assertions
 clojure -M:bench 3000000 # throughput
 ```
