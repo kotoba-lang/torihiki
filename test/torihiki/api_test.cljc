@@ -5,7 +5,8 @@
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.api :as api]
-            [torihiki.state :as st]))
+            [torihiki.state :as st]
+            [torihiki.auth :as auth]))
 
 (def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
                 :taker-fee-rate 350000 :maker-fee-rate 0))
@@ -193,3 +194,61 @@
     (is (= [:open-interest-cap] (mapv :reason (:rejected ex))))
     (is (= 50 (bk/level-qty (get-in ex [:books 1]) bk/ask 1001))
         "the second order still executed")))
+
+;; ── where collateral comes from ─────────────────────────────────────────────
+
+(defn- bridged
+  "An exchange whose only source of collateral is account 900."
+  []
+  (st/new-exchange {:market (cl/market {:id 1 :max-leverage 20 :tick 10 :lot 1})
+                    :book-opts {:n-levels 4096 :cap 4096 :ev-cap 4096}
+                    :bridge-authority 900}))
+
+(deftest without-a-bridge-any-account-credits-itself
+  (testing "the default, and the reason the default has to be stated: every
+            margin, liquidation and ADL number is exact arithmetic over
+            collateral that was conjured"
+    (is (nil? (api/validate (fresh) {:tx :deposit :account 7 :amount 1000})))))
+
+(deftest with-a-bridge-only-the-bridge-credits
+  (let [ex (bridged)]
+    (is (nil? (api/validate ex {:tx :deposit :account 900 :amount 1000})))
+    (is (= :not-the-bridge (api/validate ex {:tx :deposit :account 7 :amount 1000}))
+        "an account that can credit itself is not depositing, it is minting")))
+
+(deftest the-bridge-does-not-get-to-skip-the-shape-checks
+  (let [ex (bridged)]
+    (is (= :bad-amount (api/validate ex {:tx :deposit :account 900 :amount 0})))
+    (is (= :bad-amount (api/validate ex {:tx :deposit :account 900 :amount -5})))))
+
+(deftest a-holder-still-withdraws-without-asking-the-bridge
+  (testing "the signature is the whole authority for moving your own
+            collateral out, and the clearinghouse already refuses to take more
+            than is free"
+    (let [ex (bridged)]
+      (is (nil? (api/validate ex {:tx :withdraw :account 7 :amount 1000})))
+      (is (= :bad-amount (api/validate ex {:tx :withdraw :account 7 :amount 0}))))))
+
+(deftest a-refused-deposit-credits-nothing
+  (testing "asserted through apply-block, because validate returning a keyword
+            and the balance moving anyway is exactly the failure a shape test
+            cannot see"
+    (let [ex (st/apply-block (bridged)
+                             {:height 1 :ts 1000
+                              :txs [{:tx :deposit :account 7 :amount 5000}
+                                    {:tx :deposit :account 900 :amount 5000}]})]
+      (is (= [:not-the-bridge] (mapv :reason (:rejected ex))))
+      (is (= 0 (get-in ex [:clearing :accounts 7 :collateral] 0)))
+      (is (= 5000 (get-in ex [:clearing :accounts 900 :collateral] 0))))))
+
+(deftest account-state-says-which-nonce-is-next-and-who-owns-the-id
+  (testing "a client that tracks its own nonce drifts the moment a request is
+            lost in flight, and one that cannot see the binding discovers it as
+            a rejection after signing"
+    (let [ex (fresh)]
+      (is (= 1 (:next-nonce (api/account-state ex 7))))
+      (is (nil? (:bound-key (api/account-state ex 7))))
+      (let [ex (auth/accept ex {:account 7 :nonce 1 :pubkey "pk-7"})]
+        (is (= 2 (:next-nonce (api/account-state ex 7))))
+        (is (= "pk-7" (:bound-key (api/account-state ex 7))))
+        (is (nil? (:bound-key (api/account-state ex 8))) "a different id is free")))))

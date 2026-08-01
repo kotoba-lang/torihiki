@@ -7,6 +7,41 @@ for Hyperliquid's closed HyperCore.
 benchmarked; verifiable single-sequencer log implemented; not yet attached to
 consensus.
 
+## Collateral has to come from somewhere
+
+Every number the clearinghouse produces — initial margin, maintenance margin,
+the liquidation waterfall, the insurance fund, auto-deleveraging — is exact
+arithmetic over collateral. None of it says where the collateral came from.
+
+`:deposit` credited whichever account signed it, for any amount. So any
+account could conjure collateral and every downstream number stayed exactly
+correct, which is what made it invisible: nothing is wrong with the
+arithmetic, the inputs are simply not backed by anything.
+
+An exchange may now name a **bridge authority**, and then only it may credit
+an account:
+
+```clojure
+(st/new-exchange {:market m :bridge-authority 900})
+;; account 900 -> ok
+;; anybody else -> :not-the-bridge
+```
+
+Configured closes the door, exactly as `:oracle-publishers` closes the direct
+price setter. Leaving both open would make the authority decorative, since an
+attacker would use the door that does not check.
+
+Withdrawal is deliberately not gated: a holder moving their own collateral out
+needs no authority beyond their signature, and the clearinghouse already
+refuses to take more than is free.
+
+**The default is nil, and the deployed devnet leaves it nil** — so on
+`torihiki-node` today, any account credits itself. That is a devnet faucet,
+and `/head` says so in its own response rather than leaving it to be inferred
+from the absence of a bridge. The other half of a real deposit — something on
+another chain that actually received the value — does not exist yet, and a
+withdrawal here decrements a balance and pays out nowhere.
+
 ## What this is
 
 Hyperliquid is not an EVM chain with an exchange deployed on it. Its trading

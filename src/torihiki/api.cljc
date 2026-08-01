@@ -27,7 +27,8 @@
   change — and, worse, tempts an implementation into putting internal state in
   it. `reasons` is the whole list."
   (:require [torihiki.book :as bk]
-            [torihiki.clearing :as cl]))
+            [torihiki.clearing :as cl]
+            [torihiki.auth :as auth]))
 
 (def reasons
   "Every rejection this API can produce. Closed set — see the ns docstring."
@@ -45,7 +46,8 @@
     :bad-trigger-order
     :open-interest-cap
     :not-a-publisher
-    :oracle-is-aggregated})
+    :oracle-is-aggregated
+    :not-the-bridge})
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
@@ -127,10 +129,38 @@
 
       :else nil)
 
-    (:deposit :withdraw)
+    :deposit
     (cond
       (not (integer? account)) :bad-account
       (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      ;; Collateral has to come from somewhere. With a bridge authority
+      ;; configured, only it may credit an account — a deposit is the chain
+      ;; recording that value arrived somewhere else, and an account that can
+      ;; credit itself is not depositing, it is minting.
+      ;;
+      ;; Everything the clearinghouse does — margin, liquidation, the
+      ;; insurance fund, auto-deleveraging — is arithmetic over collateral. If
+      ;; any account can conjure it, all of that arithmetic is exact and means
+      ;; nothing, and the failure is invisible because every individual number
+      ;; is correct.
+      ;;
+      ;; Configured closes the door, exactly as `:oracle-publishers` closes the
+      ;; direct price setter above: leaving both open would make the authority
+      ;; decorative, since an attacker would use the door that does not check.
+      (let [bridge (:bridge-authority ex)]
+        (and bridge (not= account bridge))) :not-the-bridge
+      :else nil)
+
+    :withdraw
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      ;; Not gated: a holder withdrawing their own collateral is the one
+      ;; movement that needs no authority beyond the signature, and the
+      ;; clearinghouse already refuses to take more than free collateral.
+      ;;
+      ;; The stated limit is that this decrements the balance and nothing pays
+      ;; out anywhere — the other half is a bridge that does not exist yet.
       :else nil)
 
     :unknown-tx))
@@ -178,6 +208,16 @@
         marks (:marks ex)
         markets (:markets ex)]
     {:account account
+     ;; The only nonce this account may sign next. A client that guesses gets
+     ;; :bad-nonce, and a client that tracks its own drifts the moment anything
+     ;; else submits for the account or a request is lost in flight — so the
+     ;; chain says it, since the chain is the thing that decides.
+     :next-nonce (auth/expected-nonce ex account)
+     ;; Which key owns the id, or nil when it is unclaimed. Without this a
+     ;; client cannot tell "nobody has taken this id" from "somebody else has",
+     ;; and would discover the difference as a :wrong-key rejection after
+     ;; signing.
+     :bound-key (get-in ex [:account-keys account])
      :collateral (get-in c [:accounts account :collateral] 0)
      :equity (cl/equity c account marks)
      :initial-margin (cl/initial-margin c account marks markets)

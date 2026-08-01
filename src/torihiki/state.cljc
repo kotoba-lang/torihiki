@@ -90,6 +90,16 @@
    ;; With publishers, direct setting is refused: leaving both doors open
    ;; would make the aggregate decorative.
    :oracle-stale {}
+   ;; Where collateral is allowed to come from. Configured at genesis for the
+   ;; same reason publishers are: it is a governance question, and an engine
+   ;; that let a transaction change it would let whoever holds the current key
+   ;; hand the mint to somebody else.
+   ;;
+   ;; nil means any authenticated account may credit itself, which is what the
+   ;; tests and a single-operator devnet use — and which means the collateral
+   ;; backing every position is whatever people asked for. `torihiki.api`
+   ;; explains why that makes the clearinghouse exact and meaningless.
+   :bridge-authority (:bridge-authority _cfg)
    ;; A fired trigger places an order, which moves the book, which reprices
    ;; the mark, which can arm more triggers. That cascade has to terminate.
    :max-trigger-rounds 8
