@@ -1,0 +1,16 @@
+;; This repository's entry in the kotoba.repository-role-rules taxonomy.
+;; Declared here (not merely inherited) so a reader of THIS repo alone can
+;; verify which contract it claims to satisfy. Authority for the vocabulary
+;; itself is the superproject's manifest/repository-rules.edn (ADR-2607299000).
+{:schema "kotoba.repository-role-rules.v0"
+ :this-repo
+ {:name "torihiki"
+  ;; No name prefix: a reusable library, not a resident orchestrator. It holds
+  ;; no loop and no clock — logical time arrives in the block header.
+  :prefix nil
+  :role :library
+  :execution :none
+  :tier :t2
+  :must [:be-deterministic :be-pure :hold-no-clock]
+  :must-not [:own-consensus :perform-io :use-floating-point :iterate-unordered]
+  :depends-on []}}
