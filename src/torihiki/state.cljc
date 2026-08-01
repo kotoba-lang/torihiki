@@ -29,6 +29,7 @@
             [torihiki.liquidation :as liq]
             [torihiki.mark :as mk]
             [torihiki.trigger :as trg]
+            [torihiki.api :as api]
             [kotoba.bytes.sha256 :as sha]))
 
 ;; ── reserved account ids ────────────────────────────────────────────────────
@@ -281,11 +282,27 @@
 
 (defn apply-block
   "Apply an ordered block. The header's `:ts` becomes the state machine's
-  logical clock for the duration — nothing below it may consult a real one."
+  logical clock for the duration — nothing below it may consult a real one.
+
+  **Application is total.** Every transaction is validated first; one that
+  fails is skipped and recorded in `:rejected`, never applied and never thrown
+  from. This is not politeness toward clients, it is LIVENESS: a block that
+  throws on a malformed transaction stops every validator at the same place,
+  so anyone able to submit a transaction can stop the chain with a typo.
+
+  Rejections are part of the block's outcome and therefore part of the state
+  root — two validators must agree on what was refused as much as on what was
+  executed, and without that a sequencer could quietly drop a transaction and
+  still produce a matching root."
   [ex {:keys [height ts txs]}]
-  (let [ex (assoc ex :height height :ts ts)]
+  (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))]
     (doseq [[_ book] (:books ex)] (bk/reset-events! book))
-    (reduce apply-tx ex txs)))
+    (reduce (fn [e [i t]]
+              (if-let [reason (api/validate e t)]
+                (update e :rejected conj {:index i :tx (:tx t) :reason reason})
+                (apply-tx e t)))
+            ex
+            (map-indexed vector txs))))
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
@@ -365,6 +382,34 @@
              levels)]
         (recur (inc side) (into out side-bytes))))))
 
+(def ^:const enc-tag-rejected 8)
+
+(def reason-codes
+  "A stable integer per rejection reason. `clojure.core/hash` on a keyword is
+  not guaranteed to agree between the JVM and JS, so a root that used it would
+  differ by platform — the same trap the integer account ids already avoid.
+  Append-only: renumbering one would silently change every historical root."
+  {:unknown-tx 1
+   :unknown-market 2
+   :missing-field 3
+   :bad-account 4
+   :bad-quantity 5
+   :bad-price-level 6
+   :bad-side 7
+   :bad-flags 8
+   :bad-amount 9
+   :bad-trigger-direction 10
+   :bad-trigger-price 11
+   :bad-trigger-order 12})
+
+(defn- encode-rejections
+  [rejected]
+  (reduce (fn [acc {:keys [index reason]}]
+            (into acc (enc-ints [enc-tag-rejected index
+                                 (get reason-codes reason 0)])))
+          (enc-ints [enc-tag-rejected (count rejected)])
+          rejected))
+
 (def ^:const enc-tag-trigger 7)
 
 (defn- encode-triggers
@@ -420,8 +465,9 @@
                             (get-in ex [:last m] 0)]))
            (into (encode-book (get-in ex [:books m])))
            (into (encode-triggers (get-in ex [:triggers m] [])))))
-     (into (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
-           (encode-clearing (:clearing ex)))
+     (-> (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
+         (into (encode-rejections (:rejected ex [])))
+         (into (encode-clearing (:clearing ex))))
      mkts)))
 
 (defn state-root

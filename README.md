@@ -125,6 +125,21 @@ side. Reduce-only orders do not rest: enforcing the check once at placement is
 only sound if the order cannot outlive the position it was checked against.
 Hyperliquid does let them rest; that is a stated difference.
 
+`torihiki.api` is the request surface: validation, a closed rejection
+taxonomy, and the read models a client needs (`book-snapshot`,
+`account-state`, `market-info`). Pure — no transport, no serialization format.
+
+It exists mostly because of one property: **application is total.** `apply-tx`
+used to throw on a price level outside the ladder, which inside a block is not
+a rejected order but a HALTED CHAIN — every validator stops at the same place,
+so anyone who can submit a transaction can stop the chain with a typo. Every
+transaction is now validated first; one that fails is recorded in `:rejected`
+and skipped, never applied and never thrown from.
+
+Rejections are part of the state root. Two validators must agree on what was
+*refused* as much as on what was executed, or a sequencer could quietly drop a
+transaction and still produce a matching root.
+
 `torihiki.state` folds a block and computes a state root.
 
 ### The log (`torihiki.log`)
@@ -206,7 +221,7 @@ bit-identical anyway.
 clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   STATE ROOT  0bd836803fc3474f3fb45136fadb38fcbea641e2d3656fbc80f53443aeac65a6
+#   STATE ROOT  5bdc5b84b106c35aa19a4afd6e7b21361a7bf8a033698ca71d243a5e081b414e
 ```
 
 That check earns its place. A JVM-side optimization — reading the `Book`
@@ -241,6 +256,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 78 tests, 221 assertions
+clojure -M:test          # 87 tests, 291 assertions
 clojure -M:bench 3000000 # throughput
 ```
