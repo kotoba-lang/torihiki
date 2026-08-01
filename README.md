@@ -105,6 +105,27 @@ until it matches, so it assumes the whole order could. Over-rejecting near the
 cap is the safe direction — the other one discovers the breach only after it
 cannot be undone.
 
+`torihiki.oracle` decides where the external price comes from. The mark is
+anchored to the oracle precisely so a thin book cannot be used to liquidate
+people — and until this existed, `:oracle` was a transaction carrying an
+already-agreed price, so whoever could send it moved the mark. The hole had
+been pushed one layer down, not closed.
+
+The aggregate is the **median** of fresh submissions from authorised
+publishers. A mean lets one publisher move the result by however much they are
+willing to lie; with a median a minority cannot move it at all, however
+extreme their submissions. For an even count the lower middle is taken —
+which of the two matters little, that it is stated matters.
+
+Below quorum there is **no price**, not a bad one, and the oracle is marked
+stale rather than silently reused. **A stale oracle stops liquidation**: bad
+debt can grow while the feed is down, and that is the smaller cost, because a
+liquidation is irreversible and waiting is not.
+
+With publishers configured the direct setter is closed. Leaving both doors
+open would make the aggregate decorative — an attacker would use the one that
+does not aggregate.
+
 `torihiki.mark` derives the **mark price** — what margin and liquidation are
 measured against. It is deliberately not the last trade:
 
@@ -262,7 +283,7 @@ bit-identical anyway.
 clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   STATE ROOT  11f8b37a7edc6102caa22c84fd412b7e24801a874fc40e94144cde2e80081fbb
+#   STATE ROOT  22f75a7ff4777d1c5ae397f47aa2b62b08aba8f2ba131aa6ae506b156cd9c87e
 ```
 
 That check earns its place. A JVM-side optimization — reading the `Book`
@@ -297,6 +318,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 120 tests, 376 assertions
+clojure -M:test          # 134 tests, 405 assertions
 clojure -M:bench 3000000 # throughput
 ```

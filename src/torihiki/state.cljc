@@ -29,6 +29,7 @@
             [torihiki.liquidation :as liq]
             [torihiki.mark :as mk]
             [torihiki.trigger :as trg]
+            [torihiki.oracle :as orc]
             [torihiki.api :as api]
             [torihiki.auth :as auth]
             [kotoba.bytes :as b]
@@ -78,6 +79,17 @@
    ;; account, or they disagree about what is a replay and who may trade.
    :nonces {}
    :account-keys {}
+   ;; Oracle publishers are configured at genesis and this engine does not
+   ;; change the set — rotating them is a governance question, and answering
+   ;; it badly is worse than not answering it here.
+   :oracle-publishers (set (:oracle-publishers _cfg))
+   :oracle-submissions {}
+   :oracle-params orc/default-params
+   ;; A market with no publishers configured accepts a direct `:oracle`
+   ;; transaction, which is what the tests and a single-operator devnet use.
+   ;; With publishers, direct setting is refused: leaving both doors open
+   ;; would make the aggregate decorative.
+   :oracle-stale {}
    ;; A fired trigger places an order, which moves the book, which reprices
    ;; the mark, which can arm more triggers. That cascade has to terminate.
    :max-trigger-rounds 8
@@ -229,15 +241,39 @@
   (bk/cancel! (get-in ex [:books market]) oid)
   ex)
 
+;; Set the oracle directly. Only permitted when no publisher set is configured
+;; (see torihiki.api/validate). A devnet with one operator uses this; a market
+;; with publishers must go through :oracle-submit, or the aggregate would be
+;; decorative.
 (defmethod apply-tx :oracle
   [ex {:keys [market price]}]
-  ;; Validator-submitted prices are consensus INPUT, so the aggregation that
-  ;; turns many submissions into one number has to happen before this point,
-  ;; in the block producer. What lands here is already the agreed value.
   (-> ex
       (assoc-in [:oracle market] price)
+      (assoc-in [:oracle-stale market] false)
       (reprice! market)
       (fire-triggers market)))
+
+;; One publisher's observation. The aggregate is recomputed from every fresh
+;; authorised submission; a single publisher never sets the price.
+(defmethod apply-tx :oracle-submit
+  [ex {:keys [account market price]}]
+  (let [ex (assoc-in ex [:oracle-submissions market account]
+                     {:price price :ts (:ts ex)})
+        {:keys [price stale?]} (orc/aggregate
+                                (get-in ex [:oracle-submissions market])
+                                (:oracle-publishers ex)
+                                (:ts ex)
+                                (:oracle-params ex))]
+    (-> (if stale?
+          ;; Keep the last price but say it is stale. Discarding it would
+          ;; leave the mark at zero and stop everything; pretending it is
+          ;; current would liquidate people on a number nobody vouches for.
+          (assoc-in ex [:oracle-stale market] true)
+          (-> ex
+              (assoc-in [:oracle market] price)
+              (assoc-in [:oracle-stale market] false)))
+        (reprice! market)
+        (fire-triggers market))))
 
 (defmethod apply-tx :funding-sample
   [ex {:keys [market]}]
@@ -263,6 +299,11 @@
         _ (when-not (pos? mark)
             (throw (ex-info "torihiki.state: refusing to liquidate without a mark"
                             {:market market})))
+        ;; A stale oracle stops liquidation. Closing somebody's position at a
+        ;; price nobody currently vouches for is irreversible; waiting is not.
+        ;; Bad debt can grow while the feed is down, and that is the smaller
+        ;; cost.
+        stale? (get-in ex [:oracle-stale market] false)
         ;; offering the slice to the real book is what makes stage 1 mean
         ;; something; a take-fn that always refuses would send every
         ;; liquidation straight to the vault
@@ -283,7 +324,7 @@
                               (:markets ex') (:liq-params ex') take-fn)]
          (assoc ex' :clearing (:state r))))
      ex
-     (liq/scan (:clearing ex) market (:marks ex) (:markets ex)))))
+     (if stale? [] (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))))
 
 ;; ── blocks ──────────────────────────────────────────────────────────────────
 
@@ -410,6 +451,7 @@
 
 (def ^:const enc-tag-rejected 8)
 (def ^:const enc-tag-nonce 9)
+(def ^:const enc-tag-oracle-sub 11)
 (def ^:const enc-tag-key 10)
 
 (defn- enc-string
@@ -419,6 +461,25 @@
   [x]
   (let [bs (b/utf8-encode (str x))]
     (into (enc-int (count bs)) bs)))
+
+(defn- encode-oracle
+  "Publisher submissions and the staleness flag, publishers in sorted order.
+  They are state: the next aggregate depends on them, and a sequencer that
+  could add or drop a submission without changing the root could move the mark
+  invisibly."
+  [ex]
+  (reduce
+   (fn [acc m]
+     (let [subs (get-in ex [:oracle-submissions m] {})
+           pubs (sort (keys subs))]
+       (reduce (fn [acc p]
+                 (let [{:keys [price ts]} (get subs p)]
+                   (into acc (enc-ints [enc-tag-oracle-sub m p price ts]))))
+               (into acc (enc-ints [enc-tag-oracle-sub m (count pubs)
+                                    (if (get-in ex [:oracle-stale m] false) 1 0)]))
+               pubs)))
+   []
+   (sort (keys (:books ex)))))
 
 (defn- encode-auth
   "Nonces and key bindings, accounts in sorted order."
@@ -516,6 +577,7 @@
      (-> (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
          (into (encode-rejections (:rejected ex [])))
          (into (encode-auth ex))
+         (into (encode-oracle ex))
          (into (encode-clearing (:clearing ex))))
      mkts)))
 

@@ -43,7 +43,9 @@
     :bad-trigger-direction
     :bad-trigger-price
     :bad-trigger-order
-    :open-interest-cap})
+    :open-interest-cap
+    :not-a-publisher
+    :oracle-is-aggregated})
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
@@ -72,8 +74,8 @@
   judgement here would give two places to keep in agreement."
   [ex {:keys [tx account market] :as t}]
   (case tx
-    (:order :cancel :trigger :cancel-trigger :oracle :funding-sample
-     :funding-settle :liquidate)
+    (:order :cancel :trigger :cancel-trigger :oracle :oracle-submit
+     :funding-sample :funding-settle :liquidate)
     (cond
       (not (market-exists? ex market)) :unknown-market
 
@@ -108,7 +110,20 @@
                 (if (= r :bad-price-level) :bad-price-level :bad-trigger-order)))
 
       (= tx :oracle)
-      (if-not (and (integer? (:price t)) (pos? (:price t))) :bad-price-level nil)
+      (cond
+        (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
+        ;; With publishers configured, the direct setter is closed. Leaving
+        ;; both doors open would make the aggregate decorative — an attacker
+        ;; would simply use the one that does not aggregate.
+        (seq (:oracle-publishers ex)) :oracle-is-aggregated
+        :else nil)
+
+      (= tx :oracle-submit)
+      (cond
+        (not (integer? account)) :bad-account
+        (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
+        (not (contains? (:oracle-publishers ex) account)) :not-a-publisher
+        :else nil)
 
       :else nil)
 
@@ -200,6 +215,8 @@
      :taker-fee-rate (get m :taker-fee-rate 0)
      :maker-fee-rate (get m :maker-fee-rate 0)
      :oracle (get-in ex [:oracle market] 0)
+     :oracle-stale (boolean (get-in ex [:oracle-stale market] false))
+     :oracle-publishers (count (:oracle-publishers ex))
      :mark (get-in ex [:marks market] 0)
      :last (get-in ex [:last market] 0)
      :funding-rate (get-in ex [:last-funding-rate market] 0)}))
