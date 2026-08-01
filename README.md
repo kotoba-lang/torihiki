@@ -44,6 +44,15 @@ Without a `derive-fn`, ids stay first-come, which is correct for replaying a
 history already agreed and wrong anywhere a proposer can front-run — so it is
 a decision the caller makes rather than a default.
 
+`torihiki.address/derive` is the concrete one, in one place for everybody who
+has to agree on it: the engine, the node, and the browser deciding which
+account to trade as. **One implementation and not three** — a browser
+computing its own address while the chain computes a different one is a user
+who cannot sign for the account they are shown, and the symptom is a rejection
+naming the account, which reads as a permissions problem rather than an
+arithmetic one. The test pins two known keys to two known ids for exactly that
+reason: a derivation that drifts locks somebody out and nothing else notices.
+
 ## Collateral has to come from somewhere
 
 Every number the clearinghouse produces — initial margin, maintenance margin,
