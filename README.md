@@ -161,6 +161,22 @@ block without trusting a validator. `torihiki.slab` documents the one place
 they differ (`long[]` versus `Float64Array`) and why the i53 domain makes them
 bit-identical anyway.
 
+**Verified, not assumed** — the two runtimes are checked against each other:
+
+```bash
+clojure -M:parity
+nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
+# both must print
+#   STATE ROOT  a1348e3361f50ac2320e21f740cd9415c41ce9f7af27371b5272e58cb440d964
+```
+
+That check earns its place. A JVM-side optimization — reading the `Book`
+record's fields with direct interop rather than keyword lookup — silently
+broke the ClojureScript path completely: `(.-lvl_head b)` does not fail there,
+it returns `undefined`, and the failure surfaces much later as an array read
+on nothing. The JVM suite could not observe it, and for a while the claim
+above was simply false. Run `:parity` after touching `slab` or `book`.
+
 Why not `.kotoba`, given this workspace's runtime priority? Because as of
 2026-08-01 the native backend cannot host this: records are rewritten into
 stack slots at codegen time and cannot cross a function boundary, there is no
@@ -186,6 +202,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 55 tests, 163 assertions
+clojure -M:test          # 55 tests, 158 assertions
 clojure -M:bench 3000000 # throughput
 ```

@@ -155,8 +155,8 @@
 
 (defn- ladder-set!
   [^Book b side level]
-  (let [bm0 (.-bm0 b) bm1 (.-bm1 b) bm2 (.-bm2 b) bm3 (.-bm3 b)
-        w0 (long (.-w0 b)) w1 (long (.-w1 b)) w2 (long (.-w2 b))
+  (let [bm0 (slab/field b bm0) bm1 (slab/field b bm1) bm2 (slab/field b bm2) bm3 (slab/field b bm3)
+        w0 (long (slab/field b w0)) w1 (long (slab/field b w1)) w2 (long (slab/field b w2))
         side (long side)
         level (long level)
         i1 (bit-shift-right level 5)
@@ -180,8 +180,8 @@
   has emptied — the cascade is what keeps `best` from returning a level that
   no longer has orders."
   [^Book b side level]
-  (let [bm0 (.-bm0 b) bm1 (.-bm1 b) bm2 (.-bm2 b) bm3 (.-bm3 b)
-        w0 (long (.-w0 b)) w1 (long (.-w1 b)) w2 (long (.-w2 b))
+  (let [bm0 (slab/field b bm0) bm1 (slab/field b bm1) bm2 (slab/field b bm2) bm3 (slab/field b bm3)
+        w0 (long (slab/field b w0)) w1 (long (slab/field b w1)) w2 (long (slab/field b w2))
         side (long side)
         level (long level)
         i1 (bit-shift-right level 5)
@@ -215,8 +215,8 @@
   bound as a local, and selecting `highest-set-bit`/`lowest-set-bit` as a
   function value would reintroduce the boxing the macros exist to remove."
   ^long [^Book b side]
-  (let [bm0 (.-bm0 b) bm1 (.-bm1 b) bm2 (.-bm2 b) bm3 (.-bm3 b)
-        w0 (long (.-w0 b)) w1 (long (.-w1 b)) w2 (long (.-w2 b))
+  (let [bm0 (slab/field b bm0) bm1 (slab/field b bm1) bm2 (slab/field b bm2) bm3 (slab/field b bm3)
+        w0 (long (slab/field b w0)) w1 (long (slab/field b w1)) w2 (long (slab/field b w2))
         side (long side)]
     (if (= side bid)
       (let [r3 (slab/highest-set-bit (slab/get bm3 side))]
@@ -236,27 +236,27 @@
 
 (defn- take-slot!
   ^long [^Book b]
-  (let [ctl (.-ctl b)
+  (let [ctl (slab/field b ctl)
         s (slab/get ctl ctl-free-head)]
     (when (neg? s)
-      (throw (ex-info "torihiki.book: order slab exhausted" {:cap (.-cap b)})))
-    (slab/set! ctl ctl-free-head (slab/get (.-o_next b) s))
+      (throw (ex-info "torihiki.book: order slab exhausted" {:cap (slab/field b cap)})))
+    (slab/set! ctl ctl-free-head (slab/get (slab/field b o-next) s))
     s))
 
 (defn- release-slot!
   [^Book b slot]
-  (let [ctl (.-ctl b)
-        o-gen (.-o_gen b)
+  (let [ctl (slab/field b ctl)
+        o-gen (slab/field b o-gen)
         slot (long slot)]
     (slab/set! o-gen slot (mod (inc (slab/get o-gen slot)) gen-mod))
-    (slab/set! (.-o_qty b) slot 0)
-    (slab/set! (.-o_next b) slot (slab/get ctl ctl-free-head))
+    (slab/set! (slab/field b o-qty) slot 0)
+    (slab/set! (slab/field b o-next) slot (slab/get ctl ctl-free-head))
     (slab/set! ctl ctl-free-head slot)))
 
 (defn oid-of
   ^long [^Book b slot]
   (let [slot (long slot)]
-    (+ (* slot gen-mod) (slab/get (.-o_gen b) slot))))
+    (+ (* slot gen-mod) (slab/get (slab/field b o-gen) slot))))
 
 (defn- slot-of ^long [^long oid] (quot oid gen-mod))
 (defn- gen-of  ^long [^long oid] (rem oid gen-mod))
@@ -265,9 +265,9 @@
 
 (defn- link-tail!
   [^Book b side level slot]
-  (let [lvl-head (.-lvl_head b) lvl-tail (.-lvl_tail b)
-        o-next (.-o_next b) o-prev (.-o_prev b)
-        n-levels (long (.-n_levels b))
+  (let [lvl-head (slab/field b lvl-head) lvl-tail (slab/field b lvl-tail)
+        o-next (slab/field b o-next) o-prev (slab/field b o-prev)
+        n-levels (long (slab/field b n-levels))
         side (long side) level (long level) slot (long slot)
         k (+ (* side n-levels) level)
         t (slab/get lvl-tail k)]
@@ -281,9 +281,9 @@
 
 (defn- unlink!
   [^Book b side level slot]
-  (let [lvl-head (.-lvl_head b) lvl-tail (.-lvl_tail b)
-        o-next (.-o_next b) o-prev (.-o_prev b)
-        n-levels (long (.-n_levels b))
+  (let [lvl-head (slab/field b lvl-head) lvl-tail (slab/field b lvl-tail)
+        o-next (slab/field b o-next) o-prev (slab/field b o-prev)
+        n-levels (long (slab/field b n-levels))
         side (long side) level (long level) slot (long slot)
         k (+ (* side n-levels) level)
         p (slab/get o-prev slot)
@@ -297,15 +297,15 @@
 
 (defn- emit-fill!
   [^Book b taker-owner maker-owner maker-oid level qty taker-side]
-  (let [ctl (.-ctl b)
+  (let [ctl (slab/field b ctl)
         i (slab/get ctl ctl-ev-count)]
-    (when (< i (long (.-ev_cap b)))
-      (slab/set! (.-ev_taker_owner b) i taker-owner)
-      (slab/set! (.-ev_maker_owner b) i maker-owner)
-      (slab/set! (.-ev_maker_oid b) i maker-oid)
-      (slab/set! (.-ev_level b) i level)
-      (slab/set! (.-ev_qty b) i qty)
-      (slab/set! (.-ev_taker_side b) i taker-side))
+    (when (< i (long (slab/field b ev-cap)))
+      (slab/set! (slab/field b ev-taker-owner) i taker-owner)
+      (slab/set! (slab/field b ev-maker-owner) i maker-owner)
+      (slab/set! (slab/field b ev-maker-oid) i maker-oid)
+      (slab/set! (slab/field b ev-level) i level)
+      (slab/set! (slab/field b ev-qty) i qty)
+      (slab/set! (slab/field b ev-taker-side) i taker-side))
     (slab/set! ctl ctl-ev-count (inc i))))
 
 (defn reset-events!
@@ -349,10 +349,10 @@
   would buy nothing a snapshot does not already buy, and would cost the
   throughput target."
   [^Book b side level qty flags owner]
-  (let [lvl-head (.-lvl_head b) lvl-qty (.-lvl_qty b)
-        o-owner (.-o_owner b) o-qty (.-o_qty b)
-        o-side (.-o_side b) o-level (.-o_level b) ctl (.-ctl b)
-        n-levels (long (.-n_levels b))
+  (let [lvl-head (slab/field b lvl-head) lvl-qty (slab/field b lvl-qty)
+        o-owner (slab/field b o-owner) o-qty (slab/field b o-qty)
+        o-side (slab/field b o-side) o-level (slab/field b o-level) ctl (slab/field b ctl)
+        n-levels (long (slab/field b n-levels))
         side (long side) level (long level)
         qty (long qty) flags (long flags) owner (long owner)
         opp (if (= side bid) ask bid)]
@@ -405,33 +405,33 @@
   [^Book b oid]
   (let [oid (long oid)
         slot (slot-of oid)]
-    (if (or (neg? slot) (>= slot (long (.-cap b)))
-            (not= (gen-of oid) (slab/get (.-o_gen b) slot))
-            (not (pos? (slab/get (.-o_qty b) slot))))
+    (if (or (neg? slot) (>= slot (long (slab/field b cap)))
+            (not= (gen-of oid) (slab/get (slab/field b o-gen) slot))
+            (not (pos? (slab/get (slab/field b o-qty) slot))))
       0
-      (let [side (slab/get (.-o_side b) slot)
-            level (slab/get (.-o_level b) slot)
-            q (slab/get (.-o_qty b) slot)]
+      (let [side (slab/get (slab/field b o-side) slot)
+            level (slab/get (slab/field b o-level) slot)
+            q (slab/get (slab/field b o-qty) slot)]
         (unlink! b side level slot)
-        (slab/add! (.-lvl_qty b) (+ (* side (long (.-n_levels b))) level) (- q))
+        (slab/add! (slab/field b lvl-qty) (+ (* side (long (slab/field b n-levels))) level) (- q))
         (release-slot! b slot)
-        (slab/add! (.-ctl b) ctl-resting -1)
+        (slab/add! (slab/field b ctl) ctl-resting -1)
         q))))
 
 ;; ── read-only views ─────────────────────────────────────────────────────────
 
 (defn level-qty
   ^long [^Book b side level]
-  (slab/get (.-lvl_qty b) (+ (* (long side) (long (.-n_levels b))) (long level))))
+  (slab/get (slab/field b lvl-qty) (+ (* (long side) (long (slab/field b n-levels))) (long level))))
 
 (defn level-orders
   "The resting queue at one price level, head first — i.e. in time priority.
   Off the hot path: this is for the state root, for a depth view, and for
   tests. Returns `[{:oid :owner :qty} ...]`."
   [^Book b side level]
-  (let [o-next (.-o_next b) o-owner (.-o_owner b) o-qty (.-o_qty b)
-        k (+ (* (long side) (long (.-n_levels b))) (long level))]
-    (loop [slot (slab/get (.-lvl_head b) k) acc []]
+  (let [o-next (slab/field b o-next) o-owner (slab/field b o-owner) o-qty (slab/field b o-qty)
+        k (+ (* (long side) (long (slab/field b n-levels))) (long level))]
+    (loop [slot (slab/get (slab/field b lvl-head) k) acc []]
       (if (neg? slot)
         acc
         (recur (slab/get o-next slot)
@@ -439,8 +439,8 @@
                           :owner (slab/get o-owner slot)
                           :qty (slab/get o-qty slot)}))))))
 
-(defn resting-count ^long [^Book b] (slab/get (.-ctl b) ctl-resting))
-(defn last-price    ^long [^Book b] (slab/get (.-ctl b) ctl-last-price))
+(defn resting-count ^long [^Book b] (slab/get (slab/field b ctl) ctl-resting))
+(defn last-price    ^long [^Book b] (slab/get (slab/field b ctl) ctl-last-price))
 
 (defn mid
   "Midpoint of the spread in ticks, doubled to stay integral: callers that
@@ -456,9 +456,9 @@
   none. Scans the level-0 bitmap a word at a time, so an empty stretch of the
   ladder costs one read per 32 ticks instead of one per tick."
   [^Book b side level]
-  (let [bm0 (.-bm0 b)
-        w0 (long (.-w0 b))
-        n-levels (long (.-n_levels b))
+  (let [bm0 (slab/field b bm0)
+        w0 (long (slab/field b w0))
+        n-levels (long (slab/field b n-levels))
         side (long side) level (long level)
         base (* side w0)]
     (if (= side bid)

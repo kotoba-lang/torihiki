@@ -18,6 +18,9 @@
                       {:git/url "https://github.com/cognitect-labs/test-runner.git"
                        :git/sha "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73"}}
          :main-opts ["-m" "cognitect.test-runner"]}
+  ;; The JVM half of the cross-runtime parity check; the nbb half is in
+  ;; torihiki.parity's docstring. Both must print the same state root.
+  :parity {:main-opts ["-m" "torihiki.parity"]}
   ;; The throughput claim in the README is this alias. It is not a test —
   ;; it prints numbers and asserts nothing — so it never gates CI, but it
   ;; must stay runnable or the claim rots.

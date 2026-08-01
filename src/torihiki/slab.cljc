@@ -40,13 +40,55 @@
   passed to `map` or bound as a local, which is why `torihiki.book/best` is
   written as an explicit branch instead of selecting an accessor."
   (:refer-clojure :exclude [get set!])
-  #?(:cljs (:require-macros [torihiki.slab :refer [get set! add!]])))
+  (:require [clojure.string])
+  #?(:cljs (:require-macros [torihiki.slab :refer [get set! add! field]])))
 
 (defn- cljs-env?
   "True when a macro is expanding for ClojureScript — `&env` carries an `:ns`
   key only under the cljs compiler."
   [env]
   (boolean (:ns env)))
+
+(defmacro field
+  "Read a record field by its Clojure name: `(field b lvl-head)`.
+
+  The two platforms need different code and neither one works on the other:
+
+  - On the JVM this expands to a direct `getfield`. Keyword lookup goes
+    through `clojure.lang.RT.get`, which walks a chain of `instanceof` checks
+    before reaching the record's own `valAt` — measured at roughly 20ns per
+    field, enough that seven field reads dominated four array reads in
+    `torihiki.book/best`.
+  - In ClojureScript it expands to keyword lookup, because a record's fields
+    are RENAMED by the optimizer. `(.-lvl_head b)` there does not fail — it
+    silently returns `undefined`, and the first `aget` on it dies with
+    \"Cannot read properties of undefined\". That is exactly how the JVM-side
+    optimization broke the ClojureScript path without any test noticing:
+    nothing in the JVM suite can observe it, and there was no cljs suite.
+
+  ## Three runtimes, and `&env` only tells you about two of them
+
+  The body below is itself under a reader conditional, which looks redundant
+  and is not. A macro in a `.cljc` file is expanded by whichever runtime is
+  READING it, and there are three:
+
+  - JVM Clojure reads the `:clj` branch and wants the direct `getfield`.
+  - shadow-cljs also expands macros on the JVM, so it reads the `:clj` branch
+    too — and is distinguishable only by `&env` carrying `:ns`, which the
+    ClojureScript compiler sets and plain Clojure does not.
+  - nbb reads the file as ClojureScript through SCI, which expands macros at
+    runtime and does NOT populate `:ns`. An `&env`-only check therefore hands
+    nbb the JVM branch, `(. b -bm3)` yields `undefined`, and the failure
+    surfaces much later as `Cannot read properties of undefined`.
+
+  So: `&env` distinguishes shadow-cljs from Clojure, and the reader
+  conditional distinguishes nbb from both."
+  [x fname]
+  (let [n (name fname)
+        kw (keyword n)
+        sym (symbol (str "-" (clojure.string/replace n "-" "_")))]
+    #?(:clj  (if (cljs-env? &env) `(~kw ~x) `(. ~x ~sym))
+       :cljs `(~kw ~x))))
 
 (defn alloc
   "A slab of `n` integers, zero-filled."
@@ -63,28 +105,37 @@
 
 (defmacro get
   [a i]
-  (if (cljs-env? &env)
-    `(aget ~a ~i)
-    `(aget ~(with-meta a {:tag 'longs}) (int ~i))))
+  ;; Same three-runtime problem as `field` — see its docstring. These two
+  ;; happened to survive the nbb misdetection because the JVM expansion
+  ;; (`aget` with an ignored type hint) is also valid ClojureScript; `field`
+  ;; did not, because `(. x -foo)` is not.
+  #?(:clj  (if (cljs-env? &env)
+             `(aget ~a ~i)
+             `(aget ~(with-meta a {:tag 'longs}) (int ~i)))
+     :cljs `(aget ~a ~i)))
 
 (defmacro set!
   [a i v]
-  (if (cljs-env? &env)
-    `(aset ~a ~i ~v)
-    `(aset ~(with-meta a {:tag 'longs}) (int ~i) (long ~v))))
+  #?(:clj  (if (cljs-env? &env)
+             `(aset ~a ~i ~v)
+             `(aset ~(with-meta a {:tag 'longs}) (int ~i) (long ~v)))
+     :cljs `(aset ~a ~i ~v)))
 
 (defmacro add!
   "a[i] += v, returning the new value."
   [a i v]
-  (if (cljs-env? &env)
-    `(let [a# ~a i# ~i nv# (+ (aget a# i#) ~v)]
-       (aset a# i# nv#)
-       nv#)
-    `(let [a# ~(with-meta a {:tag 'longs})
-           i# (int ~i)
-           nv# (+ (aget a# i#) (long ~v))]
-       (aset a# i# nv#)
-       nv#)))
+  #?(:clj  (if (cljs-env? &env)
+             `(let [a# ~a i# ~i nv# (+ (aget a# i#) ~v)]
+                (aset a# i# nv#)
+                nv#)
+             `(let [a# ~(with-meta a {:tag 'longs})
+                    i# (int ~i)
+                    nv# (+ (aget a# i#) (long ~v))]
+                (aset a# i# nv#)
+                nv#))
+     :cljs `(let [a# ~a i# ~i nv# (+ (aget a# i#) ~v)]
+              (aset a# i# nv#)
+              nv#)))
 
 (defn size
   [a]
