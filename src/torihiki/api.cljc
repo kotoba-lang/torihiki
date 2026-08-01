@@ -42,7 +42,8 @@
     :bad-amount
     :bad-trigger-direction
     :bad-trigger-price
-    :bad-trigger-order})
+    :bad-trigger-order
+    :open-interest-cap})
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
@@ -77,7 +78,16 @@
       (not (market-exists? ex market)) :unknown-market
 
       (= tx :order)
-      (if-not (integer? account) :bad-account (validate-order-shape ex market t))
+      (or (when-not (integer? account) :bad-account)
+          (validate-order-shape ex market t)
+          ;; Conservative on purpose: the check assumes the whole order could
+          ;; open new interest, because whether it does depends on which side
+          ;; the counterparty is on and that is not known until it matches.
+          ;; Over-rejecting near the cap is the safe direction — the other one
+          ;; discovers the breach only after it cannot be undone.
+          (when-let [cap (get-in ex [:markets market :open-interest-cap])]
+            (when (> (+ (cl/open-interest (:clearing ex) market) (:qty t)) cap)
+              :open-interest-cap)))
 
       (= tx :cancel)
       (if-not (and (integer? (:oid t)) (pos? (:oid t))) :missing-field nil)
@@ -176,6 +186,12 @@
   [ex market]
   (let [m (get-in ex [:markets market])]
     {:id market
+     :open-interest (cl/open-interest (:clearing ex) market)
+     :open-interest-cap (:open-interest-cap m)
+     :margin-tiers (mapv #(select-keys % [:max-notional :max-leverage
+                                          :initial-margin-rate
+                                          :maintenance-margin-rate])
+                         (:margin-tiers m []))
      :tick (:tick m)
      :lot (:lot m)
      :max-leverage (:max-leverage m)

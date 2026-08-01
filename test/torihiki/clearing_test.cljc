@@ -113,3 +113,84 @@
         "an over-withdrawal is refused, leaving the state untouched")
     (is (= 125 (get-in (cl/withdraw s 100 9875 marks markets)
                        [:accounts 100 :collateral])))))
+
+;; ── margin tiers ────────────────────────────────────────────────────────────
+
+(def tiered
+  (cl/market {:id 3 :max-leverage 40 :tick 1 :lot 1
+              :open-interest-cap 10000
+              :margin-tiers [{:max-notional 100000 :max-leverage 40}
+                             {:max-notional 1000000 :max-leverage 10}
+                             {:max-notional 5000000 :max-leverage 3}]}))
+
+(deftest tiers-are-derived-from-leverage-like-the-flat-rates
+  (let [[t1 t2 t3] (:margin-tiers tiered)]
+    (is (= (fx/fdiv fx/rate-scale 40) (:initial-margin-rate t1)))
+    (is (= (fx/fdiv (:initial-margin-rate t1) 2) (:maintenance-margin-rate t1)))
+    (is (= (fx/fdiv fx/rate-scale 10) (:initial-margin-rate t2)))
+    (is (= (fx/fdiv fx/rate-scale 3) (:initial-margin-rate t3)))))
+
+(deftest a-bigger-position-pays-a-stricter-rate
+  (let [[_ mm-small] (cl/rates-for tiered 50000)
+        [_ mm-mid] (cl/rates-for tiered 500000)
+        [_ mm-large] (cl/rates-for tiered 3000000)]
+    (is (< mm-small mm-mid mm-large)
+        "this is the whole point: size must cost margin")))
+
+(deftest past-the-last-tier-the-last-tier-applies
+  (testing "a position does not escape the schedule by being bigger than anyone anticipated"
+    (is (= (cl/rates-for tiered 5000000)
+           (cl/rates-for tiered 999999999)))))
+
+(deftest a-market-without-tiers-keeps-the-flat-rate
+  (let [flat (cl/market {:id 4 :max-leverage 40 :tick 1 :lot 1})]
+    (is (empty? (:margin-tiers flat)))
+    (is (= [(:initial-margin-rate flat) (:maintenance-margin-rate flat)]
+           (cl/rates-for flat 999999)))))
+
+(deftest maintenance-margin-uses-the-position-s-own-tier
+  (let [markets {3 tiered}
+        marks {3 1000}
+        small (-> (cl/new-state) (cl/deposit 1 100000000) (cl/apply-fill 1 3 50 1000 0))
+        large (-> (cl/new-state) (cl/deposit 2 100000000) (cl/apply-fill 2 3 2000 1000 0))
+        mm-small (cl/maintenance-margin small 1 marks markets)
+        mm-large (cl/maintenance-margin large 2 marks markets)]
+    ;; 50 lots at 1000 = 50,000 notional -> tier 1 (1.25%)
+    (is (= (fx/mul-rate 50000 (fx/fdiv (fx/fdiv fx/rate-scale 40) 2)) mm-small))
+    ;; 2000 lots at 1000 = 2,000,000 notional -> tier 3 (16.6%)
+    (is (= (fx/mul-rate 2000000 (fx/fdiv (fx/fdiv fx/rate-scale 3) 2)) mm-large))
+    (is (> (/ mm-large 2000000.0) (/ mm-small 50000.0))
+        "the larger position pays a strictly higher RATE, not merely more")))
+
+;; ── open interest ───────────────────────────────────────────────────────────
+
+(deftest open-interest-counts-the-long-side
+  (let [s (-> (cl/new-state)
+              (cl/deposit 1 100000000)
+              (cl/deposit 2 100000000)
+              (cl/apply-fill 1 1 100 500 0)      ; long 100
+              (cl/apply-fill 2 1 -100 500 0))]   ; the short side of the same trade
+    (is (= 100 (cl/open-interest s 1))
+        "one trade of 100 lots is 100 of open interest, not 200")))
+
+(deftest closing-reduces-open-interest
+  (let [s (-> (cl/new-state)
+              (cl/deposit 1 100000000)
+              (cl/deposit 2 100000000)
+              (cl/apply-fill 1 1 100 500 0)
+              (cl/apply-fill 2 1 -100 500 0))
+        s' (-> s
+               (cl/apply-fill 1 1 -60 500 0)
+               (cl/apply-fill 2 1 60 500 0))]
+    (is (= 40 (cl/open-interest s' 1)))))
+
+(deftest flipping-through-zero-tracks-open-interest
+  (testing "a position that crosses sides changes which side it contributes to"
+    (let [s (-> (cl/new-state)
+                (cl/deposit 1 100000000)
+                (cl/apply-fill 1 1 100 500 0))]
+      (is (= 100 (cl/open-interest s 1)))
+      (let [s' (cl/apply-fill s 1 1 -250 500 0)]   ; long 100 -> short 150
+        (is (= -150 (:size (cl/position s' 1 1))))
+        (is (= 0 (cl/open-interest s' 1))
+            "this account no longer contributes to the long side")))))

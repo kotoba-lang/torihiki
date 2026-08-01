@@ -149,3 +149,47 @@
     (is (contains? m :mark))
     (is (contains? m :last))
     (is (not (contains? m :books)) "read models do not hand back the slab layout")))
+
+;; ── open-interest cap ───────────────────────────────────────────────────────
+
+(def capped (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1
+                               :open-interest-cap 200})
+                   :taker-fee-rate 0 :maker-fee-rate 0))
+
+(defn- capped-ex []
+  (-> (st/new-exchange {:market capped :book-opts {:n-levels 4096 :cap 8192 :ev-cap 8192}})
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 2 :amount 100000000})
+      (st/apply-tx {:tx :oracle :market 1 :price 1000})))
+
+(deftest an-order-within-the-cap-is-allowed
+  (is (nil? (api/validate (capped-ex)
+                          {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 150}))))
+
+(deftest an-order-that-could-breach-the-cap-is-refused
+  (is (= :open-interest-cap
+         (api/validate (capped-ex)
+                       {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 500}))))
+
+(deftest the-cap-counts-what-is-already-open
+  (let [ex (-> (capped-ex)
+               (st/apply-tx {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 150})
+               (st/apply-tx {:tx :order :account 2 :market 1 :side 0 :level 1001 :qty 150}))]
+    (is (= 150 (cl/open-interest (:clearing ex) 1)))
+    (is (= :open-interest-cap
+           (api/validate ex {:tx :order :account 1 :market 1 :side 1 :level 1002 :qty 60}))
+        "150 open + 60 would pass 200")
+    (is (nil? (api/validate ex {:tx :order :account 1 :market 1 :side 1 :level 1002 :qty 40})))))
+
+(deftest a-market-without-a-cap-is-unconstrained
+  (is (nil? (api/validate (funded)
+                          {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 99999}))))
+
+(deftest the-cap-blocks-a-block-rather-than-halting-it
+  (let [ex (st/apply-block (capped-ex)
+                           {:height 1 :ts 1
+                            :txs [{:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 500}
+                                  {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 50}]})]
+    (is (= [:open-interest-cap] (mapv :reason (:rejected ex))))
+    (is (= 50 (bk/level-qty (get-in ex [:books 1]) bk/ask 1001))
+        "the second order still executed")))

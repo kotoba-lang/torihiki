@@ -43,16 +43,52 @@
 (defn market
   "A market's risk parameters. `max-leverage` is the only number an operator
   sets; initial and maintenance margin are derived from it so the pair can
-  never be configured inconsistently."
-  [{:keys [id max-leverage tick lot]}]
+  never be configured inconsistently.
+
+  `margin-tiers` is optional: a vector of `{:max-notional n :max-leverage l}`
+  in ascending order of size. A position pays the rate of the first tier whose
+  `:max-notional` it fits inside; anything past the last tier pays the last
+  tier's rate. Without tiers every position pays the same rate regardless of
+  size, which is how a large position ends up under-collateralised — the book
+  cannot absorb it at the price the margin assumed, and the difference is paid
+  by the insurance fund or by ADL.
+
+  `open-interest-cap` is optional and is checked by `torihiki.api`."
+  [{:keys [id max-leverage tick lot margin-tiers open-interest-cap]}]
   (let [initial (fx/fdiv fx/rate-scale max-leverage)]
-    {:id id
-     :tick tick
-     :lot lot
-     :max-leverage max-leverage
-     :initial-margin-rate initial
-     ;; half the initial margin at max leverage — Hyperliquid's rule
-     :maintenance-margin-rate (fx/fdiv initial 2)}))
+    (cond-> {:id id
+             :tick tick
+             :lot lot
+             :max-leverage max-leverage
+             :initial-margin-rate initial
+             ;; half the initial margin at max leverage — Hyperliquid's rule
+             :maintenance-margin-rate (fx/fdiv initial 2)}
+      margin-tiers
+      (assoc :margin-tiers
+             (mapv (fn [{:keys [max-notional max-leverage]}]
+                     (let [im (fx/fdiv fx/rate-scale max-leverage)]
+                       {:max-notional max-notional
+                        :max-leverage max-leverage
+                        :initial-margin-rate im
+                        :maintenance-margin-rate (fx/fdiv im 2)}))
+                   (sort-by :max-notional margin-tiers)))
+      open-interest-cap (assoc :open-interest-cap open-interest-cap))))
+
+(defn tier-for
+  "The tier a position of `notional` falls into, or nil when the market has no
+  tiers. Past the last tier the last tier applies — a position does not escape
+  the margin schedule by being bigger than anyone anticipated."
+  [market notional]
+  (when-let [tiers (seq (:margin-tiers market))]
+    (or (first (filter #(<= notional (:max-notional %)) tiers))
+        (last tiers))))
+
+(defn rates-for
+  "[initial maintenance] for a position of `notional` in `market`."
+  [market notional]
+  (if-let [t (tier-for market notional)]
+    [(:initial-margin-rate t) (:maintenance-margin-rate t)]
+    [(:initial-margin-rate market 0) (:maintenance-margin-rate market 0)]))
 
 ;; ── positions ───────────────────────────────────────────────────────────────
 
@@ -119,16 +155,27 @@
                     :entry-notional (- entry-notional closed-basis))
          realized]))))
 
+(defn open-interest
+  "Total long exposure in `mkt`, which equals total short exposure because a
+  perp market nets to zero. Maintained incrementally rather than summed on
+  demand: summing would make a risk check cost a walk of every account."
+  [state mkt]
+  (get-in state [:open-interest mkt] 0))
+
 (defn apply-fill
   "Credit one fill to one account. `delta` is signed lots, `fee-rate` is
   applied to the traded notional. Returns the new state."
   [state acct mkt delta price fee-rate]
   (let [pos (position state acct mkt)
         [pos' realized] (apply-fill-to-position pos delta price)
-        fee (fx/mul-rate (fx/abs* (fx/notional price delta)) fee-rate)]
+        fee (fx/mul-rate (fx/abs* (fx/notional price delta)) fee-rate)
+        ;; open interest counts the long side only; the delta is exact because
+        ;; it is the change in THIS account's long exposure
+        oi-delta (- (max 0 (:size pos')) (max 0 (:size pos)))]
     (-> state
         (assoc-in [:accounts acct :positions mkt] pos')
         (update-in [:accounts acct :collateral] (fnil + 0) (- realized fee))
+        (update-in [:open-interest mkt] (fnil + 0) oi-delta)
         (update :fees-collected (fnil + 0) fee))))
 
 ;; ── equity and margin ───────────────────────────────────────────────────────
@@ -149,21 +196,23 @@
           (cross-positions state acct)))
 
 (defn maintenance-margin
-  "What the account's cross positions must be backed by to stay open."
+  "What the account's cross positions must be backed by to stay open. The rate
+  comes from the position's own tier, so a larger position is held to a
+  stricter one."
   [state acct marks markets]
   (reduce (fn [acc [mkt pos]]
-            (+ acc (fx/mul-rate
-                    (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
-                    (get-in markets [mkt :maintenance-margin-rate] 0))))
+            (let [n (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
+                  [_ mm] (rates-for (get markets mkt) n)]
+              (+ acc (fx/mul-rate n mm))))
           0
           (cross-positions state acct)))
 
 (defn initial-margin
   [state acct marks markets]
   (reduce (fn [acc [mkt pos]]
-            (+ acc (fx/mul-rate
-                    (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
-                    (get-in markets [mkt :initial-margin-rate] 0))))
+            (let [n (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
+                  [im _] (rates-for (get markets mkt) n)]
+              (+ acc (fx/mul-rate n im))))
           0
           (cross-positions state acct)))
 

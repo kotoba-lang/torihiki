@@ -87,6 +87,24 @@ ordinary immutable Clojure data. They run once per fill or once per hour, not
 once per order, so clarity is worth more there than speed — and clarity is
 worth a great deal, because that is where money is actually lost.
 
+`torihiki.clearing` also carries **margin tiers** and **open interest**. A
+market may declare tiers, and a position pays the rate of the tier its
+notional falls into — past the last tier the last tier applies, so a position
+does not escape the schedule by being bigger than anyone anticipated. Without
+tiers every position pays the same rate regardless of size, which is how a
+large position ends up under-collateralised: the book cannot absorb it at the
+price the margin assumed, and the difference is paid by the insurance fund or
+by ADL.
+
+Open interest is maintained incrementally on every fill rather than summed on
+demand — summing would make a risk check cost a walk of every account. A
+market may declare a cap, and `torihiki.api` refuses orders that could breach
+it. The check is deliberately conservative: whether an order opens new
+interest depends on which side the counterparty is on, which is not known
+until it matches, so it assumes the whole order could. Over-rejecting near the
+cap is the safe direction — the other one discovers the breach only after it
+cannot be undone.
+
 `torihiki.mark` derives the **mark price** — what margin and liquidation are
 measured against. It is deliberately not the last trade:
 
@@ -279,6 +297,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 107 tests, 352 assertions
+clojure -M:test          # 120 tests, 376 assertions
 clojure -M:bench 3000000 # throughput
 ```
