@@ -4,7 +4,8 @@ A deterministic, fully on-chain exchange state machine — the open replacement
 for Hyperliquid's closed HyperCore.
 
 **Tier**: `T2` **Role**: `library` **Status**: execution layer implemented and
-benchmarked; not yet attached to consensus.
+benchmarked; verifiable single-sequencer log implemented; not yet attached to
+consensus.
 
 ## What this is
 
@@ -87,6 +88,31 @@ worth a great deal, because that is where money is actually lost.
 
 `torihiki.state` folds a block and computes a state root.
 
+### The log (`torihiki.log`)
+
+A single sequencer, and a way for anyone to check that it did not lie. Blocks
+are appended to a [`kotoba-lang/chain`](https://github.com/kotoba-lang/chain)
+parent-linked content-addressed commit chain — reused rather than reinvented.
+
+Two guarantees, and conflating them is how a chain ends up trusting its own
+operator:
+
+- `chain.core/verify-chain` proves the log was **not tampered with**. Every
+  commit re-derives to its own CID; `seq` increases by exactly one.
+- `torihiki.log/replay` proves the recorded state roots are **correct**. A
+  sequencer can publish a perfectly well-formed, untampered chain in which
+  every state root is invented — only re-executing the transactions catches
+  that. There is a test for exactly this case.
+
+Storage (`put!`/`get-fn`) and signing (`sign-fn`/`verify-fn`) are injected,
+so this namespace performs no I/O and imports no crypto. The second one
+matters: `kotoba-lang/ed25519` is JVM-only, and importing it would stop the
+browser that wants to check the log from being able to.
+
+This is a **sequencer, not consensus**. One writer decides the order; nothing
+here votes or tolerates a Byzantine peer. Saying otherwise would be the lie
+ADR-2608010930 Decision 5 exists to forbid.
+
 ## Determinism, and how it is enforced
 
 Two validators that disagree on one bit produce different state roots and the
@@ -132,10 +158,14 @@ recorded rather than assumed.
 
 ## What is not here
 
-- **Consensus.** No blocks are produced, ordered, or agreed. `kotoba-lang/engi`
+- **Consensus.** Blocks are produced and ordered by ONE writer; nothing is
+  agreed. `kotoba-lang/engi`
   holds chained-HotStuff safety rules and stake/slashing logic; its pacemaker,
   view change, p2p, and signature aggregation do not exist yet.
-- **Networking, persistence, an API.**
+- **Networking, persistence, an API.** The log describes itself; it does not
+  store itself.
+- **Real signatures.** The signing seam is implemented and tested with a
+  stand-in signer. Wiring an actual key is a caller's job and has not been done.
 - **Multi-market.** The structure is a map of books keyed by market id, but
   only the single-market case has been run.
 - **An oracle.** `:oracle` transactions carry an already-agreed price;
@@ -145,6 +175,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 40 tests, 119 assertions
+clojure -M:test          # 50 tests, 149 assertions
 clojure -M:bench 3000000 # throughput
 ```

@@ -13,4 +13,8 @@
   :tier :t2
   :must [:be-deterministic :be-pure :hold-no-clock]
   :must-not [:own-consensus :perform-io :use-floating-point :iterate-unordered]
-  :depends-on []}}
+  ;; torihiki.log reuses kotoba-lang/chain as the write-ahead log rather than
+  ;; reinventing a parent-linked content-addressed structure. Storage and
+  ;; signing are still INJECTED, so :perform-io above continues to hold: this
+  ;; repo describes a log, it does not write one anywhere.
+  :depends-on ["kotoba-lang/chain"]}}

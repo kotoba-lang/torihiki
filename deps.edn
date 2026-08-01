@@ -1,5 +1,11 @@
 {:paths ["src" "resources"]
- :deps {org.clojure/clojure {:mvn/version "1.12.0"}}
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        ;; torihiki.log only. The book, clearinghouse, funding and
+        ;; liquidation namespaces have no dependencies at all and must keep
+        ;; it that way — they are the part a validator executes per order.
+        io.github.kotoba-lang/chain
+        {:git/url "https://github.com/kotoba-lang/chain.git"
+         :git/sha "f8f6db8bf8c689063d43297cbe6c06383cc6c3b6"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
