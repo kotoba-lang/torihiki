@@ -81,7 +81,8 @@ hitting whoever inherited a reused slot.
 
 `torihiki.clearing` (positions, cross/isolated margin, the solvency test),
 `torihiki.funding` (Hyperliquid's premium-index formula), and
-`torihiki.liquidation` (book → backstop vault → insurance fund → ADL) are
+`torihiki.liquidation` (book → backstop vault → insurance fund → ADL, all four
+stages executing) are
 ordinary immutable Clojure data. They run once per fill or once per hour, not
 once per order, so clarity is worth more there than speed — and clarity is
 worth a great deal, because that is where money is actually lost.
@@ -278,6 +279,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 103 tests, 332 assertions
+clojure -M:test          # 107 tests, 352 assertions
 clojure -M:bench 3000000 # throughput
 ```

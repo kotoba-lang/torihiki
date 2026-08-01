@@ -179,3 +179,96 @@
                                            :side bk/ask :level 1500 :qty 4}]})))]
       (is (not= (st/state-root (mk [10 11])) (st/state-root (mk [11 10])))
           "queue position is state — whoever is at the head fills first"))))
+
+;; ── the liquidation waterfall, past stage 1 ─────────────────────────────────
+;;
+;; Stages 2, 3 and 4 had no tests, and two of them were wrong: the vault
+;; takeover applied the closing delta to the wrong side (doubling the position
+;; it was meant to close) and the shortfall was computed with an inverted sign
+;; (so the insurance fund GREW when it paid out). Both are the kind of bug that
+;; only surfaces as missing money.
+
+(def liq-markets {1 mkt})
+
+(defn- insolvent-long
+  "An account long 100 at 500 with only 1000 of collateral, marked at `mark`.
+  Below ~490 it is not merely liquidatable but insolvent."
+  [mark fund]
+  {:state (-> (cl/new-state)
+              (assoc :insurance-fund fund :backstop-vault st/vault-account
+                     :liquidation-clock {})
+              (cl/deposit 100 1000)
+              (cl/apply-fill 100 1 100 500 0))
+   :marks {1 mark}})
+
+(deftest stage-two-closes-the-position-it-is-given
+  (testing "the vault takeover must move the account TOWARD flat"
+    (let [{:keys [state marks]} (insolvent-long 480 1000000)
+          refuse (fn [_delta _mark] [0 0])
+          r (liq/liquidate state 100 1 480 0 liq-markets liq/default-params refuse)]
+      (is (contains? #{:vault :insurance :adl} (:stage r)))
+      (is (= 0 (:size (cl/position (:state r) 100 1)))
+          "the liquidated account is flat, not doubled")
+      (is (= 100 (:size (cl/position (:state r) st/vault-account 1)))
+          "and the vault inherited the long"))))
+
+(deftest stage-three-drains-the-insurance-fund-rather-than-filling-it
+  (testing "paying out must make the fund smaller"
+    (let [{:keys [state]} (insolvent-long 480 1000000)
+          refuse (fn [_ _] [0 0])
+          before (:insurance-fund state)
+          r (liq/liquidate state 100 1 480 0 liq-markets liq/default-params refuse)]
+      (is (= :insurance (:stage r)))
+      (is (pos? (:covered r)) "something was actually owed")
+      (is (< (:insurance-fund (:state r)) before)
+          "the fund paid; it must not have grown")
+      (is (= (- before (:covered r)) (:insurance-fund (:state r))))
+      (is (= 0 (get-in (:state r) [:accounts 100 :collateral]))
+          "the account is made whole to zero, not left negative"))))
+
+(deftest stage-four-actually-closes-counterparties
+  (testing "ADL is the last line of defence and it has to execute, not rank"
+    (let [;; no insurance fund at all, so the waterfall must reach ADL
+          base (-> (cl/new-state)
+                   (assoc :insurance-fund 0 :backstop-vault st/vault-account
+                          :liquidation-clock {})
+                   (cl/deposit 100 1000)
+                   (cl/apply-fill 100 1 100 500 0)      ; the insolvent long
+                   (cl/deposit 7 1000000)
+                   (cl/apply-fill 7 1 -80 500 0)        ; a profitable short
+                   (cl/deposit 8 1000000)
+                   (cl/apply-fill 8 1 -50 500 0))       ; another
+          mark 400
+          refuse (fn [_ _] [0 0])
+          r (liq/liquidate base 100 1 mark 0 liq-markets liq/default-params refuse)]
+      (is (= :adl (:stage r)))
+      (is (seq (:adl-closed r)) "counterparties were actually closed")
+      (is (= 100 (reduce + 0 (map :qty (:adl-closed r))))
+          "the whole inherited position was absorbed")
+      (is (= 0 (:adl-unfilled r)))
+      (is (= 0 (:size (cl/position (:state r) st/vault-account 1)))
+          "so the vault is left flat")
+      (testing "and the counterparties really moved"
+        (let [s7 (:size (cl/position (:state r) 7 1))
+              s8 (:size (cl/position (:state r) 8 1))]
+          (is (> s7 -80) "account 7 was deleveraged")
+          (is (= -30 (+ s7 s8))
+              "130 lots of short existed, 100 were closed, 30 remain")
+          (is (= 100 (- (fx/abs* -130) (fx/abs* (+ s7 s8))))
+              "exactly 100 lots of short exposure was closed"))))))
+
+(deftest adl-leaves-what-it-cannot-absorb-with-the-vault
+  (testing "an unfilled remainder is reported, not silently dropped"
+    (let [base (-> (cl/new-state)
+                   (assoc :insurance-fund 0 :backstop-vault st/vault-account
+                          :liquidation-clock {})
+                   (cl/deposit 100 1000)
+                   (cl/apply-fill 100 1 100 500 0)
+                   (cl/deposit 7 1000000)
+                   (cl/apply-fill 7 1 -30 500 0))     ; only 30 to absorb 100
+          r (liq/liquidate base 100 1 400 0 liq-markets liq/default-params
+                           (fn [_ _] [0 0]))]
+      (is (= :adl (:stage r)))
+      (is (= 30 (reduce + 0 (map :qty (:adl-closed r)))))
+      (is (= 70 (:adl-unfilled r)) "the rest stays with the vault, and says so")
+      (is (= 70 (:size (cl/position (:state r) st/vault-account 1)))))))

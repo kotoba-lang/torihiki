@@ -78,14 +78,52 @@
 ;; ── the waterfall ───────────────────────────────────────────────────────────
 
 (defn- transfer-position
-  "Move `delta` lots of `mkt` from `from` to `to` at `price`, with no fee on
-  either side. Used to hand a position to the backstop vault: the vault is an
-  ordinary account, so a position it absorbs is subject to exactly the same
-  margin arithmetic as anyone else's rather than to a privileged code path."
+  "Apply the closing `delta` to `from` and the opposite side to `to`, at
+  `price`, with no fee on either side. Used to hand a position to the backstop
+  vault: the vault is an ordinary account, so a position it absorbs is subject
+  to exactly the same margin arithmetic as anyone else's rather than to a
+  privileged code path.
+
+  The direction is the thing to get right, and the first version had it
+  backwards: `delta` is the fill that CLOSES the liquidated position, so it
+  goes to `from`, and `to` takes the other side. Giving `from` the negated
+  delta doubled the position it was supposed to be closing — silently, because
+  nothing tested past stage 1."
   [state from to mkt delta price]
   (-> state
-      (cl/apply-fill from mkt (- delta) price 0)
-      (cl/apply-fill to mkt delta price 0)))
+      (cl/apply-fill from mkt delta price 0)
+      (cl/apply-fill to mkt (- delta) price 0)))
+
+(defn execute-adl
+  "Close `to-close` lots of the vault's inherited position against the ranked
+  counterparties, at the bankruptcy price.
+
+  This is the fourth and last stage, and it is the only one that takes money
+  from people who did nothing wrong. Closing them at the BANKRUPTCY price
+  rather than the mark is what makes it a transfer rather than a gift: the
+  counterparty gives up exactly the profit the insolvent account could not
+  pay, and no more.
+
+  Returns `{:state :closed :unfilled}`. `:unfilled` is the part no
+  counterparty could absorb — it stays with the vault, which is the honest
+  outcome and not a silent one."
+  [state vault mkt price to-close ranked]
+  (loop [state state
+         remaining (fx/abs* to-close)
+         [c & more] ranked
+         closed []]
+    (if (or (not (pos? remaining)) (nil? c))
+      {:state state :closed closed :unfilled remaining}
+      (let [q (min remaining (fx/abs* (:size c)))
+            ;; the counterparty moves toward flat; the vault takes the other
+            ;; side and moves toward flat too
+            cp-delta (if (neg? (:size c)) q (- q))]
+        (recur (-> state
+                   (cl/apply-fill (:account c) mkt cp-delta price 0)
+                   (cl/apply-fill vault mkt (- cp-delta) price 0))
+               (- remaining q)
+               more
+               (conj closed {:account (:account c) :qty q}))))))
 
 (defn adl-ranking
   "Counterparties eligible for auto-deleveraging on `mkt`, worst first.
@@ -160,7 +198,10 @@
           ;; stage 2: hand the slice to the backstop vault at the mark
           (let [vault (:backstop-vault state ::vault)
                 state' (transfer-position state acct vault mkt delta mark)
-                shortfall (- (max 0 (- (get-in state' [:accounts acct :collateral] 0))))]
+                ;; A shortfall is how far the account went NEGATIVE — money it
+                ;; owes and cannot pay. Positive number, because every stage
+                ;; below subtracts it from somebody.
+                shortfall (max 0 (- (get-in state' [:accounts acct :collateral] 0)))]
             (if (zero? shortfall)
               {:state state' :closed delta :stage :vault}
               ;; stage 3: the insurance fund makes the vault whole
@@ -170,12 +211,19 @@
                                 (update :insurance-fund - covered)
                                 (update-in [:accounts acct :collateral] (fnil + 0) covered))]
                 (if (= covered shortfall)
-                  {:state state'' :closed delta :stage :insurance}
+                  {:state state'' :closed delta :stage :insurance :covered covered}
                   ;; stage 4: socialise the remainder onto profitable
                   ;; counterparties, worst-ranked first
-                  {:state (assoc state'' :adl-queue (adl-ranking state'' mkt mark size))
-                   :closed delta
-                   :stage :adl})))))))))
+                  (let [ranked (adl-ranking state'' mkt mark size)
+                        bankruptcy (max 1 bankruptcy)
+                        r (execute-adl state'' vault mkt bankruptcy
+                                       (- delta) ranked)]
+                    {:state (assoc (:state r) :adl-queue ranked)
+                     :closed delta
+                     :stage :adl
+                     :adl-closed (:closed r)
+                     :adl-unfilled (:unfilled r)
+                     :covered covered}))))))))))
 
 (defn scan
   "Every account currently liquidatable on `mkt`, in a deterministic order.
