@@ -49,6 +49,12 @@
   so the caller cannot decode it one way here and another way when signing —
   the string is what travels and the string is what is hashed."
   [pubkey]
+  ;; The ENCODING is part of the identity. The same key exported as a raw
+  ;; 32-byte value and as SPKI DER hashes to two different accounts, so a
+  ;; client that picks the other one derives an id nobody else agrees with,
+  ;; signs for it, and is refused — and the refusal names the signature, which
+  ;; is where nobody will look. Raw base64 is the encoding, because that is
+  ;; what a browser gets from exportKey and what the nodes import.
   (let [d (sha/sha256-bytes (bytes-of pubkey))]
     (+ floor (mod (reduce (fn [acc i] (+ (* acc 256) (nth d i))) 0 (range 6))
                   space))))
