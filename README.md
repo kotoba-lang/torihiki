@@ -4,7 +4,8 @@ A deterministic, fully on-chain exchange state machine — the open replacement
 for Hyperliquid's closed HyperCore.
 
 **Tier**: `T2` **Role**: `library` **Status**: execution layer implemented and
-benchmarked; verifiable single-sequencer log implemented; not yet attached to
+benchmarked; verifiable single-sequencer log implemented; snapshot/restore
+round-trips to byte-identical `canonical-bytes`; not yet attached to
 consensus.
 
 ## Which id a key may claim
@@ -125,21 +126,45 @@ $ clojure -M:bench 10000000
   latency                 317 ns/op
 ```
 
-Reference: HyperCore is documented at roughly **200,000 orders/sec**. This is
-**15.8x** that figure — on one core of an Apple M-series laptop, with other
-work running on the machine.
+Reference: HyperCore is documented at roughly **200,000 orders/sec**. That run
+is **15.8x** that figure.
 
-Read that number for what it is. It measures the matching engine under a
-steady-state workload (43% cancels, 45% passive quotes, 12% aggressive orders
-that cross, book holding ~840k resting orders). It does **not** include
-consensus, networking, signature verification, or persistence, and those are
-what will actually set a live chain's block rate. What it establishes is that
-the execution layer is not the bottleneck, which is the only claim it should
-be used for.
+### That number did not reproduce on 2026-08-04, on UNMODIFIED code
 
-Reproduce with `clojure -M:bench <n-operations>`. The benchmark asserts
-nothing and gates nothing, so it can only rot in one direction: silently. If
-you change the engine, re-run it.
+Re-running it before and after replacing the free list with a bit ladder
+(below), back to back on one machine, same workload, same 839,431 resting at
+the end:
+
+| | 10,000,000 ops |
+|---|---|
+| free list (the code the 3.15M figure was measured on) | 25,314 ops/sec — 395.0 s |
+| bit ladder | **37,902 ops/sec — 263.8 s** |
+
+So the ladder is **1.5x faster** than what it replaced, and both are ~100x
+below the recorded figure. The A/B is trustworthy — same machine, minutes
+apart, identical workload — and the absolute numbers are not: this laptop runs
+many concurrent agent sessions, and the recorded run says in its own text
+"with other work running on the machine" without saying how much.
+
+**The honest position is that the 3.15M figure is unverified rather than
+wrong, and that nothing here should be quoted as a current measurement until
+somebody re-runs it on a quiet machine.** It is left above rather than deleted
+because deleting an inconvenient measurement is worse than labelling it.
+
+The README already warned about exactly this: the benchmark asserts nothing and
+gates nothing, so it can only rot in one direction — silently. It rotted.
+
+### What the workload is
+
+A steady-state mix (43% cancels, 45% passive quotes, 12% aggressive orders that
+cross, book holding ~840k resting orders). It does **not** include consensus,
+networking, signature verification, or persistence, and those are what will
+actually set a live chain's block rate. What it establishes is that the
+execution layer is not the bottleneck, which is the only claim it should be
+used for.
+
+Reproduce with `clojure -M:bench <n-operations>`, and note what else the
+machine is doing while you do.
 
 ## Design
 
@@ -157,6 +182,60 @@ Three preallocated structures, O(1) on every path:
 Order ids encode `slot * 2^20 + generation`, so cancel resolves by arithmetic
 instead of a hash lookup, and the generation counter stops a stale cancel from
 hitting whoever inherited a reused slot.
+
+Free slots are a **fifth structure**: a bit ladder over the order slab, where a
+set bit means free and a new order takes the **lowest** one.
+
+It used to be a singly linked list threaded through `o-next` — one pointer swap
+instead of a handful of word operations, and the faster of the two. It had to
+go, because **a free list is history**. Which slot the next order gets depends
+on the order slots were freed in, and nothing outside the book can reconstruct
+that. Order ids are consensus-visible: a client cancels by id, a refused cancel
+lands in `:rejected`, and `:rejected` is in the state root. So a replica that
+restored from a snapshot and one that never restarted would hand out different
+ids, refuse different cancels, and the chain would halt.
+
+A ladder makes the free set a function of **which slots are occupied**, which
+is exactly what a snapshot can carry. Same rule the trigger firing order and the
+ADL ranking already follow: a total order nobody can buy.
+
+### Snapshots (`torihiki.snapshot`)
+
+`torihiki.log/replay` reconstructs the state by re-executing every block, which
+is the right thing for **verifying** a chain and the wrong thing for **starting**
+one. Replay costs O(chain), and a process that must pay that before it can
+answer anything eventually cannot start at all.
+
+That is not hypothetical. On 2026-08-04 the deployed validator spent long enough
+replaying its log to exceed a Cloudflare Durable Object's CPU budget; the
+platform reset the object, the reset discarded the in-memory state, and the next
+invocation replayed from zero and exceeded it again — a crash loop that could
+not end, because recovery **was** the work that killed it. Paging the replay
+turned a permanent outage into a slow start. This removes the O(chain) instead
+of bounding it.
+
+`capture` / `restore` round-trip to **byte-identical `canonical-bytes`**, which
+is the only comparison that matters — two states can be `=` and encode
+differently, and it is the encoding a validator signs. Three things make that
+true, and each of them was a change rather than an observation:
+
+- **lowest-free slot allocation** (above), so the free set needs no carrying
+- **generations of freed slots are carried**, up to the book's high-water mark,
+  so a cancel already in flight cannot be handed a reused id
+- **`:rejected` is carried.** It looks like block scratch — `apply-block` clears
+  it every block — and the first version dropped it for that reason. The
+  round-trip test said so in bytes: `encode-rejections` is part of
+  `canonical-bytes`, so the root after block N includes block N's rejections.
+  Whether something is state is decided by whether the root commits to it, not
+  by how transient it feels.
+
+The high-water mark tracks **peak simultaneously resting orders**, not total
+ever placed, because allocation takes the lowest free slot — which is what keeps
+a snapshot from growing with the chain. A book that churns 500 orders through
+one slot has a high-water mark of 1.
+
+The format is EDN, not JSON: account ids are integer keys and
+`:oracle-publishers` is a set, and JSON has neither.
 
 ### Everything else
 
@@ -399,6 +478,6 @@ recorded rather than assumed.
 ## Test
 
 ```bash
-clojure -M:test          # 134 tests, 405 assertions
+clojure -M:test          # 158 tests, 461 assertions
 clojure -M:bench 3000000 # throughput
 ```
