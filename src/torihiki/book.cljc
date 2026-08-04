@@ -59,10 +59,16 @@
 (def ^:const gen-mod 1048576)    ; 2^20 generations before a slot id repeats
 
 ;; mutable scalars, kept in a slab so the book record itself stays immutable
-(def ^:const ctl-free-head 0)
-(def ^:const ctl-resting 1)
-(def ^:const ctl-ev-count 2)
-(def ^:const ctl-last-price 3)
+(def ^:const ctl-resting 0)
+(def ^:const ctl-ev-count 1)
+(def ^:const ctl-last-price 2)
+;; The highest slot index ever taken, plus one. Only needed to bound what a
+;; snapshot has to carry: generations below it may be non-zero, above it
+;; cannot be. Because `take-slot!` always takes the LOWEST free slot, this
+;; tracks the peak number of simultaneously resting orders rather than the
+;; total ever placed — which is the difference between a snapshot that stays
+;; small and one that grows with the chain.
+(def ^:const ctl-hwm 3)
 (def ^:const ctl-size 4)
 
 ;; event field slabs
@@ -70,8 +76,10 @@
 
 (defrecord Book [n-levels cap ev-cap
                  w0 w1 w2
+                 fw0 fw1 fw2 fw3
                  lvl-head lvl-tail lvl-qty
                  bm0 bm1 bm2 bm3
+                 fb0 fb1 fb2 fb3 fb4
                  o-owner o-qty o-level o-side o-next o-prev o-gen
                  ev-maker-owner ev-taker-owner ev-maker-oid
                  ev-level ev-qty ev-taker-side
@@ -88,12 +96,54 @@
   (when (> n-levels 1048576)
     (throw (ex-info "n-levels exceeds what a four-level bit ladder addresses"
                     {:n-levels n-levels :max 1048576})))
+  ;; The order slab is now addressed by a bit ladder too, so it takes the same
+  ;; two constraints the price ladder always had.
+  (when (pos? (rem cap 32))
+    (throw (ex-info "cap must be a multiple of 32" {:cap cap})))
+  ;; FIVE levels, not four. `cap` is allowed to be larger than `n-levels`'s
+  ;; ceiling — the benchmark runs a 2,097,152-slot slab against a 65,536-tick
+  ;; ladder — so the slot ladder needs one more level than the price ladder.
+  ;; Shrinking the benchmark to fit a four-level ladder would have been
+  ;; tailoring the measurement to the implementation.
+  (when (> cap 33554432)
+    (throw (ex-info "cap exceeds what a five-level bit ladder addresses"
+                    {:cap cap :max 33554432})))
   (let [w0 (quot n-levels 32)
         w1 (inc (quot (dec w0) 32))
         w2 (inc (quot (dec w1) 32))
+        fw0 (quot cap 32)
+        fw1 (inc (quot (dec fw0) 32))
+        fw2 (inc (quot (dec fw1) 32))
+        fw3 (inc (quot (dec fw2) 32))
         b (map->Book
            {:n-levels n-levels :cap cap :ev-cap ev-cap
             :w0 w0 :w1 w1 :w2 w2
+            :fw0 fw0 :fw1 fw1 :fw2 fw2 :fw3 fw3
+            ;; Free slots, as a bit ladder rather than a linked list.
+            ;;
+            ;; A free LIST is history: which slot the next order gets depends
+            ;; on the order slots were freed in, and nothing outside the book
+            ;; can reconstruct that. **Order ids are consensus-visible** — a
+            ;; client cancels by id, and a cancel that succeeds on one
+            ;; validator and is refused on another puts different entries in
+            ;; `:rejected`, which is in the state root. So a replica that
+            ;; restored from a snapshot and one that never restarted would
+            ;; diverge, and the chain would halt.
+            ;;
+            ;; A bit ladder makes the free set a FUNCTION OF WHICH SLOTS ARE
+            ;; OCCUPIED, so a snapshot carrying the resting orders carries it
+            ;; implicitly. This is the same rule the trigger firing order and
+            ;; the ADL ranking already follow: a total order nobody can buy.
+            ;; Filled below rather than with `alloc-filled`: a word of all ones
+            ;; at a parent level would advertise child words that do not exist,
+            ;; and the descent would read past the end of the slab exactly when
+            ;; the book filled up — the one moment it must instead say
+            ;; "exhausted".
+            :fb0 (slab/alloc fw0)
+            :fb1 (slab/alloc fw1)
+            :fb2 (slab/alloc fw2)
+            :fb3 (slab/alloc fw3)
+            :fb4 (slab/alloc 1)
             :lvl-head (slab/alloc-filled (* 2 n-levels) -1)
             :lvl-tail (slab/alloc-filled (* 2 n-levels) -1)
             :lvl-qty  (slab/alloc (* 2 n-levels))
@@ -115,12 +165,92 @@
             :ev-qty         (slab/alloc ev-cap)
             :ev-taker-side  (slab/alloc ev-cap)
             :ctl (slab/alloc ctl-size)})]
-    ;; thread the free list: slot i hands off to slot i+1, last one terminates
-    (let [on (:o-next b)]
-      (dotimes [i cap] (slab/set! on i (if (= i (dec cap)) -1 (inc i)))))
-    (slab/set! (:ctl b) ctl-free-head 0)
+    ;; Mark every slot free, one word at a time. Each parent level advertises
+    ;; exactly as many child words as exist.
+    ;;
+    ;; **`0xFFFFFFFF`, not `-1`.** A slab word is a `long` on the JVM and the
+    ;; ladder treats it as 32 bits (`slab/lowest-set-bit` masks to 32). Filling
+    ;; with -1 sets all SIXTY-FOUR bits, so the `(zero? v)` cascade in
+    ;; `free-clear!` never fires — the parent keeps advertising a child word
+    ;; whose low 32 bits have all been taken, the descent lands on it, and
+    ;; `lowest-set-bit` answers -1. The book then reports itself exhausted with
+    ;; almost every slot free. Measured: every test that placed more than 32
+    ;; orders died at `cap 4096`.
+    (let [mask (fn [k] (if (>= k 32) 0xFFFFFFFF (dec (bit-shift-left 1 k))))]
+      (dotimes [i fw0] (slab/set! (:fb0 b) i 0xFFFFFFFF))
+      (dotimes [i fw1] (slab/set! (:fb1 b) i (mask (- fw0 (* i 32)))))
+      (dotimes [i fw2] (slab/set! (:fb2 b) i (mask (- fw1 (* i 32)))))
+      (dotimes [i fw3] (slab/set! (:fb3 b) i (mask (- fw2 (* i 32)))))
+      (slab/set! (:fb4 b) 0 (mask fw3)))
     (slab/set! (:ctl b) ctl-last-price -1)
     b))
+
+;; ── free-slot ladder ────────────────────────────────────────────────────────
+;;
+;; The same four-level structure as the price ladder, over the order slab and
+;; with only one "side". Set bit = FREE. See `new-book` for why the free list
+;; became a function of state rather than a linked list.
+
+(defn- free-set!
+  [^Book b slot]
+  (let [fb0 (slab/field b fb0) fb1 (slab/field b fb1)
+        fb2 (slab/field b fb2) fb3 (slab/field b fb3) fb4 (slab/field b fb4)
+        slot (long slot)
+        i1 (bit-shift-right slot 5)
+        i2 (bit-shift-right i1 5)
+        i3 (bit-shift-right i2 5)
+        i4 (bit-shift-right i3 5)]
+    (slab/set! fb0 i1 (bit-or (long (slab/get fb0 i1))
+                              (bit-shift-left 1 (bit-and slot 31))))
+    (slab/set! fb1 i2 (bit-or (long (slab/get fb1 i2))
+                              (bit-shift-left 1 (bit-and i1 31))))
+    (slab/set! fb2 i3 (bit-or (long (slab/get fb2 i3))
+                              (bit-shift-left 1 (bit-and i2 31))))
+    (slab/set! fb3 i4 (bit-or (long (slab/get fb3 i4))
+                              (bit-shift-left 1 (bit-and i3 31))))
+    (slab/set! fb4 0 (bit-or (long (slab/get fb4 0))
+                             (bit-shift-left 1 (bit-and i4 31))))))
+
+(defn- free-clear!
+  [^Book b slot]
+  (let [fb0 (slab/field b fb0) fb1 (slab/field b fb1)
+        fb2 (slab/field b fb2) fb3 (slab/field b fb3) fb4 (slab/field b fb4)
+        slot (long slot)
+        i1 (bit-shift-right slot 5)
+        i2 (bit-shift-right i1 5)
+        i3 (bit-shift-right i2 5)
+        i4 (bit-shift-right i3 5)
+        v0 (bit-and (long (slab/get fb0 i1))
+                    (bit-not (bit-shift-left 1 (bit-and slot 31))))]
+    (slab/set! fb0 i1 v0)
+    (when (zero? v0)
+      (let [v1 (bit-and (long (slab/get fb1 i2))
+                        (bit-not (bit-shift-left 1 (bit-and i1 31))))]
+        (slab/set! fb1 i2 v1)
+        (when (zero? v1)
+          (let [v2 (bit-and (long (slab/get fb2 i3))
+                            (bit-not (bit-shift-left 1 (bit-and i2 31))))]
+            (slab/set! fb2 i3 v2)
+            (when (zero? v2)
+              (let [v3 (bit-and (long (slab/get fb3 i4))
+                                (bit-not (bit-shift-left 1 (bit-and i3 31))))]
+                (slab/set! fb3 i4 v3)
+                (when (zero? v3)
+                  (slab/set! fb4 0 (bit-and (long (slab/get fb4 0))
+                                            (bit-not (bit-shift-left 1 (bit-and i4 31))))))))))))))
+
+(defn- lowest-free
+  "The lowest free slot, or -1 when the slab is full. Five word reads."
+  ^long [^Book b]
+  (let [fb0 (slab/field b fb0) fb1 (slab/field b fb1)
+        fb2 (slab/field b fb2) fb3 (slab/field b fb3) fb4 (slab/field b fb4)
+        r4 (slab/lowest-set-bit (slab/get fb4 0))]
+    (if (neg? r4)
+      -1
+      (let [i3 (+ (* r4 32) (slab/lowest-set-bit (slab/get fb3 r4)))
+            i2 (+ (* i3 32) (slab/lowest-set-bit (slab/get fb2 i3)))
+            i1 (+ (* i2 32) (slab/lowest-set-bit (slab/get fb1 i2)))]
+        (+ (* i1 32) (slab/lowest-set-bit (slab/get fb0 i1)))))))
 
 ;; ── bit ladder ──────────────────────────────────────────────────────────────
 
@@ -239,23 +369,30 @@
 ;; ── slot lifecycle ──────────────────────────────────────────────────────────
 
 (defn- take-slot!
+  "The LOWEST free slot — not whichever was freed most recently.
+
+  Lowest rather than most-recent is what makes the choice a function of the
+  live book instead of a function of its history, and that is what a snapshot
+  needs: restoring the resting orders restores the free set exactly, with
+  nothing else to carry. It also keeps the high-water mark near the peak
+  number of simultaneously resting orders rather than the total ever placed."
   ^long [^Book b]
-  (let [ctl (slab/field b ctl)
-        s (slab/get ctl ctl-free-head)]
+  (let [s (lowest-free b)]
     (when (neg? s)
       (throw (ex-info "torihiki.book: order slab exhausted" {:cap (slab/field b cap)})))
-    (slab/set! ctl ctl-free-head (slab/get (slab/field b o-next) s))
+    (free-clear! b s)
+    (let [ctl (slab/field b ctl)]
+      (when (>= s (long (slab/get ctl ctl-hwm)))
+        (slab/set! ctl ctl-hwm (inc s))))
     s))
 
 (defn- release-slot!
   [^Book b slot]
-  (let [ctl (slab/field b ctl)
-        o-gen (slab/field b o-gen)
+  (let [o-gen (slab/field b o-gen)
         slot (long slot)]
     (slab/set! o-gen slot (mod (inc (slab/get o-gen slot)) gen-mod))
     (slab/set! (slab/field b o-qty) slot 0)
-    (slab/set! (slab/field b o-next) slot (slab/get ctl ctl-free-head))
-    (slab/set! ctl ctl-free-head slot)))
+    (free-set! b slot)))
 
 (defn oid-of
   ^long [^Book b slot]
@@ -442,6 +579,94 @@
                (conj acc {:oid (oid-of b slot)
                           :owner (slab/get o-owner slot)
                           :qty (slab/get o-qty slot)}))))))
+
+;; ── snapshot ────────────────────────────────────────────────────────────────
+
+(defn snapshot
+  "The book as plain data, exactly enough to rebuild it.
+
+  ## What is here, and what is deliberately not
+
+  The resting orders, each with its SLOT and GENERATION — not just its owner
+  and quantity. The state root does not commit to order ids (it hashes owner
+  and quantity in time order), so a restore that reassigned ids would produce
+  the same root and still break the chain: a client cancels by id, and a
+  cancel that succeeds on a replica which never restarted and is refused on
+  one that restored puts different entries in `:rejected`, which IS in the
+  root. **Ids are consensus state even though the root does not name them.**
+
+  Generations of slots that are currently free are carried too, up to the
+  high-water mark. A generation is what stops a stale cancel from hitting
+  whoever inherited a reused slot; resetting them on restore would hand out an
+  id that a cancel still in flight already names.
+
+  Not here: the free set (a function of which slots are occupied — see
+  `new-book`), the event buffer (reset every block), and the preallocated
+  slabs (the point of a snapshot is that it costs what the book HOLDS, not
+  what it could hold)."
+  [^Book b]
+  (let [n-levels (long (slab/field b n-levels))
+        hwm (long (slab/get (slab/field b ctl) ctl-hwm))
+        o-gen (slab/field b o-gen)
+        orders (loop [side bid acc []]
+                 (if (> side ask)
+                   acc
+                   (recur
+                    (inc side)
+                    ;; Ascending level order, not best-first: the two agree on
+                    ;; content and disagree on sequence, and a snapshot that
+                    ;; depended on which side it was would be one more thing to
+                    ;; keep in agreement.
+                    (loop [l 0 acc acc]
+                      (if (>= l n-levels)
+                        acc
+                        (recur (inc l)
+                               (reduce (fn [acc {:keys [oid owner qty]}]
+                                         (conj acc [(quot oid gen-mod) (rem oid gen-mod)
+                                                    side l owner qty]))
+                                       acc
+                                       (level-orders b side l))))))))]
+    {:n-levels n-levels
+     :cap (long (slab/field b cap))
+     :ev-cap (long (slab/field b ev-cap))
+     :last-price (long (slab/get (slab/field b ctl) ctl-last-price))
+     :hwm hwm
+     ;; Sparse: only slots whose generation has actually moved.
+     :gens (into (sorted-map)
+                 (for [s (range hwm)
+                       :let [g (long (slab/get o-gen s))]
+                       :when (pos? g)]
+                   [s g]))
+     ;; `[slot gen side level owner qty]`, in the order they must be relinked.
+     :orders orders}))
+
+(defn restore
+  "Rebuild a book from `snapshot`. Pure: allocates a fresh book and fills it.
+
+  Orders are written into their recorded slots and linked in the recorded
+  sequence, so time priority and order ids come back byte-identical. Nothing
+  is matched on the way in — a restore is not a replay, and running these
+  through `place!` would let them trade against each other."
+  [{:keys [n-levels cap ev-cap last-price hwm gens orders]}]
+  (let [b (new-book {:n-levels n-levels :cap cap :ev-cap ev-cap})
+        ctl (slab/field b ctl)
+        o-gen (slab/field b o-gen)]
+    (doseq [[s g] gens] (slab/set! o-gen s g))
+    (doseq [[slot gen side level owner qty] orders]
+      (slab/set! o-gen slot gen)
+      (slab/set! (slab/field b o-owner) slot owner)
+      (slab/set! (slab/field b o-qty) slot qty)
+      (slab/set! (slab/field b o-level) slot level)
+      (slab/set! (slab/field b o-side) slot side)
+      (free-clear! b slot)
+      (link-tail! b side level slot)
+      (let [k (+ (* (long side) (long n-levels)) (long level))
+            lvl-qty (slab/field b lvl-qty)]
+        (slab/set! lvl-qty k (+ (long (slab/get lvl-qty k)) (long qty))))
+      (slab/set! ctl ctl-resting (inc (long (slab/get ctl ctl-resting)))))
+    (slab/set! ctl ctl-last-price last-price)
+    (slab/set! ctl ctl-hwm hwm)
+    b))
 
 (defn resting-count ^long [^Book b] (slab/get (slab/field b ctl) ctl-resting))
 (defn last-price    ^long [^Book b] (slab/get (slab/field b ctl) ctl-last-price))
