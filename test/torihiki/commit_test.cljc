@@ -3,7 +3,8 @@
   (:require [clojure.test :refer [deftest is]]
             [torihiki.state :as st]
             [torihiki.commit :as cm]
-            [torihiki.parity :as par]))
+            [torihiki.parity :as par]
+            [clojure.string]))
 
 (defn- ex [] (st/apply-block (par/fresh) par/scenario))
 
@@ -91,3 +92,30 @@
   (let [e (ex)]
     (is (not= (st/flat-root e) (st/state-root e)))
     (is (re-matches #"[0-9a-f]{64}" (st/state-root e)))))
+
+(deftest leaf-ids-sort-correctly-for-real-account-ids
+  ;; The test above passed while the padding was too short, because the parity
+  ;; scenario's accounts are 10 and 11 and any padding orders two-digit ids
+  ;; correctly. Live `torihiki.address/derive` produces fourteen-digit ids;
+  ;; the first one that appeared on the deployed chain was 34633027260816.
+  ;;
+  ;; So this asserts the property on ids that actually stress it: values on
+  ;; both sides of a power of ten, where lexicographic and numeric order
+  ;; disagree unless every id is padded to the same width.
+  (let [accts [9 10 99999999999999 100000000000000 34633027260816 9007199254740992]
+        e (reduce (fn [e a]
+                    (assoc-in e [:clearing :accounts a] {:collateral a :positions {}}))
+                  (st/apply-block (par/fresh) par/scenario)
+                  accts)
+        ids (mapv :id (st/canonical-leaves e))]
+    (is (= ids (vec (sort ids)))
+        "leaf ids are not in sorted order — the tree and the flat encoding disagree")
+    ;; and the leaf order still matches the numeric account order
+    (let [acct-ids (filterv #(clojure.string/starts-with? % "04:01:") ids)]
+      (is (= acct-ids
+             (mapv #(cm/account-leaf-id %)
+                   (sort (keys (get-in e [:clearing :accounts])))))))
+    ;; proofs still work for the big ones
+    (doseq [a accts]
+      (let [p (cm/proof (st/canonical-leaves e) (cm/account-leaf-id a))]
+        (is (cm/verify p (st/state-root e)) (str "no verifying proof for account " a))))))

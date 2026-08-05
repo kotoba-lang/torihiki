@@ -104,7 +104,10 @@
 (defn account-leaf-id
   "The leaf id holding account `a`'s collateral and positions. Mirrors
   `torihiki.state/canonical-leaves`; a light client needs to be able to ASK
-  for the right leaf without reading that function."
+  for the right leaf without reading that function.
+
+  Sixteen digits, the width of the largest i53 — see `torihiki.state/id-pad`
+  for why a shorter pad silently reorders the tree."
   [a]
   (let [s (str a)]
-    (str "04:01:" (subs "000000000000" 0 (max 0 (- 12 (count s)))) s)))
+    (str "04:01:" (subs "0000000000000000" 0 (max 0 (- 16 (count s)))) s)))
