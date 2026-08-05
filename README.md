@@ -480,7 +480,7 @@ nbb --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
     -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
 #   FLAT ROOT   22f75a7ff4777d1c5ae397f47aa2b62b08aba8f2ba131aa6ae506b156cd9c87e
-#   STATE ROOT  d531adee8680d3845d92d38522c8aeff14c372e0aa091299531039301e75d69f
+#   STATE ROOT  55d6da147732ade686f8e3824f0629c1ed6c6f05add8142c17387f6cb0f74449
 #   PROOF a 10 verifies  true
 ```
 

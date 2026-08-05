@@ -568,7 +568,25 @@
             (enc-ints [enc-tag-account a (or collateral 0) (count mkts)])
             mkts)))
 
-(defn- pad12 [n] (let [s (str n)] (str (subs "000000000000" 0 (max 0 (- 12 (count s)))) s)))
+(def ^:private id-pad
+  "Sixteen zeros: the width of the largest i53, 9007199254740992.
+
+  Twelve was the first guess and it was wrong on live data within the hour —
+  `torihiki.address/derive` produced account 34633027260816, fourteen digits,
+  so the id was not padded at all. Ids of different lengths sort
+  lexicographically against each other, and lexicographic order stops
+  agreeing with numeric order the moment the lengths differ: \"99999999999999\"
+  sorts AFTER \"100000000000000\" while the number sorts before it.
+
+  merkle-sum orders leaves by id, so a disagreement there means the tree
+  commits to a different sequence than the flat encoding does — quietly, with
+  both still producing a stable root. Sixteen makes every id the same width,
+  and no account id can exceed it because no state value can."
+  "0000000000000000")
+
+(defn- pad-id [n]
+  (let [s (str n)]
+    (str (subs id-pad 0 (max 0 (- (count id-pad) (count s)))) s)))
 
 (defn canonical-leaves
   "The state, cut into the pieces the authenticated tree commits to
@@ -606,21 +624,21 @@
        {:id "01" :bytes (encode-rejections (:rejected ex []))}
        {:id "02:00" :bytes (enc-ints [enc-tag-nonce (count auth-accts)])}]
       (for [a auth-accts]
-        {:id (str "02:01:" (pad12 a)) :bytes (encode-auth-account ex a)})
+        {:id (str "02:01:" (pad-id a)) :bytes (encode-auth-account ex a)})
       (for [m mkts]
-        {:id (str "03:" (pad12 m)) :bytes (encode-oracle-market ex m)})
+        {:id (str "03:" (pad-id m)) :bytes (encode-oracle-market ex m)})
       [{:id "04:00" :bytes (encode-clearing-totals clearing)}]
       (for [a accts]
-        {:id (str "04:01:" (pad12 a)) :bytes (encode-clearing-account clearing a)})
+        {:id (str "04:01:" (pad-id a)) :bytes (encode-clearing-account clearing a)})
       (mapcat
        (fn [m]
-         [{:id (str "05:" (pad12 m) ":0")
+         [{:id (str "05:" (pad-id m) ":0")
            :bytes (enc-ints [enc-tag-market m
                              (get-in ex [:oracle m] 0)
                              (get-in ex [:marks m] 0)
                              (get-in ex [:last m] 0)])}
-          {:id (str "05:" (pad12 m) ":1") :bytes (encode-book (get-in ex [:books m]))}
-          {:id (str "05:" (pad12 m) ":2")
+          {:id (str "05:" (pad-id m) ":1") :bytes (encode-book (get-in ex [:books m]))}
+          {:id (str "05:" (pad-id m) ":2")
            :bytes (encode-triggers (get-in ex [:triggers m] []))}])
        mkts)))))
 
