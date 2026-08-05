@@ -33,7 +33,8 @@
             [torihiki.api :as api]
             [torihiki.auth :as auth]
             [kotoba.bytes :as b]
-            [kotoba.bytes.sha256 :as sha]))
+            [kotoba.bytes.sha256 :as sha]
+            [torihiki.commit :as cm]))
 
 ;; ── reserved account ids ────────────────────────────────────────────────────
 ;;
@@ -473,36 +474,30 @@
   (let [bs (b/utf8-encode (str x))]
     (into (enc-int (count bs)) bs)))
 
-(defn- encode-oracle
-  "Publisher submissions and the staleness flag, publishers in sorted order.
+(defn- encode-oracle-market
+  "One market's publisher submissions and staleness flag, publishers sorted.
   They are state: the next aggregate depends on them, and a sequencer that
   could add or drop a submission without changing the root could move the mark
   invisibly."
-  [ex]
-  (reduce
-   (fn [acc m]
-     (let [subs (get-in ex [:oracle-submissions m] {})
-           pubs (sort (keys subs))]
-       (reduce (fn [acc p]
-                 (let [{:keys [price ts]} (get subs p)]
-                   (into acc (enc-ints [enc-tag-oracle-sub m p price ts]))))
-               (into acc (enc-ints [enc-tag-oracle-sub m (count pubs)
-                                    (if (get-in ex [:oracle-stale m] false) 1 0)]))
-               pubs)))
-   []
-   (sort (keys (:books ex)))))
+  [ex m]
+  (let [subs (get-in ex [:oracle-submissions m] {})
+        pubs (sort (keys subs))]
+    (reduce (fn [acc p]
+              (let [{:keys [price ts]} (get subs p)]
+                (into acc (enc-ints [enc-tag-oracle-sub m p price ts]))))
+            (enc-ints [enc-tag-oracle-sub m (count pubs)
+                       (if (get-in ex [:oracle-stale m] false) 1 0)])
+            pubs)))
 
-(defn- encode-auth
-  "Nonces and key bindings, accounts in sorted order."
-  [ex]
-  (let [accts (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex)))))]
-    (reduce (fn [acc a]
-              (-> acc
-                  (into (enc-ints [enc-tag-nonce a (get-in ex [:nonces a] 0)]))
-                  (into (enc-ints [enc-tag-key a]))
-                  (into (enc-string (get-in ex [:account-keys a] "")))))
-            (enc-ints [enc-tag-nonce (count accts)])
-            accts)))
+(defn- auth-accounts [ex]
+  (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))))))
+
+(defn- encode-auth-account
+  "One account's nonce and key binding."
+  [ex a]
+  (-> (enc-ints [enc-tag-nonce a (get-in ex [:nonces a] 0)])
+      (into (enc-ints [enc-tag-key a]))
+      (into (enc-string (get-in ex [:account-keys a] "")))))
 
 (def reason-codes
   "A stable integer per rejection reason. `clojure.core/hash` on a keyword is
@@ -547,58 +542,124 @@
           (enc-ints [enc-tag-trigger (count triggers)])
           (sort-by :id triggers)))
 
-(defn- encode-clearing
-  "Accounts in sorted id order, each with its positions in sorted market order.
-  Sorted because Clojure map iteration order is unspecified — folding in map
-  order would make the root depend on insertion history rather than on state."
+(defn- encode-clearing-totals
   [clearing]
-  (let [accts (sort (keys (:accounts clearing)))]
-    (reduce
-     (fn [acc a]
-       (let [{:keys [collateral positions]} (get-in clearing [:accounts a])
-             mkts (sort (keys positions))]
-         (reduce (fn [acc m]
-                   (let [p (get positions m)]
-                     (into acc (enc-ints [enc-tag-position m (:size p)
-                                          (:entry-notional p)
-                                          (or (:isolated p) 0)]))))
-                 (into acc (enc-ints [enc-tag-account a (or collateral 0)
-                                      (count mkts)]))
-                 mkts)))
-     (enc-ints [enc-tag-account (count accts)
-                (or (:insurance-fund clearing) 0)
-                (or (:fees-collected clearing) 0)
-                (or (:funding-residue clearing) 0)])
-     accts)))
+  (enc-ints [enc-tag-account (count (:accounts clearing))
+             (or (:insurance-fund clearing) 0)
+             (or (:fees-collected clearing) 0)
+             (or (:funding-residue clearing) 0)]))
+
+(defn- encode-clearing-account
+  "One account: its collateral and its positions in sorted market order.
+  Sorted because Clojure map iteration order is unspecified — folding in map
+  order would make the root depend on insertion history rather than on state.
+
+  **This is the leaf a light client proves.** Everything needed to answer
+  \"what does account A hold\" is here and nowhere else, which is what lets an
+  inclusion proof stand in for a replay."
+  [clearing a]
+  (let [{:keys [collateral positions]} (get-in clearing [:accounts a])
+        mkts (sort (keys positions))]
+    (reduce (fn [acc m]
+              (let [p (get positions m)]
+                (into acc (enc-ints [enc-tag-position m (:size p)
+                                     (:entry-notional p)
+                                     (or (:isolated p) 0)]))))
+            (enc-ints [enc-tag-account a (or collateral 0) (count mkts)])
+            mkts)))
+
+(defn- pad12 [n] (let [s (str n)] (str (subs "000000000000" 0 (max 0 (- 12 (count s)))) s)))
+
+(defn canonical-leaves
+  "The state, cut into the pieces the authenticated tree commits to
+  separately, IN THE ORDER THE FLAT ENCODING ALREADY USED.
+
+  Each entry is `{:id <sortable string> :bytes <ints>}`.
+
+  ## The cut is a refinement, not a redesign
+
+  `canonical-bytes` is now the concatenation of these leaves, and it produces
+  the SAME bytes it produced before — the test suite pins that against the
+  parity scenario's published digest `22f75a7f…`, which used to live only in
+  the README. So the tree is a structure placed OVER the existing encoding
+  rather than a new encoding, and everything the old digest committed to is
+  still committed to, in the same order.
+
+  Ids sort into that order (`clojure.core/sort` on strings), with numbers
+  zero-padded — unpadded, account 10 would sort before account 9 and the
+  concatenation would stop matching.
+
+  ## Why the account is its own leaf
+
+  \"Verify one balance without replaying the chain\" is only possible if that
+  balance is a leaf. Everything else is cut along the boundaries the flat
+  encoding already had, because those boundaries were already the sections a
+  reader reasons about."
+  [ex]
+  (let [mkts (sort (keys (:books ex)))
+        auth-accts (auth-accounts ex)
+        clearing (:clearing ex)
+        accts (sort (keys (:accounts clearing)))]
+    (vec
+     (concat
+      [{:id "00" :bytes (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])}
+       {:id "01" :bytes (encode-rejections (:rejected ex []))}
+       {:id "02:00" :bytes (enc-ints [enc-tag-nonce (count auth-accts)])}]
+      (for [a auth-accts]
+        {:id (str "02:01:" (pad12 a)) :bytes (encode-auth-account ex a)})
+      (for [m mkts]
+        {:id (str "03:" (pad12 m)) :bytes (encode-oracle-market ex m)})
+      [{:id "04:00" :bytes (encode-clearing-totals clearing)}]
+      (for [a accts]
+        {:id (str "04:01:" (pad12 a)) :bytes (encode-clearing-account clearing a)})
+      (mapcat
+       (fn [m]
+         [{:id (str "05:" (pad12 m) ":0")
+           :bytes (enc-ints [enc-tag-market m
+                             (get-in ex [:oracle m] 0)
+                             (get-in ex [:marks m] 0)
+                             (get-in ex [:last m] 0)])}
+          {:id (str "05:" (pad12 m) ":1") :bytes (encode-book (get-in ex [:books m]))}
+          {:id (str "05:" (pad12 m) ":2")
+           :bytes (encode-triggers (get-in ex [:triggers m] []))}])
+       mkts)))))
 
 (defn canonical-bytes
-  "The exact byte sequence `state-root` digests. Exposed because a state root
-  is only auditable if the thing under the hash can be inspected."
+  "The exact byte sequence `flat-root` digests. Exposed because a state root
+  is only auditable if the thing under the hash can be inspected.
+
+  Now derived from `canonical-leaves` so the two cannot drift: if a section
+  were added to one and not the other, the flat digest and the tree would
+  commit to different states while both looking healthy."
   [ex]
-  (let [mkts (sort (keys (:books ex)))]
-    (reduce
-     (fn [acc m]
-       (-> acc
-           (into (enc-ints [enc-tag-market m
-                            (get-in ex [:oracle m] 0)
-                            (get-in ex [:marks m] 0)
-                            (get-in ex [:last m] 0)]))
-           (into (encode-book (get-in ex [:books m])))
-           (into (encode-triggers (get-in ex [:triggers m] [])))))
-     (-> (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])
-         (into (encode-rejections (:rejected ex [])))
-         (into (encode-auth ex))
-         (into (encode-oracle ex))
-         (into (encode-clearing (:clearing ex))))
-     mkts)))
+  (into [] (mapcat :bytes) (canonical-leaves ex)))
 
-(defn state-root
-  "A SHA-256 commitment to the whole exchange, as lowercase hex.
+(defn flat-root
+  "The pre-tree digest: SHA-256 over the whole canonical encoding.
 
-  Unlike the checksum this replaced, it is safe to sign: finding a second
-  state with the same root is as hard as finding a SHA-256 collision. It is
-  still a FLAT digest — it commits to everything and proves nothing about any
-  part — so a light client that needs to verify one balance without replaying
-  the chain needs an authenticated tree, which this is not."
+  Kept, rather than deleted, because it is the compatibility anchor. The tree
+  changed what `state-root` returns; this did not change at all, so a stored
+  digest from before the tree can still be checked against the state it came
+  from."
   [ex]
   (sha/sha256-hex (canonical-bytes ex)))
+
+(defn state-root
+  "A SHA-256 commitment to the whole exchange, as lowercase hex — the root of
+  an authenticated tree over `canonical-leaves`.
+
+  Safe to sign: finding a second state with the same root is as hard as
+  finding a SHA-256 collision. Unlike the flat digest it replaces, it also
+  PROVES PARTS: `torihiki.commit/balance-proof` produces an inclusion proof
+  for one account that a client can check against this root without holding
+  the state or replaying the chain.
+
+  **This value changed when the tree landed.** The bytes underneath did not
+  (`flat-root` still returns what `state-root` used to), so a chain's history
+  is not invalidated — but a stored `state-root` from before the change is a
+  `flat-root`, and comparing the two will differ for a reason that is not a
+  determinism bug. During a rolling upgrade, replicas on either side of it
+  report different roots for the same state; that window looks exactly like
+  the failure this number exists to catch, and it is not one."
+  [ex]
+  (:hash (:root (cm/tree (canonical-leaves ex)))))
