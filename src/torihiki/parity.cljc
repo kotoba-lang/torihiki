@@ -18,7 +18,8 @@
   The two must print the same root."
   (:require [torihiki.book :as bk]
             [torihiki.clearing :as cl]
-            [torihiki.state :as st]))
+            [torihiki.state :as st]
+            [torihiki.commit :as cm]))
 
 (def market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
 
@@ -46,7 +47,18 @@
     (println "  fills      " (pr-str (mapv (juxt :maker-owner :qty) (bk/fills b)))))
   (let [ex (st/apply-block (fresh) scenario)]
     (println "  resting    " (bk/resting-count (get-in ex [:books 1])))
+    (println "  FLAT ROOT  " (st/flat-root ex))
     (println "  STATE ROOT " (st/state-root ex))
-    (st/state-root ex)))
+    ;; Both, because they answer different questions. The flat root pins the
+    ;; ENCODING across runtimes — it is the one that caught the interop bug
+    ;; this namespace was written for. The tree root additionally pins the
+    ;; leaf split and the hashing above it, which is new surface: a leaf id
+    ;; that stringified differently on one runtime would reorder the tree
+    ;; there and nowhere else, and only this line would notice.
+    (let [ls (st/canonical-leaves ex)
+          a (first (sort (keys (get-in ex [:clearing :accounts]))))
+          p (cm/proof ls (cm/account-leaf-id a))]
+      (println "  PROOF a" a "verifies " (cm/verify p (st/state-root ex))))
+    (str (st/flat-root ex) "|" (st/state-root ex))))
 
 #?(:clj (defn -main [& _] (report)))

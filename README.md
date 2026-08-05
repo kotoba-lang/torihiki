@@ -422,11 +422,46 @@ The encoding hashes the **live** state, not the preallocated slabs, so a root
 costs what the book holds rather than what it could hold. It is tagged and
 length-prefixed so two different states cannot encode to the same bytes.
 
-It is still a **flat** digest: it commits to everything and proves nothing
-about any part. A light client that wants to verify one balance without
-replaying the chain needs an authenticated tree, and this is not one. Nor is
-it incremental — a root costs the whole state, which is right for the
-kilobytes a normal block touches and wrong for a book holding hundreds of
+### The root is a tree, and it proves parts
+
+`state-root` is the root of an **authenticated tree** over the same encoding,
+built with [`kotoba-lang/merkle-sum`](https://github.com/kotoba-lang/merkle-sum)
+— an existing zero-dependency portable Merkle tree with inclusion proofs,
+rather than a fourth one written here.
+
+`torihiki.state/canonical-leaves` cuts the encoding at the boundaries it
+already had, plus one per clearing account, **in the same order**. So
+
+```clojure
+(= (canonical-bytes ex) (mapcat :bytes (canonical-leaves ex)))   ; by definition
+```
+
+and the bytes underneath did not change. `flat-root` still returns what
+`state-root` used to, and the test suite pins it against the published digest
+below — the compatibility claim is an assertion now, not a README sentence.
+
+A client can verify one balance without holding the state:
+
+```clojure
+(let [p (cm/proof (st/canonical-leaves ex) (cm/account-leaf-id 10))]
+  (cm/verify p trusted-root))    ; => true
+```
+
+**`state-root` changed value when this landed.** A digest stored before it is
+a `flat-root`; comparing the two differs for a reason that is not a
+determinism bug, and during a rolling upgrade replicas on either side report
+different roots for the same state.
+
+The sums in the tree are all **zero**. A merkle-sum root carries the total of
+its leaves, which for an exchange is the obvious prize — proof of reserves —
+and this does not claim it: `verify` rejects a negative leaf sum, and
+collateral can go negative (`torihiki.liquidation` computes a shortfall from
+exactly that case). A total that is only valid while nobody is underwater is
+a claim that fails when it matters most. Making it real needs the
+non-negativity to be an invariant first.
+
+Still not **incremental**: a root costs the whole state, which is right for
+the kilobytes a normal block touches and wrong for a book holding hundreds of
 thousands of resting orders.
 
 ## Platform
@@ -441,9 +476,12 @@ bit-identical anyway.
 
 ```bash
 clojure -M:parity
-nbb --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
+nbb --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
+    -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   STATE ROOT  22f75a7ff4777d1c5ae397f47aa2b62b08aba8f2ba131aa6ae506b156cd9c87e
+#   FLAT ROOT   22f75a7ff4777d1c5ae397f47aa2b62b08aba8f2ba131aa6ae506b156cd9c87e
+#   STATE ROOT  d531adee8680d3845d92d38522c8aeff14c372e0aa091299531039301e75d69f
+#   PROOF a 10 verifies  true
 ```
 
 That check earns its place. A JVM-side optimization — reading the `Book`
