@@ -230,3 +230,15 @@
              (auth/check ex {:tx {:tx :order} :account 42 :nonce 2
                              :sig "s" :pubkey "pk-042"}
                          chain verify derive-fn))))))
+
+(deftest the-credit-field-is-signed
+  ;; The whole point of the field. If it were outside the payload, an attacker
+  ;; could take a bridge's signed deposit, change who it pays, and hand it in:
+  ;; the signature would still verify because the bytes it covered never
+  ;; mentioned the recipient.
+  (is (not= (auth/signing-payload "c" 7 1 {:tx :deposit :amount 100 :credit 42})
+            (auth/signing-payload "c" 7 1 {:tx :deposit :amount 100 :credit 43})))
+  ;; And absent is distinguishable from present, so a deposit that pays the
+  ;; signer cannot be re-read as one that pays somebody else.
+  (is (not= (auth/signing-payload "c" 7 1 {:tx :deposit :amount 100})
+            (auth/signing-payload "c" 7 1 {:tx :deposit :amount 100 :credit 7}))))

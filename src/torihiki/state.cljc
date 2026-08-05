@@ -120,8 +120,11 @@
 (defmethod apply-tx :default [ex _tx] ex)
 
 (defmethod apply-tx :deposit
-  [ex {:keys [account amount]}]
-  (update ex :clearing cl/deposit account amount))
+  [ex {:keys [account amount credit]}]
+  ;; `credit` when the bridge is paying somebody, `account` when an account is
+  ;; paying itself. `api/validate` has already refused the combinations that
+  ;; would make this a mint.
+  (update ex :clearing cl/deposit (or credit account) amount))
 
 (defmethod apply-tx :withdraw
   [ex {:keys [account amount]}]
