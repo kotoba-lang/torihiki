@@ -252,3 +252,31 @@
         (is (= 2 (:next-nonce (api/account-state ex 7))))
         (is (= "pk-7" (:bound-key (api/account-state ex 7))))
         (is (nil? (:bound-key (api/account-state ex 8))) "a different id is free")))))
+
+;; ── the bridge pays somebody other than itself ──────────────────────────────
+
+(deftest a-bridge-may-credit-another-account
+  (let [ex (assoc (fresh) :bridge-authority 7)]
+    (is (nil? (api/validate ex {:tx :deposit :account 7 :credit 42 :amount 100})))))
+
+(deftest only-the-bridge-may-deposit-when-one-is-configured
+  (let [ex (assoc (fresh) :bridge-authority 7)]
+    (is (= :not-the-bridge
+           (api/validate ex {:tx :deposit :account 9 :credit 9 :amount 100})))
+    (is (= :not-the-bridge
+           (api/validate ex {:tx :deposit :account 9 :credit 42 :amount 100})))))
+
+(deftest without-a-bridge-an-account-may-only-pay-itself
+  ;; Not a safety property on its own — with no authority anyone can mint
+  ;; anyway — but crediting a stranger is a way to obscure where collateral
+  ;; came from on a chain where the mint is meant to be the only source.
+  (let [ex (fresh)]
+    (is (nil? (api/validate ex {:tx :deposit :account 9 :amount 100})))
+    (is (nil? (api/validate ex {:tx :deposit :account 9 :credit 9 :amount 100})))
+    (is (= :not-the-bridge
+           (api/validate ex {:tx :deposit :account 9 :credit 42 :amount 100})))))
+
+(deftest a-credit-that-is-not-an-account-is-refused
+  (let [ex (assoc (fresh) :bridge-authority 7)]
+    (is (= :bad-account
+           (api/validate ex {:tx :deposit :account 7 :credit "42" :amount 100})))))

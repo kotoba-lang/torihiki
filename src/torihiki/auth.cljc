@@ -85,7 +85,21 @@
    (:trigger-price tx)
    (when-let [d (:direction tx)] (name d))
    (get-in tx [:order :side]) (get-in tx [:order :level])
-   (get-in tx [:order :qty]) (get-in tx [:order :flags])])
+   (get-in tx [:order :qty]) (get-in tx [:order :flags])
+   ;; `:credit` — who a bridge deposit pays. APPENDED, and appended is the
+   ;; only safe place: the payload numbers fields by position, so inserting
+   ;; one renumbers every field after it and invalidates every signature ever
+   ;; made. Appending changes the payload too (every transaction gains a
+   ;; trailing `f16=` line, empty for the ones that do not use it) — which is
+   ;; why the node and the browser have to ship together. A client one pin
+   ;; behind signs a payload the node does not compute and gets
+   ;; `bad-signature`, which reads as a cryptography problem and is not one.
+   ;;
+   ;; Unconditional rather than present-only. A field that is signed only when
+   ;; it appears is a field an attacker can ADD to a signed transaction: the
+   ;; signature still verifies because the payload it covered did not mention
+   ;; it, and a deposit made out to somebody else arrives looking authentic.
+   (:credit tx)])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two

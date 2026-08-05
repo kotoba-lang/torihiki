@@ -149,6 +149,27 @@
       ;; decorative, since an attacker would use the door that does not check.
       (let [bridge (:bridge-authority ex)]
         (and bridge (not= account bridge))) :not-the-bridge
+      ;; Who the deposit pays. The signer is still the bridge — the
+      ;; certificate backing this collateral is the bridge's own Ed25519
+      ;; signature over the transaction, which the chain already verifies and
+      ;; which its strictly sequential nonce already protects from replay.
+      ;;
+      ;; A second signing scheme (an authority-signed voucher carried inside a
+      ;; user-submitted deposit) would need its own payload format, its own
+      ;; spent-voucher set in the state root, and its own agreement between
+      ;; client and node forever. This repo has said twice already why it does
+      ;; not keep two implementations of a signed payload; the transaction
+      ;; signature IS the certificate.
+      ;;
+      ;; Omitted, the deposit pays the signer, which is what it did before a
+      ;; bridge could exist.
+      (and (some? (:credit t)) (not (integer? (:credit t)))) :bad-account
+      ;; Only a bridge may pay somebody else. Without this, any account could
+      ;; credit any other on a chain with no authority configured — harmless
+      ;; there in isolation, and a way to obscure where collateral came from
+      ;; on a chain where the mint is supposed to be the only source.
+      (and (some? (:credit t)) (nil? (:bridge-authority ex))
+           (not= (:credit t) account)) :not-the-bridge
       :else nil)
 
     :withdraw
