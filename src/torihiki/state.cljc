@@ -50,77 +50,94 @@
 ;; ── construction ────────────────────────────────────────────────────────────
 
 (defn new-exchange
-  "An exchange over one market. Multi-market is a map of books keyed by market
-  id; the single-market case is spelled out here because it is what the tests
-  and the benchmark exercise, and pretending otherwise would be scaffolding
-  nobody has run."
-  [{:keys [market book-opts] :as _cfg}]
-  {:markets {(:id market) market}
-   :books {(:id market) (bk/new-book (or book-opts {}))}
-   :clearing (assoc (cl/new-state)
-                    :insurance-fund 0
-                    :backstop-vault vault-account
-                    :liquidation-clock {})
-   :oracle {}
-   ;; `:marks` is DERIVED (torihiki.mark) and is what margin and liquidation
-   ;; read. `:last` is the last traded price and exists only to be displayed —
-   ;; showing a trader the last print is right, margining them against it is
-   ;; how one thin fill liquidates somebody else.
-   :marks {}
-   :last {}
-   :mark-params mk/default-params
-   :funding {(:id market) fnd/empty-accumulator}
-   :funding-params fnd/default-params
-   ;; Conditional orders, per market. They are state: they change what future
-   ;; blocks do, so they are committed to by the state root.
-   :triggers {}
-   :trigger-seq 0
-   ;; Authentication state. Both are consensus state, not server state: every
-   ;; validator must agree on which nonces are spent and which key owns an
-   ;; account, or they disagree about what is a replay and who may trade.
-   :nonces {}
-   :account-keys {}
-   ;; Oracle publishers are configured at genesis and this engine does not
-   ;; change the set — rotating them is a governance question, and answering
-   ;; it badly is worse than not answering it here.
-   :oracle-publishers (set (:oracle-publishers _cfg))
-   :oracle-submissions {}
-   :oracle-params orc/default-params
-   ;; A market with no publishers configured accepts a direct `:oracle`
-   ;; transaction, which is what the tests and a single-operator devnet use.
-   ;; With publishers, direct setting is refused: leaving both doors open
-   ;; would make the aggregate decorative.
-   :oracle-stale {}
-   ;; Where collateral is allowed to come from. Configured at genesis for the
-   ;; same reason publishers are: it is a governance question, and an engine
-   ;; that let a transaction change it would let whoever holds the current key
-   ;; hand the mint to somebody else.
-   ;;
-   ;; nil means any authenticated account may credit itself, which is what the
-   ;; tests and a single-operator devnet use — and which means the collateral
-   ;; backing every position is whatever people asked for. `torihiki.api`
-   ;; explains why that makes the clearinghouse exact and meaningless.
-   :bridge-authority (:bridge-authority _cfg)
-   ;; A fired trigger places an order, which moves the book, which reprices
-   ;; the mark, which can arm more triggers. That cascade has to terminate.
-   :max-trigger-rounds 8
-   :liq-params liq/default-params
-   ;; Withdrawals that have left an account and not yet left the exchange.
-   ;;
-   ;; A withdrawal used to decrement the balance and end there, which `api`
-   ;; said plainly: nothing pays out anywhere. That is not a missing feature
-   ;; at the edge, it is a hole in the middle — the collateral stops being
-   ;; anybody's and no obligation replaces it, so the chain's own total says
-   ;; the exchange owes less while nobody has been paid.
-   ;;
-   ;; A claim is that obligation, and it is a leaf, so whoever holds the
-   ;; escrow can be handed an inclusion proof and pay against it instead of
-   ;; against a promise. `:withdraw-seq` names claims; it is committed too,
-   ;; because a replica that numbered the next one differently would fork.
-   :withdrawals {}
-   :withdraw-seq 0
-   :height 0
-   :ts 0})
+  "An exchange over one or more markets.
+
+  `:market` is one market and `:markets` is a collection of them; give either.
+  The single-market spelling stays because it is what the tests, the benchmark
+  and the parity scenario use, and rewriting three hundred call sites to pass a
+  vector of one would be churn.
+
+  Multi-market was always the shape here — `:books` is a map keyed by market id
+  and every transaction names its market — but nothing built more than one, so
+  the claim was untested. `book-opts` applies to every book: each market gets
+  its own slab, so the memory is per market and a small ladder is the way to
+  run many of them."
+  [{:keys [market markets book-opts] :as _cfg}]
+  (let [ms (vec (or (seq markets) [market]))]
+    (when (empty? ms)
+      (throw (ex-info "torihiki.state: an exchange needs at least one market" {})))
+    (when (not= (count ms) (count (distinct (map :id ms))))
+      ;; Two markets sharing an id is one market that behaves like two: the
+      ;; second would replace the first in every map here, and the transactions
+      ;; naming it would land somewhere nobody meant.
+      (throw (ex-info "torihiki.state: duplicate market id"
+                      {:ids (mapv :id ms)})))
+    {:markets (into {} (map (juxt :id identity)) ms)
+     :books (into {} (map (fn [m] [(:id m) (bk/new-book (or book-opts {}))])) ms)
+     :clearing (assoc (cl/new-state)
+                      :insurance-fund 0
+                      :backstop-vault vault-account
+                      :liquidation-clock {})
+     :oracle {}
+     ;; `:marks` is DERIVED (torihiki.mark) and is what margin and liquidation
+     ;; read. `:last` is the last traded price and exists only to be displayed —
+     ;; showing a trader the last print is right, margining them against it is
+     ;; how one thin fill liquidates somebody else.
+     :marks {}
+     :last {}
+     :mark-params mk/default-params
+     :funding (into {} (map (fn [m] [(:id m) fnd/empty-accumulator])) ms)
+     :funding-params fnd/default-params
+     ;; Conditional orders, per market. They are state: they change what future
+     ;; blocks do, so they are committed to by the state root.
+     :triggers {}
+     :trigger-seq 0
+     ;; Authentication state. Both are consensus state, not server state: every
+     ;; validator must agree on which nonces are spent and which key owns an
+     ;; account, or they disagree about what is a replay and who may trade.
+     :nonces {}
+     :account-keys {}
+     ;; Oracle publishers are configured at genesis and this engine does not
+     ;; change the set — rotating them is a governance question, and answering
+     ;; it badly is worse than not answering it here.
+     :oracle-publishers (set (:oracle-publishers _cfg))
+     :oracle-submissions {}
+     :oracle-params orc/default-params
+     ;; A market with no publishers configured accepts a direct `:oracle`
+     ;; transaction, which is what the tests and a single-operator devnet use.
+     ;; With publishers, direct setting is refused: leaving both doors open
+     ;; would make the aggregate decorative.
+     :oracle-stale {}
+     ;; Where collateral is allowed to come from. Configured at genesis for the
+     ;; same reason publishers are: it is a governance question, and an engine
+     ;; that let a transaction change it would let whoever holds the current key
+     ;; hand the mint to somebody else.
+     ;;
+     ;; nil means any authenticated account may credit itself, which is what the
+     ;; tests and a single-operator devnet use — and which means the collateral
+     ;; backing every position is whatever people asked for. `torihiki.api`
+     ;; explains why that makes the clearinghouse exact and meaningless.
+     :bridge-authority (:bridge-authority _cfg)
+     ;; A fired trigger places an order, which moves the book, which reprices
+     ;; the mark, which can arm more triggers. That cascade has to terminate.
+     :max-trigger-rounds 8
+     :liq-params liq/default-params
+     ;; Withdrawals that have left an account and not yet left the exchange.
+     ;;
+     ;; A withdrawal used to decrement the balance and end there, which `api`
+     ;; said plainly: nothing pays out anywhere. That is not a missing feature
+     ;; at the edge, it is a hole in the middle — the collateral stops being
+     ;; anybody's and no obligation replaces it, so the chain's own total says
+     ;; the exchange owes less while nobody has been paid.
+     ;;
+     ;; A claim is that obligation, and it is a leaf, so whoever holds the
+     ;; escrow can be handed an inclusion proof and pay against it instead of
+     ;; against a promise. `:withdraw-seq` names claims; it is committed too,
+     ;; because a replica that numbered the next one differently would fork.
+     :withdrawals {}
+     :withdraw-seq 0
+     :height 0
+     :ts 0}))
 
 ;; ── transactions ────────────────────────────────────────────────────────────
 
