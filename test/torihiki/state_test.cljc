@@ -963,3 +963,14 @@
     (is (not= (auth/signing-payload "c" 1 1 tx)
               (auth/signing-payload "c" 1 1 (assoc tx :step 50)))
         "the spacing was not signed")))
+
+(deftest the-root-commits-to-publisher-stake
+  ;; Stake decides whose price wins, so a replica that disagreed about it would
+  ;; compute a different mark from the same submissions — and margin reads the
+  ;; mark.
+  (let [a (st/new-exchange {:market mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}
+                            :oracle-publishers [1 2] :publisher-stake {1 10 2 1}})
+        b (st/new-exchange {:market mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}
+                            :oracle-publishers [1 2] :publisher-stake {1 1 2 10}})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "the weights sat outside the root")))

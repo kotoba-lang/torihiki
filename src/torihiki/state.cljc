@@ -100,7 +100,9 @@
      ;; Oracle publishers are configured at genesis and this engine does not
      ;; change the set — rotating them is a governance question, and answering
      ;; it badly is worse than not answering it here.
-     :oracle-publishers (set (:oracle-publishers _cfg))
+       :oracle-publishers (set (:oracle-publishers _cfg))
+     ;; How much each publisher's word weighs. See `apply-tx :oracle-submit`.
+     :publisher-stake (:publisher-stake _cfg)
      :oracle-submissions {}
      :oracle-params orc/default-params
      ;; A market with no publishers configured accepts a direct `:oracle`
@@ -587,7 +589,20 @@
                                 (get-in ex [:oracle-submissions market])
                                 (:oracle-publishers ex)
                                 (:ts ex)
-                                (:oracle-params ex))]
+                                (:oracle-params ex)
+                                ;; Stake, when the chain has any. `:publisher-stake`
+                                ;; is genesis data like the publisher set itself:
+                                ;; who may speak and how much their word weighs are
+                                ;; the same governance question, and a transaction
+                                ;; that could change either would hand the price to
+                                ;; whoever holds the current key.
+                                ;;
+                                ;; Absent, the aggregate is the plain median it has
+                                ;; always been — a chain with no bonds has nothing
+                                ;; to weigh, and inventing weights would be a
+                                ;; stronger claim than the deployment supports.
+                                (when-let [st (:publisher-stake ex)]
+                                  (fn [pub] (get st pub 0))))]
     (-> (if stale?
           ;; Keep the last price but say it is stale. Discarding it would
           ;; leave the mark at zero and stop everything; pretending it is
@@ -909,12 +924,18 @@
   the devnet faucet, where anybody may credit themselves."
   [ex]
   (let [bridge (:bridge-authority ex)
-        pubs (sort (:oracle-publishers ex))]
-    (into (enc-ints [enc-tag-governance
-                     (if (some? bridge) 1 0)
-                     (or bridge 0)
-                     (count pubs)])
-          (enc-ints pubs))))
+        pubs (sort (:oracle-publishers ex))
+        stake (:publisher-stake ex)]
+    (-> (enc-ints [enc-tag-governance
+                   (if (some? bridge) 1 0)
+                   (or bridge 0)
+                   (count pubs)])
+        (into (enc-ints pubs))
+        ;; The weights, beside the voices. Stake decides whose price wins, so
+        ;; a replica that disagreed about it would compute a different mark
+        ;; from the same submissions — and margin reads the mark.
+        (into (enc-ints [enc-tag-governance (if stake 1 0) (count (or stake {}))]))
+        (into (enc-ints (mapcat (fn [p] [p (get stake p 0)]) (sort (keys (or stake {})))))))))
 
 (defn- auth-accounts [ex]
   (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))

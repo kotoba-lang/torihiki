@@ -71,6 +71,39 @@
   (when (seq sorted)
     (second (nth sorted (quot (dec (count sorted)) 2)))))
 
+(defn weighted-median
+  "The price at which half the STAKE sits below, or nil when empty.
+
+  A plain median counts publishers; this counts what they have at risk. The
+  difference is who has to collude: with one publisher one vote, a majority of
+  publishers moves the price however small they are, and publishers are cheap
+  to create. Weighting by stake makes the cost of moving the price the cost of
+  acquiring the stake, which is the property the bond was posted for.
+
+  `stake-of` returns a publisher's stake; a publisher with none contributes
+  nothing, which is the honest reading of an unbonded voice rather than a
+  special case.
+
+  Lower middle again — the first price at which the running stake reaches half
+  the total. Reading it positionally the way the unweighted median does would
+  not mean anything here, because the positions are not equal weights."
+  [sorted stake-of]
+  (when (seq sorted)
+    (let [weights (mapv (fn [[pub _]] (max 0 (or (stake-of pub) 0))) sorted)
+          total (reduce + 0 weights)]
+      (if (zero? total)
+        ;; Nobody has anything at risk. Falling back to the unweighted median
+        ;; is the same answer this had before stake existed, and it is better
+        ;; than no price: the alternative is a market that stops because its
+        ;; publishers are unbonded, which is a governance problem wearing an
+        ;; outage.
+        (median sorted)
+        (loop [i 0 acc 0]
+          (let [acc (+ acc (nth weights i))]
+            (if (or (>= (* 2 acc) total) (= i (dec (count sorted))))
+              (second (nth sorted i))
+              (recur (inc i) acc))))))))
+
 (defn aggregate
   "Return `{:price p :n n :stale? false}` when quorum is met, or
   `{:price nil :n n :stale? true}` when it is not.
@@ -78,11 +111,15 @@
   Never returns a price computed from too few submissions. A price the system
   cannot vouch for is worse than no price, because everything downstream —
   the mark, margin, liquidation — will treat it as vouched for."
-  [submissions publishers now {:keys [quorum max-age] :as _params}]
-  (let [f (fresh submissions publishers now max-age)]
-    (if (>= (count f) quorum)
-      {:price (median f) :n (count f) :stale? false}
-      {:price nil :n (count f) :stale? true})))
+  ([submissions publishers now params] (aggregate submissions publishers now params nil))
+  ([submissions publishers now {:keys [quorum max-age] :as _params} stake-of]
+   (let [f (fresh submissions publishers now max-age)]
+     (if (>= (count f) quorum)
+       {:price (if stake-of (weighted-median f stake-of) (median f))
+        :n (count f)
+        :weighted? (boolean stake-of)
+        :stale? false}
+       {:price nil :n (count f) :weighted? (boolean stake-of) :stale? true}))))
 
 (defn deviation
   "How far `price` sits from `reference`, as a rate. Used to report how much a
