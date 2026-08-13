@@ -1598,3 +1598,49 @@
         "an attestation nobody can see in the root is an attestation nobody
          can check")
     (is (not= (st/state-root one) (st/state-root (att (att one 222) 223))))))
+
+(deftest the-exit-needs-a-quorum-too
+  ;; `:withdraw-settle` is one key saying the money left, which is the same
+  ;; shape as `:deposit` and has the same problem pointing the other way: the
+  ;; key that can settle a real claim can settle one that was never paid.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (validators [231 232 233])
+               (funded [304] 50000)
+               (st/apply-tx {:tx :withdraw :account 304 :amount 20000}))
+        claim (:withdraw-seq ex)
+        att (fn [e v] (st/apply-tx e {:tx :withdraw-attest :account v
+                                      :claim claim :txid "THOR-OUT-1"
+                                      :dest "0xabc"}))
+        one (att ex 231)
+        three (att (att one 232) 233)]
+    (is (some? (get-in ex [:withdrawals claim])) "the claim was never raised")
+    (is (some? (get-in one [:withdrawals claim]))
+        "one validator's word settled a claim")
+    (is (nil? (get-in three [:withdrawals claim])))
+    (is (= "THOR-OUT-1" (get-in three [:paid claim :txid]))
+        "the payment left no record a reader could follow")
+    (is (true? (get-in three [:paid claim :settled?])))))
+
+(deftest an-exit-attestation-must-name-the-same-payment
+  ;; A quorum agreeing that SOMETHING was paid is not evidence that this claim
+  ;; was. The transaction and the destination are part of what has to match.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (validators [241 242 243])
+               (funded [305] 50000)
+               (st/apply-tx {:tx :withdraw :account 305 :amount 10000}))
+        claim (:withdraw-seq ex)
+        a1 (st/apply-tx ex {:tx :withdraw-attest :account 241 :claim claim
+                            :txid "THOR-A" :dest "0xaaa"})
+        other (st/apply-tx a1 {:tx :withdraw-attest :account 242 :claim claim
+                               :txid "THOR-B" :dest "0xbbb"})
+        a3 (st/apply-tx (st/apply-tx other {:tx :withdraw-attest :account 242
+                                            :claim claim :txid "THOR-A"
+                                            :dest "0xaaa"})
+                        {:tx :withdraw-attest :account 243 :claim claim
+                         :txid "THOR-A" :dest "0xaaa"})]
+    (is (= #{241} (:attests (get-in other [:paid claim])))
+        "a different payment was counted toward this claim's quorum")
+    (is (nil? (get-in a3 [:withdrawals claim])))
+    (is (= "0xaaa" (get-in a3 [:paid claim :dest])))))
