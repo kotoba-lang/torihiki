@@ -310,6 +310,21 @@
       (not (and (integer? (:amount t)) (not (neg? (:amount t))))) :bad-amount
       :else nil)
 
+    ;; An escrow deposit observed on another chain.
+    ;;
+    ;; Refused HERE for shape, so a malformed attestation is answered rather
+    ;; than silently ignored by `apply-tx`. Whether the attestor has weight and
+    ;; whether a quorum agrees are consensus questions and stay there — this
+    ;; only says the transaction is the shape it claims to be.
+    :deposit-attest
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
+      (not (integer? (:credit t))) :bad-account
+      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (and (string? (:asset t)) (seq (:asset t)))) :missing-field
+      :else nil)
+
     :set-referrer
     (cond
       (not (integer? account)) :bad-account

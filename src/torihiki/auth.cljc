@@ -171,7 +171,30 @@
    ;; through JSON does not hold it in the same order as the one that was
    ;; signed. Measured on the deployed chain — every market amend carrying fee
    ;; tiers came back `bad-signature`, four in a row.
-   (canonical-value (:spec tx))])
+   ;; The escrow, appended for the same reason as everything above it.
+   ;;
+   ;; `:txid` is the transaction on the OTHER chain that a validator says it
+   ;; saw. Unsigned, a validator's attestation could be re-pointed at a
+   ;; different deposit in flight — and an attestation is the only thing
+   ;; standing between "somebody sent money" and "this account has
+   ;; collateral". `:asset` says which asset it was, `:dest` where a
+   ;; withdrawal is to be paid. An unsigned `:dest` is an attacker choosing
+   ;; where somebody else's money goes.
+   (canonical-value (:spec tx))
+   ;; AFTER `:spec`, which was the last field until now.
+   ;;
+   ;; These first went in ABOVE it — an insertion, not an append, which
+   ;; renumbers `f<n>` for `:spec` and invalidates every market listing and
+   ;; amend ever signed. That is the exact mistake the note on `:credit`
+   ;; describes, made while reading it.
+   ;;
+   ;; `:txid` is the transaction on the OTHER chain that a validator says it
+   ;; saw. Unsigned, an attestation could be re-pointed at a different deposit
+   ;; in flight — and an attestation is the only thing standing between
+   ;; "somebody sent money" and "this account has collateral". `:asset` says
+   ;; which asset, `:dest` where a withdrawal is paid. An unsigned `:dest` is
+   ;; an attacker choosing where somebody else's money goes.
+   (:txid tx) (:asset tx) (:dest tx)])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two

@@ -1510,3 +1510,91 @@
         b (st/apply-tx a {:tx :create-sub-account :account 20 :sub 21})]
     (is (not= (st/state-root a) (st/state-root b))
         "who may move an account's money sat outside the root")))
+
+;; ── the escrow: deposits observed on another chain ──────────────────────────
+;;
+;; The escrow is THORChain. A user sends the asset to its vault with a memo
+;; naming their torihiki account; what this chain decides is when that becomes
+;; collateral here. `:deposit` — the bridge authority crediting an account — is
+;; one key away from a mint and stays only because a chain with no bridge
+;; cannot be funded at all. These are the tests for the other path.
+
+(defn- validators
+  "Bond `n` accounts to themselves so `stake-of` gives each of them weight —
+  which is what `:deposit-attest` requires of an attestor."
+  [ex accts]
+  (reduce (fn [e a] (st/apply-tx e {:tx :bond :account a :validator a
+                                    :amount 100000}))
+          (funded ex accts 1000000)
+          accts))
+
+(deftest a-deposit-needs-a-quorum-and-credits-exactly-once
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (validators [201 202 203 204])
+               (funded [300] 0))
+        att (fn [e v] (st/apply-tx e {:tx :deposit-attest :account v
+                                      :txid "THOR-ABC" :credit 300
+                                      :amount 5000 :asset "ETH.ETH"}))
+        one (att ex 201)
+        two (att one 202)
+        three (att two 203)
+        four (att three 204)
+        bal #(get-in % [:clearing :accounts 300 :collateral] 0)]
+    (is (= 0 (bal one)) "one validator's word was enough to mint")
+    (is (= 0 (bal two)) "two were enough — a minority can mint")
+    (is (= 5000 (bal three)) "a quorum said so and nothing happened")
+    (is (= 5000 (bal four)) "a late fourth attestation paid the deposit twice")
+    (is (true? (get-in four [:inbound "THOR-ABC" :credited?])))))
+
+(deftest a-stranger-cannot-attest-a-deposit
+  ;; Weight is what makes a validator's word cost something. An account nobody
+  ;; bonded is a stranger, and three strangers are three strangers.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [301 401 402 403] 0))
+        after (reduce (fn [e v] (st/apply-tx e {:tx :deposit-attest :account v
+                                                :txid "THOR-XYZ" :credit 301
+                                                :amount 9000 :asset "ETH.ETH"}))
+                      ex [401 402 403])]
+    (is (= 0 (get-in after [:clearing :accounts 301 :collateral] 0)))
+    (is (nil? (get-in after [:inbound "THOR-XYZ"])))))
+
+(deftest an-attestation-cannot-be-changed
+  ;; Evidence that can be edited is not evidence. A validator that attested one
+  ;; amount and then another for the same transaction is refused rather than
+  ;; allowed to overwrite — otherwise the last validator to speak decides.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (validators [211 212 213])
+               (funded [302] 0))
+        a1 (st/apply-tx ex {:tx :deposit-attest :account 211 :txid "THOR-1"
+                            :credit 302 :amount 1000 :asset "ETH.ETH"})
+        bad (st/apply-tx a1 {:tx :deposit-attest :account 212 :txid "THOR-1"
+                             :credit 302 :amount 999999 :asset "ETH.ETH"})
+        a2 (st/apply-tx bad {:tx :deposit-attest :account 212 :txid "THOR-1"
+                             :credit 302 :amount 1000 :asset "ETH.ETH"})
+        a3 (st/apply-tx a2 {:tx :deposit-attest :account 213 :txid "THOR-1"
+                            :credit 302 :amount 1000 :asset "ETH.ETH"})]
+    (is (= 1000 (:amount (get-in bad [:inbound "THOR-1"])))
+        "the second validator rewrote the first one's evidence")
+    (is (= #{211} (:attests (get-in bad [:inbound "THOR-1"])))
+        "a disagreeing attestation was counted toward the quorum")
+    (is (= 1000 (get-in a3 [:clearing :accounts 302 :collateral] 0)))))
+
+(deftest the-escrow-is-in-the-state-root
+  ;; A credited deposit IS collateral. A replica that credited one its peers
+  ;; did not would agree about every order and disagree about who can afford
+  ;; them, and a root that did not cover this would call the two identical.
+  (let [base (-> (fresh)
+                 (st/apply-tx {:tx :oracle :market 1 :price 500})
+                 (validators [221 222 223])
+                 (funded [303] 0))
+        att (fn [e v] (st/apply-tx e {:tx :deposit-attest :account v
+                                      :txid "THOR-R" :credit 303
+                                      :amount 700 :asset "ETH.ETH"}))
+        one (att base 221)]
+    (is (not= (st/state-root base) (st/state-root one))
+        "an attestation nobody can see in the root is an attestation nobody
+         can check")
+    (is (not= (st/state-root one) (st/state-root (att (att one 222) 223))))))

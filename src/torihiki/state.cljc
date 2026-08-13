@@ -159,6 +159,75 @@
   ;; would make this a mint.
   (update ex :clearing cl/deposit (or credit account) amount))
 
+(def ^:const attest-quorum
+  "How many distinct bonded validators must say they saw a deposit before it
+  becomes collateral. **3.**
+
+  The same number as the consensus quorum for a set of four, and for the same
+  reason: below it a minority can mint, above it a single outage stops
+  deposits. It is a constant rather than a fraction of the live set because a
+  threshold that moves with participation is a threshold an attacker lowers by
+  taking validators offline."
+  3)
+
+(defmethod apply-tx :deposit-attest
+  [ex {:keys [account txid credit amount asset]}]
+  ;; A validator says it saw money arrive on the other chain.
+  ;;
+  ;; The escrow is THORChain: a user sends the asset to the network's vault
+  ;; with a memo naming their torihiki account, THORChain's own validators
+  ;; observe it into their consensus, and the asset sits in a vault whose key
+  ;; no single party holds. What this chain has to decide is when that becomes
+  ;; collateral here, and the honest answer is "when enough of our validators
+  ;; independently say so" — the same shape as `commit/reserves`, one level
+  ;; earlier.
+  ;;
+  ;; ## Why not the bridge authority
+  ;;
+  ;; `:deposit` already lets a configured bridge credit an account, and that
+  ;; is one key away from a mint: whoever holds it can credit anybody any
+  ;; amount, and nothing on the chain can tell a real deposit from an invented
+  ;; one. It stays, because a chain with no bridge has no way to be funded at
+  ;; all, but it is not what an escrow should rest on.
+  ;;
+  ;; Here the credit needs `attest-quorum` DISTINCT bonded validators to have
+  ;; attested the SAME txid with the same account, amount and asset. A
+  ;; validator that attests something different from what is already recorded
+  ;; for that txid is refused rather than allowed to overwrite — an attestation
+  ;; that can be changed is not evidence.
+  ;;
+  ;; ## Exactly once
+  ;;
+  ;; Keyed by `txid`, and `:credited?` is set when the credit happens. A txid
+  ;; already credited takes no further attestations and pays nothing more,
+  ;; which is what stops the same deposit from being replayed by an extra
+  ;; validator arriving late.
+  (let [t (get-in ex [:inbound txid])
+        bonded? (pos? (cl/stake-of (:clearing ex) account))
+        shape {:credit credit :amount amount :asset asset}
+        agrees? (or (nil? t) (= shape (select-keys t [:credit :amount :asset])))]
+    (cond
+      (not (and (string? txid) (seq txid) (integer? amount) (pos? amount)
+                (integer? credit) (string? asset) (seq asset)))
+      ex
+
+      ;; Only a validator the chain already trusts with weight. An attestation
+      ;; from an account nobody bonded is a stranger's word.
+      (not bonded?) ex
+
+      (:credited? t) ex
+
+      (not agrees?) ex
+
+      :else
+      (let [attests (conj (:attests t #{}) account)
+            t' (merge shape {:attests attests})]
+        (if (< (count attests) attest-quorum)
+          (assoc-in ex [:inbound txid] t')
+          (-> ex
+              (assoc-in [:inbound txid] (assoc t' :credited? true))
+              (update :clearing cl/deposit credit amount)))))))
+
 (defmethod apply-tx :withdraw
   [ex {:keys [account amount]}]
   (let [clearing (:clearing ex)
@@ -1112,6 +1181,23 @@
   [id w]
   (enc-ints [enc-tag-withdrawal id (:account w) (:amount w) (:height w 0)]))
 
+(def ^:const enc-tag-inbound 20)
+
+(defn- encode-inbound
+  "One escrow deposit: the transaction on the other chain, who it credits, how
+  much, in what asset, whether it has been credited, and who attested it.
+
+  The ATTESTORS are in the preimage, sorted. Two replicas that credited the
+  same deposit on different evidence agree about the balance and disagree
+  about why, and a root that covered only the balance would call that
+  identical — which is the one disagreement an escrow cannot afford to hide."
+  [txid t]
+  (-> (enc-string txid)
+      (into (enc-ints [enc-tag-inbound (:credit t 0) (:amount t 0)
+                       (if (:credited? t) 1 0) (count (:attests t #{}))]))
+      (into (enc-string (:asset t "")))
+      (into (mapcat enc-int (sort (:attests t #{}))))))
+
 (def ^:const enc-tag-governance 12)
 
 (defn- encode-governance
@@ -1541,7 +1627,32 @@
             ;; leaf and the sum does not change. Settlement is then the only
             ;; thing that lowers it, which is correct, because settlement is
             ;; the only thing that actually pays anybody.
-            :sum (:amount (get ws id))})))))))
+            :sum (:amount (get ws id))})))
+      ;; Escrow deposits observed on the other chain.
+      ;;
+      ;; In the root because a credited deposit IS collateral: a replica that
+      ;; credited one its peers did not would agree about every order and
+      ;; disagree about who could afford them. No merkle-sum value — the money
+      ;; is already counted in the account leaf it was credited to, and
+      ;; counting it here as well would make the root's total say the venue
+      ;; owes twice what it does.
+      ;; EMPTY MEANS ABSENT, unlike the sections above it.
+      ;;
+      ;; Those emit a header leaf whether or not they hold anything, which is
+      ;; right for a section every exchange has. This one would change the root
+      ;; of every existing chain the moment it shipped — and a root that
+      ;; changes on deploy is a fork between replicas that have restarted and
+      ;; replicas that have not, which this workspace has already paid for
+      ;; once. A chain with no escrow deposits encodes exactly as it did
+      ;; before; the first attestation is what brings the section into being.
+      (let [ins (:inbound ex {})]
+        (when (seq ins)
+          (cons
+           {:id "07:00" :bytes (enc-ints [enc-tag-inbound (count ins)
+                                          (count (filter (comp :credited? val) ins))])}
+           (for [txid (sort (keys ins))]
+             {:id (str "07:01:" txid)
+              :bytes (encode-inbound txid (get ins txid))}))))))))
 
 (defn canonical-bytes
   "The exact byte sequence `flat-root` digests. Exposed because a state root
