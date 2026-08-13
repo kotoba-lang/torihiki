@@ -250,6 +250,75 @@
 
 ;; ── account admin ───────────────────────────────────────────────────────────
 
+(def ^:const volume-epoch-blocks
+  "How many blocks one volume epoch spans.
+
+  Fee tiers are supposed to reward RECENT activity, so the number they read has
+  to fall as well as rise. A cumulative-forever total only ratchets: an account
+  that traded once, years ago, keeps the discount it earned then.
+
+  A rolling window needs a clock and the engine has none — so the window is
+  blocks. Volume is kept per epoch and the tier reads the current epoch plus
+  the previous one, which is a window between one and two epochs wide
+  depending on where in the current one you ask. That wobble is the price of
+  not having a clock, and it is bounded and identical on every replica, which
+  a wall-clock window would not be."
+  20000)
+
+(defn volume-of
+  "The rolling notional `acct` has traded: this epoch plus the last one.
+
+  Zero for an account whose record is from an epoch that has since passed —
+  the volume did not move to `:prev`, because nothing has traded to move it."
+  [state acct height]
+  (let [e (quot (long height) volume-epoch-blocks)
+        {:keys [epoch cur prev] :or {epoch 0 cur 0 prev 0}}
+        (get-in state [:volume acct])]
+    (cond
+      (= epoch e) (+ cur prev)
+      (= epoch (dec e)) cur
+      :else 0)))
+
+(defn add-volume
+  "Record `notional` traded by `acct` at `height`.
+
+  The absent record and the current-epoch record are deliberately NOT the same
+  branch. Reading defaults out of a missing map and then `update`-ing that
+  missing map is how the first version threw a NullPointerException on the
+  very first fill of a fresh chain — the defaults made the code look total
+  while the map it went on to update was still nil."
+  [state acct height notional]
+  (let [e (quot (long height) volume-epoch-blocks)
+        rec (get-in state [:volume acct])]
+    (assoc-in state [:volume acct]
+              (cond
+                (nil? rec) {:epoch e :cur notional :prev 0}
+                (= (:epoch rec 0) e) (update rec :cur (fnil + 0) notional)
+                ;; One epoch on: what was current becomes previous.
+                (= (:epoch rec 0) (dec e)) {:epoch e :cur notional :prev (:cur rec 0)}
+                ;; Further than that and both windows are stale, so neither is
+                ;; carried — a gap in trading is a gap in volume.
+                :else {:epoch e :cur notional :prev 0}))))
+
+(defn fee-rates-for
+  "`[taker maker]` for `acct` on `market`, given its rolling volume.
+
+  A market with no `:fee-tiers` charges its flat rates, which is what every
+  market did before this existed. Tiers are ascending by `:min-volume` and the
+  LAST one the account clears applies — the same shape `margin-tiers` already
+  has, and for the same reason: a schedule read from the wrong end is a
+  discount handed to the smallest account."
+  [state acct market-spec height]
+  (let [tiers (:fee-tiers market-spec)
+        base [(get market-spec :taker-fee-rate 0) (get market-spec :maker-fee-rate 0)]]
+    (if (empty? tiers)
+      base
+      (let [v (volume-of state acct height)
+            t (last (filter #(<= (:min-volume %) v) tiers))]
+        (if t
+          [(get t :taker-fee-rate (first base)) (get t :maker-fee-rate (second base))]
+          base)))))
+
 (defn settle-deficit
   "Move an account's negative collateral into `:deficit`, leaving collateral at
   zero. Idempotent, and a no-op on an account that is not underwater.
