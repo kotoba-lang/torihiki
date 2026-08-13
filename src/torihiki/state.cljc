@@ -600,14 +600,21 @@
   \"what does account A hold\" is here and nowhere else, which is what lets an
   inclusion proof stand in for a replay."
   [clearing a]
-  (let [{:keys [collateral positions]} (get-in clearing [:accounts a])
+  (let [{:keys [collateral deficit positions]} (get-in clearing [:accounts a])
         mkts (sort (keys positions))]
     (reduce (fn [acc m]
               (let [p (get positions m)]
                 (into acc (enc-ints [enc-tag-position m (:size p)
                                      (:entry-notional p)
                                      (or (:isolated p) 0)]))))
-            (enc-ints [enc-tag-account a (or collateral 0) (count mkts)])
+            ;; `:deficit` is bad debt this account owes after a liquidation
+            ;; the insurance fund could not fully cover — see
+            ;; `torihiki.clearing/settle-deficit`. It is committed for the same
+            ;; reason the collateral beside it is: a deposit pays it down
+            ;; before it credits anything, so two replicas that disagreed about
+            ;; it would disagree about the balance one block later.
+            (enc-ints [enc-tag-account a (or collateral 0) (or deficit 0)
+                       (count mkts)])
             mkts)))
 
 (def ^:private id-pad
@@ -682,7 +689,15 @@
         {:id (str "03:" (pad-id m)) :bytes (encode-oracle-market ex m)})
       [{:id "04:00" :bytes (encode-clearing-totals clearing)}]
       (for [a accts]
-        {:id (str "04:01:" (pad-id a)) :bytes (encode-clearing-account clearing a)})
+        {:id (str "04:01:" (pad-id a))
+         :bytes (encode-clearing-account clearing a)
+         ;; The merkle-sum leaf value, so the root carries the total of every
+         ;; account's collateral. Non-negative because `settle-deficit` moves
+         ;; bad debt out of this field — which is the whole reason the sums
+         ;; could not be real before, since merkle-sum refuses a negative leaf
+         ;; and a sum that holds only while nobody is underwater is a claim
+         ;; that breaks when it is needed.
+         :sum (or (get-in clearing [:accounts a :collateral]) 0)})
       (mapcat
        (fn [m]
          [{:id (str "05:" (pad-id m) ":0")

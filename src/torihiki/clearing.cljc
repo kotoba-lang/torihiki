@@ -244,8 +244,56 @@
 
 ;; ── account admin ───────────────────────────────────────────────────────────
 
-(defn deposit [state acct amount]
-  (update-in state [:accounts acct :collateral] (fnil + 0) (fx/check :deposit amount)))
+(defn settle-deficit
+  "Move an account's negative collateral into `:deficit`, leaving collateral at
+  zero. Idempotent, and a no-op on an account that is not underwater.
+
+  ## Why the debt moves instead of staying where it was
+
+  Collateral going negative is how the liquidation waterfall records a hole:
+  `torihiki.liquidation` hands the position to the vault at the mark, and when
+  that costs more than the account had, the difference sits on the account as
+  a negative number. The insurance fund adds back what it can cover; anything
+  it cannot stays negative forever.
+
+  A negative balance is a true statement in the wrong field. It is a DEBT, and
+  storing it as collateral means the one number an exchange must be able to
+  add up — what it owes its users — cannot be added up, because part of the
+  sum is a hole rather than a holding. `torihiki.commit` had to keep every
+  merkle-sum leaf at zero for exactly this reason: a sum that is only valid
+  while nobody is underwater is a claim that fails when it matters most.
+
+  Split into two non-negative fields, both are true and both are usable.
+  `:collateral` is what the account has and what reserves must cover;
+  `:deficit` is what it owes and what a later deposit pays down first. The
+  identity `collateral - deficit` is the old single number, so nothing is
+  invented and nothing is forgiven.
+
+  Bad debt does NOT reduce equity. It was already absorbed — by the insurance
+  fund, or socialised onto counterparties by auto-deleveraging — so charging
+  it to the account again would double-count the loss AND put equity back
+  below zero, which is the state this exists to remove."
+  [state acct]
+  (let [c (get-in state [:accounts acct :collateral] 0)]
+    (if (neg? c)
+      (-> state
+          (assoc-in [:accounts acct :collateral] 0)
+          (update-in [:accounts acct :deficit] (fnil + 0) (fx/check :deficit (- c))))
+      state)))
+
+(defn deposit
+  "Credit `amount`, paying down any bad debt first.
+
+  A deposit into an account that owes the system is a repayment before it is a
+  balance. Crediting collateral while leaving the deficit standing would let
+  the same account trade on new money while its old hole stayed on the books."
+  [state acct amount]
+  (let [amount (fx/check :deposit amount)
+        owed (get-in state [:accounts acct :deficit] 0)
+        repaid (min owed amount)]
+    (cond-> state
+      (pos? repaid) (update-in [:accounts acct :deficit] - repaid)
+      true (update-in [:accounts acct :collateral] (fnil + 0) (- amount repaid)))))
 
 (defn withdraw
   "Withdrawals are refused unless free collateral covers them. Returning the
