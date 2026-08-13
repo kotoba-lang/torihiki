@@ -235,6 +235,28 @@
       :missing-field
       :else nil)
 
+    :twap
+    (cond
+      (not (integer? account)) :bad-account
+      (not (contains? (:markets ex) market)) :unknown-market
+      (not (contains? #{0 1} (:side t))) :bad-side
+      (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
+      ;; A schedule of one slice is an order, and a schedule of none is
+      ;; nothing. Both are better refused than quietly turned into something
+      ;; the trader did not ask for.
+      (not (and (integer? (:slices t)) (> (:slices t) 1))) :missing-field
+      (not (and (integer? (:every t)) (pos? (:every t)))) :missing-field
+      ;; Every slice must be at least one lot, or the tail of the schedule
+      ;; fires empty orders forever.
+      (< (:qty t) (:slices t)) :bad-quantity
+      :else nil)
+
+    :cancel-twap
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:id t))) :missing-field
+      :else nil)
+
     :amend-market
     (cond
       (not (integer? account)) :bad-account
