@@ -244,8 +244,7 @@
         _oid (bk/place! book side level qty flags account)
         fills (drop before (bk/fills book))
         mkt (get-in ex [:markets market])
-        fee-rate (get mkt :taker-fee-rate 0)
-        maker-rate (get mkt :maker-fee-rate 0)]
+        h (:height ex 0)]
     ;; Both sides of every fill are credited here, and in fill order. Crediting
     ;; only the taker and reconciling makers later would let an account's
     ;; margin be evaluated against a position it already holds but has not
@@ -253,10 +252,23 @@
     (-> (reduce
          (fn [ex' {:keys [taker-owner maker-owner level qty taker-side]}]
            (let [taker-delta (if (= taker-side bk/bid) qty (- qty))
-                 maker-delta (- taker-delta)]
+                 maker-delta (- taker-delta)
+                 notional (fx/abs* (fx/notional level qty))
+                 ;; Each side pays its OWN tier. Charging both from the taker's
+                 ;; schedule would give a maker somebody else's discount, and
+                 ;; the two are not even the same sign of activity.
+                 ;;
+                 ;; Read BEFORE this fill is added to either account's volume:
+                 ;; a fill that pushed you over a threshold would otherwise be
+                 ;; charged at the rate it earned you, which is a discount on
+                 ;; the trade that has not happened yet.
+                 [t-rate _] (cl/fee-rates-for (:clearing ex') taker-owner mkt h)
+                 [_ m-rate] (cl/fee-rates-for (:clearing ex') maker-owner mkt h)]
              (-> ex'
-                 (update :clearing cl/apply-fill taker-owner market taker-delta level fee-rate)
-                 (update :clearing cl/apply-fill maker-owner market maker-delta level maker-rate)
+                 (update :clearing cl/apply-fill taker-owner market taker-delta level t-rate)
+                 (update :clearing cl/apply-fill maker-owner market maker-delta level m-rate)
+                 (update :clearing cl/add-volume taker-owner h notional)
+                 (update :clearing cl/add-volume maker-owner h notional)
                  ;; the fill sets the LAST price, never the mark
                  (assoc-in [:last market] level))))
          ex
@@ -803,7 +815,8 @@
   [ex m]
   (let [spec (get-in ex [:markets m])
         tiers (:margin-tiers spec [])]
-    (reduce (fn [acc t]
+    (into
+     (reduce (fn [acc t]
               (into acc (enc-ints [enc-tag-market-spec m
                                    (:max-notional t) (:max-leverage t)
                                    (:initial-margin-rate t)
@@ -815,11 +828,22 @@
                            (:maintenance-margin-rate spec 0)
                            (:taker-fee-rate spec 0)
                            (:maker-fee-rate spec 0)
+                           (count (:fee-tiers spec []))
                            (or (:open-interest-cap spec) 0)
                            (if (:open-interest-cap spec) 1 0)
                            (count tiers)])
                 (into (enc-string (:symbol spec ""))))
-            tiers)))
+            tiers)
+        ;; Fee tiers, after the margin tiers. Both are schedules the
+        ;; clearinghouse reads, and a replica that disagreed about either
+        ;; would charge a different price for the same fill.
+        (into (reduce (fn [acc t]
+                        (into acc (enc-ints [enc-tag-market-spec m
+                                             (:min-volume t 0)
+                                             (:taker-fee-rate t 0)
+                                             (:maker-fee-rate t 0)])))
+                      []
+                      (:fee-tiers spec []))))))
 
 (def ^:const enc-tag-agent 14)
 
@@ -918,8 +942,14 @@
             ;; reason the collateral beside it is: a deposit pays it down
             ;; before it credits anything, so two replicas that disagreed about
             ;; it would disagree about the balance one block later.
-            (enc-ints [enc-tag-account a (or collateral 0) (or deficit 0)
-                       (count mkts)])
+            ;; Volume decides which fee tier this account pays, so it is
+            ;; authority over money the same way the rates themselves are: two
+            ;; replicas that disagreed about it would charge different fees on
+            ;; the next fill.
+            (let [{:keys [epoch cur prev] :or {epoch 0 cur 0 prev 0}}
+                  (get-in clearing [:volume a])]
+              (enc-ints [enc-tag-account a (or collateral 0) (or deficit 0)
+                         epoch cur prev (count mkts)]))
             mkts)))
 
 (def ^:private id-pad
@@ -981,7 +1011,13 @@
   (let [mkts (sort (keys (:books ex)))
         auth-accts (auth-accounts ex)
         clearing (:clearing ex)
-        accts (sort (keys (:accounts clearing)))]
+        ;; Accounts with VOLUME but no balance are accounts too. An account
+        ;; can trade its position flat and hold nothing, and its volume still
+        ;; decides the fee tier it pays on the next fill — so leaving it out
+        ;; of the leaves puts a discount outside the root. Found by a test
+        ;; that asserted the root moves when volume does, and it did not.
+        accts (sort (distinct (concat (keys (:accounts clearing))
+                                      (keys (:volume clearing)))))]
     (vec
      (concat
       [{:id "00" :bytes (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])}

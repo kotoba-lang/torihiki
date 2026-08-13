@@ -744,3 +744,82 @@
            (api/validate ex {:tx :amend-market :account 77 :market 9
                              :spec {:symbol "NOPE"}}))
         "a market that does not exist was amendable")))
+
+;; ── fee tiers ───────────────────────────────────────────────────────────────
+;;
+;; Everybody paid the same rate however much they traded. The tier a fill is
+;; charged at comes from the account's own rolling volume, so the two sides of
+;; one fill can pay different rates — which is the point.
+
+(def ^:private tiered-mkt
+  (assoc (cl/market {:id 1 :symbol "T" :max-leverage 40 :tick 1 :lot 1})
+         :taker-fee-rate (fx/bps 5)
+         :maker-fee-rate (fx/bps 2)
+         :fee-tiers [{:min-volume 0 :taker-fee-rate (fx/bps 5) :maker-fee-rate (fx/bps 2)}
+                     {:min-volume 1000000 :taker-fee-rate (fx/bps 1) :maker-fee-rate 0}]))
+
+(deftest a-flat-market-still-charges-its-flat-rate
+  (let [ex (st/new-exchange {:market mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
+    (is (= [(:taker-fee-rate mkt) (:maker-fee-rate mkt)]
+           (cl/fee-rates-for (:clearing ex) 1 (get-in ex [:markets 1]) 0))
+        "a market with no tiers must charge what it always did")))
+
+(deftest volume-moves-an-account-into-a-cheaper-tier
+  (let [ex (st/new-exchange {:market tiered-mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+        spec (get-in ex [:markets 1])
+        c (:clearing ex)]
+    (is (= [(fx/bps 5) (fx/bps 2)] (cl/fee-rates-for c 1 spec 0))
+        "a new account starts at the top rate")
+    (let [c (cl/add-volume c 1 0 2000000)]
+      (is (= [(fx/bps 1) 0] (cl/fee-rates-for c 1 spec 0))
+          "volume did not move the account into the cheaper tier"))))
+
+(deftest the-window-rolls-and-the-discount-can-be-lost
+  ;; The property a cumulative total cannot have: an account that stops
+  ;; trading loses the rate its old volume earned.
+  (let [ex (st/new-exchange {:market tiered-mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+        spec (get-in ex [:markets 1])
+        c (cl/add-volume (:clearing ex) 1 0 2000000)
+        one-epoch cl/volume-epoch-blocks]
+    (is (= [(fx/bps 1) 0] (cl/fee-rates-for c 1 spec 0)))
+    (is (= [(fx/bps 1) 0] (cl/fee-rates-for c 1 spec one-epoch))
+        "the previous epoch must still count")
+    (is (= [(fx/bps 5) (fx/bps 2)] (cl/fee-rates-for c 1 spec (* 3 one-epoch)))
+        "volume from three epochs ago still bought a discount")))
+
+(deftest the-tier-and-not-the-market-decides-what-a-fill-costs
+  ;; Two takers, identical trades, different volume. The first version of this
+  ;; compared a TAKER against a MAKER and passed with the tier lookup removed —
+  ;; their rates differ in a flat market too, so it proved nothing. Comparing
+  ;; the same role at two volumes is what only tiers can produce.
+  (letfn [(fee-for [volume]
+            (let [ex (-> (st/new-exchange {:market tiered-mkt
+                                           :book-opts {:n-levels 4096 :cap 8192 :ev-cap 8192}})
+                         (st/apply-tx {:tx :oracle :market 1 :price 500})
+                         (funded [95 96] 1000000000))
+                  ex (cond-> ex
+                       (pos? volume) (update :clearing cl/add-volume 95 0 volume))
+                  before (get-in ex [:clearing :accounts 95 :collateral])
+                  ex (-> ex
+                         (st/apply-tx {:tx :order :account 96 :market 1
+                                       :side bk/ask :level 500 :qty 20000})
+                         (st/apply-tx {:tx :order :account 95 :market 1
+                                       :side bk/bid :level 500 :qty 20000}))]
+              (- before (get-in ex [:clearing :accounts 95 :collateral]))))]
+    (let [poor (fee-for 0)
+          rich (fee-for 5000000)]
+      (is (pos? poor) "the taker paid nothing, so the sizes are too small to measure")
+      (is (< rich poor)
+          "volume bought no discount — the tier was not read"))))
+
+(deftest the-root-commits-to-volume-and-to-the-fee-schedule
+  (let [a (st/new-exchange {:market tiered-mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+        b (update a :clearing cl/add-volume 1 0 5000000)]
+    (is (not= (st/state-root a) (st/state-root b))
+        "an account's volume is outside the root, so a replica could invent a discount"))
+  (let [a (st/new-exchange {:market tiered-mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+        b (st/new-exchange {:market (assoc tiered-mkt :fee-tiers
+                                           [{:min-volume 1 :taker-fee-rate 0 :maker-fee-rate 0}])
+                            :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "the fee schedule is outside the root")))
