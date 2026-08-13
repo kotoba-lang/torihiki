@@ -1,0 +1,8 @@
+{
+  "name": "torihiki",
+  "private": true,
+  "description": "JS dependencies the .cljc engine reaches through kotoba.bytes on the ClojureScript side. Declared here so `script/loads-on-nbb.cljs` can run from a checkout: the check exists to catch code that only loads on the JVM, and a check that cannot run is worth nothing.",
+  "dependencies": {
+    "@noble/hashes": "^1.4.0"
+  }
+}
