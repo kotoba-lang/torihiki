@@ -284,6 +284,12 @@
            (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
       :else nil)
 
+    :attest-reserves
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (integer? (:amount t)) (not (neg? (:amount t))))) :bad-amount
+      :else nil)
+
     :set-referrer
     (cond
       (not (integer? account)) :bad-account

@@ -1330,3 +1330,47 @@
   (let [ex (st/new-exchange {:markets [mkt (assoc spot-mkt :kind "spot")]
                              :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
     (is (st/spot? ex 3))))
+
+;; ── reserve attestation ─────────────────────────────────────────────────────
+;;
+;; The chain can compute what it OWES. Whether the money exists is somewhere
+;; else, so the most it can do is record the claim and let anybody compare.
+
+(deftest only-the-bridge-may-attest
+  (let [ex (assoc (fresh) :bridge-authority 77)]
+    (is (= 500 (:amount (:reserve-attestation
+                         (st/apply-tx ex {:tx :attest-reserves :account 77 :amount 500})))))
+    (is (nil? (:reserve-attestation
+               (st/apply-tx ex {:tx :attest-reserves :account 78 :amount 999})))
+        "a stranger made the venue look solvent")
+    (is (nil? (:reserve-attestation
+               (st/apply-tx (dissoc ex :bridge-authority)
+                            {:tx :attest-reserves :account 77 :amount 999})))
+        "a chain with no escrow attested about one")))
+
+(deftest an-attestation-carries-its-age
+  (let [ex (-> (fresh) (assoc :bridge-authority 77 :height 4200)
+               (st/apply-tx {:tx :attest-reserves :account 77 :amount 500}))]
+    (is (= 4200 (:at (:reserve-attestation ex)))
+        "an attestation with no age is a claim that never expires")))
+
+(deftest the-shortfall-is-liabilities-less-attested-assets
+  (let [ex (-> (fresh)
+               (assoc :bridge-authority 77)
+               (funded [80] 1000)
+               (st/apply-tx {:tx :attest-reserves :account 77 :amount 600}))
+        leaves (st/canonical-leaves ex)]
+    (is (= 1000 (cm/reserves leaves)))
+    (is (= 400 (cm/shortfall leaves (:amount (:reserve-attestation ex))))
+        "the uncovered part is not what a reader would compute")
+    (is (neg? (cm/shortfall leaves 5000)) "over-collateralised must be visible too")))
+
+(deftest no-attestation-is-not-a-shortfall-of-zero
+  ;; Silence is not a claim.
+  (is (nil? (cm/shortfall (st/canonical-leaves (fresh)) nil))))
+
+(deftest the-attestation-is-in-the-root
+  (let [a (assoc (fresh) :bridge-authority 77)
+        b (st/apply-tx a {:tx :attest-reserves :account 77 :amount 500})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "the venue could change its attested reserves without changing the root")))
