@@ -264,6 +264,16 @@
       :missing-field
       :else nil)
 
+    (:bond :unbond)
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:validator t))) :bad-account
+      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      :else nil)
+
+    :collect-unbonded
+    (if (integer? account) nil :bad-account)
+
     (:vault-deposit :vault-withdraw)
     (cond
       (not (integer? account)) :bad-account

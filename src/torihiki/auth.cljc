@@ -151,6 +151,9 @@
    ;; Which vault, and how many shares are being burned. Unsigned, a
    ;; withdrawal could be re-aimed at a vault the signer holds more of.
    (:vault tx) (:shares tx)
+   ;; Which validator a bond backs. Unsigned, a delegation could be re-aimed
+   ;; at whoever wanted the weight.
+   (:validator tx)
    ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
    ;; and fee SCHEDULES, which are vectors of maps.
    ;;

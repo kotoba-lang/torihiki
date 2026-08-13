@@ -1169,3 +1169,78 @@
         b (st/apply-tx a {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000})]
     (is (not= (st/state-root a) (st/state-root b))
         "a claim on the vault's collateral sat outside the root")))
+
+;; ── staking and delegation ──────────────────────────────────────────────────
+;;
+;; `:publisher-stake` was a number in the config — an operator's assertion
+;; about how much each voice weighs. A bond is the same claim made by somebody
+;; putting collateral behind it, which is what makes the weight cost something.
+
+(deftest bonded-collateral-is-not-free
+  ;; A bond that could also back a position would be counted twice: as
+  ;; security the chain can slash and as margin the trader can lose.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [60] 1000000))
+        before (cl/free-collateral (:clearing ex) 60 (:marks ex) (:markets ex))
+        after-ex (st/apply-tx ex {:tx :bond :account 60 :validator 7 :amount 400000})
+        after (cl/free-collateral (:clearing after-ex) 60 (:marks after-ex) (:markets after-ex))]
+    (is (= 400000 (cl/bonded (:clearing after-ex) 60)))
+    (is (= (- before 400000) after)
+        "bonded collateral was still spendable")
+    (is (= 1000000 (get-in after-ex [:clearing :accounts 60 :collateral]))
+        "the money left the account — slashing would have nothing to take")))
+
+(deftest you-cannot-bond-what-you-do-not-have
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [61] 1000)
+               (st/apply-tx {:tx :bond :account 61 :validator 7 :amount 999999}))]
+    (is (= 0 (cl/bonded (:clearing ex) 61)))))
+
+(deftest unbonding-waits-and-then-releases
+  ;; A bond withdrawable the instant it is at risk is not security: a validator
+  ;; would unbond the moment it equivocated.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [62] 1000000)
+               (st/apply-tx {:tx :bond :account 62 :validator 7 :amount 500000})
+               (st/apply-tx {:tx :unbond :account 62 :validator 7 :amount 500000}))]
+    (is (= 0 (cl/bonded (:clearing ex) 62)) "the stake still counts as weight")
+    (is (= 500000 (reduce + 0 (map :amount (get-in ex [:clearing :unbonding 62]))))
+        "the unbonding was not queued")
+    ;; too early
+    (let [early (st/apply-tx (assoc ex :height 10) {:tx :collect-unbonded :account 62})]
+      (is (seq (get-in early [:clearing :unbonding 62]))
+          "it was collectable before the delay had passed"))
+    (let [late (st/apply-tx (assoc ex :height (inc cl/unbond-delay-blocks))
+                            {:tx :collect-unbonded :account 62})]
+      (is (empty? (get-in late [:clearing :unbonding 62])))
+      (is (= 1000000 (cl/free-collateral (:clearing late) 62 (:marks late) (:markets late)))
+          "the collateral did not come back free"))))
+
+(deftest bonds-decide-whose-price-wins
+  (let [subs {1 {:price 100 :ts 0} 2 {:price 100 :ts 0} 3 {:price 500 :ts 0}}
+        base (-> (fresh)
+                 (assoc :oracle-publishers #{1 2 3})
+                 (assoc :oracle-params {:quorum 2 :max-age 100})
+                 (assoc-in [:clearing :accounts 3 :collateral] 1000000)
+                 (assoc-in [:oracle-submissions 1] subs))
+        ;; publisher 3 bonds; 1 and 2 do not
+        bonded (assoc-in base [:clearing :bonds 3] {3 900000})
+        price-of (fn [e]
+                   (:oracle (st/apply-tx e {:tx :oracle-submit :account 3
+                                            :market 1 :price 500})
+                            ))]
+    (is (some? (price-of base)))
+    (is (not= (get-in (st/apply-tx base {:tx :oracle-submit :account 3 :market 1 :price 500})
+                      [:oracle 1])
+              (get-in (st/apply-tx bonded {:tx :oracle-submit :account 3 :market 1 :price 500})
+                      [:oracle 1]))
+        "bonding changed nothing about whose price won")))
+
+(deftest bonds-are-in-the-root
+  (let [a (-> (fresh) (funded [63] 1000000))
+        b (st/apply-tx a {:tx :bond :account 63 :validator 7 :amount 100})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a claim the chain can slash sat outside the root")))

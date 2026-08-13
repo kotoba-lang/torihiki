@@ -367,6 +367,26 @@
      ex
      due)))
 
+(defmethod apply-tx :bond
+  [ex {:keys [account validator amount]}]
+  ;; Delegated stake. `validator` is any account — a publisher, a witness, or
+  ;; somebody else's name for one — because this chain does not have a
+  ;; registry of validators to check against, and inventing one here would put
+  ;; the validator set in two places.
+  (update ex :clearing cl/bond account validator amount
+          (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
+
+(defmethod apply-tx :unbond
+  [ex {:keys [account validator amount]}]
+  (update ex :clearing cl/unbond account validator amount (:height ex 0)))
+
+(defmethod apply-tx :collect-unbonded
+  [ex {:keys [account]}]
+  ;; Asked for rather than swept, because a sweep would have to walk every
+  ;; account every block to find the few that have something matured. The
+  ;; money never moved, so waiting costs the holder nothing but the ask.
+  (update ex :clearing cl/collect-unbonded account (:height ex 0)))
+
 (defmethod apply-tx :vault-deposit
   [ex {:keys [account vault amount]}]
   ;; Outside money into a vault, for shares.
@@ -649,8 +669,22 @@
                                 ;; always been — a chain with no bonds has nothing
                                 ;; to weigh, and inventing weights would be a
                                 ;; stronger claim than the deployment supports.
-                                (when-let [st (:publisher-stake ex)]
-                                  (fn [pub] (get st pub 0))))]
+                                ;; Bonded stake first, genesis map second.
+                                ;;
+                                ;; `:publisher-stake` was a number in the
+                                ;; config — an operator's assertion about how
+                                ;; much each voice weighs. Bonds are the same
+                                ;; claim made by people putting collateral
+                                ;; behind it, which is what makes the weight
+                                ;; cost something. The map stays as the answer
+                                ;; for a chain whose publishers have not
+                                ;; bonded, so nothing that worked stops.
+                                (let [c (:clearing ex)
+                                      any-bonds? (seq (:bonds c))]
+                                  (cond
+                                    any-bonds? (fn [pub] (cl/stake-of c pub))
+                                    (:publisher-stake ex) (fn [pub] (get (:publisher-stake ex) pub 0))
+                                    :else nil)))]
     (-> (if stale?
           ;; Keep the last price but say it is stale. Discarding it would
           ;; leave the mark at zero and stop everything; pretending it is
@@ -1155,6 +1189,14 @@
                          epoch cur prev
                          (or (get-in clearing [:referrers a]) 0)
                          (if (get-in clearing [:referrers a]) 1 0)
+                         ;; Bonds and unbondings: a claim the chain can slash
+                         ;; and a claim the holder is waiting on. Both decide
+                         ;; what this account may spend, and bonds decide whose
+                         ;; price wins — a replica that disagreed would compute
+                         ;; a different mark.
+                         (reduce + 0 (vals (get-in clearing [:bonds a] {})))
+                         (count (get-in clearing [:bonds a] {}))
+                         (reduce + 0 (map :amount (get-in clearing [:unbonding a] [])))
                          (count mkts)]))
             mkts)))
 

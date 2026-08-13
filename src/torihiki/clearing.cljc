@@ -180,6 +180,69 @@
   surface, and this chain has one authority and no way to price a deal."
   100000000)
 
+(def ^:const unbond-delay-blocks
+  "How long an unbonding sits before it can be collected.
+
+  A bond that could be withdrawn the instant it is at risk is not security: a
+  validator would unbond the moment it equivocated and be gone before anybody
+  could slash it. The delay is what makes the stake answerable for what it did
+  while it was staked.
+
+  In BLOCKS, like every other duration here — the engine has no clock. At this
+  chain's cadence 20000 blocks is roughly an hour, which is a devnet number,
+  not a policy: a real one would be set against how long a dispute takes to
+  surface."
+  20000)
+
+(defn bond
+  "Move `amount` of `acct`'s free collateral into a bond backing `validator`.
+
+  The money stays in the account. Bonding is a CLAIM against it, not a
+  transfer — slashing has to be able to take it from where it is, and an
+  account that had already moved it away would have nothing to slash."
+  [state acct validator amount free]
+  (let [amount (long amount)]
+    (if (or (not (pos? amount)) (> amount (long free)))
+      state
+      (update-in state [:bonds acct validator] (fnil + 0) amount))))
+
+(defn unbond
+  "Begin unbonding `amount` from `validator`. It leaves the bond now and
+  becomes collectable at `height + unbond-delay-blocks`.
+
+  Two steps rather than one because the delay is the whole point: the stake
+  must stop counting toward the validator's weight immediately — it is being
+  withdrawn — and must stay answerable for a while longer."
+  [state acct validator amount height]
+  (let [amount (long amount)
+        have (get-in state [:bonds acct validator] 0)]
+    (if (or (not (pos? amount)) (> amount have))
+      state
+      (-> state
+          (update-in [:bonds acct validator] - amount)
+          (update-in [:unbonding acct] (fnil conj [])
+                     {:validator validator :amount amount
+                      :at (+ (long height) unbond-delay-blocks)})))))
+
+(defn collect-unbonded
+  "Release every matured unbonding for `acct` at `height`.
+
+  Releasing means the claim disappears; the collateral never moved, so nothing
+  is credited here. That is what makes bonding safe to interrupt: a chain that
+  stopped mid-unbond leaves the money where it always was."
+  [state acct height]
+  (let [q (get-in state [:unbonding acct] [])
+        [done pending] [(filter #(<= (:at %) (long height)) q)
+                        (vec (remove #(<= (:at %) (long height)) q))]]
+    (if (empty? done)
+      state
+      (assoc-in state [:unbonding acct] pending))))
+
+(defn stake-of
+  "Total bonded to `validator` by everybody — the weight its word carries."
+  [state validator]
+  (reduce + 0 (keep (fn [[_ by-v]] (get by-v validator)) (:bonds state {}))))
+
 (defn vault-shares
   "`[shares-of-acct total-shares]` for `vault`."
   [state vault acct]
@@ -348,12 +411,27 @@
                (fx/mul-rate (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
                             (get-in markets [mkt :maintenance-margin-rate] 0))))))))
 
+(defn bonded
+  "What `acct` has bonded, across every validator it has delegated to.
+
+  Bonded collateral is still in the account — it has to be, because slashing
+  takes it from there — but it is not free. See `free-collateral`."
+  [state acct]
+  (reduce + 0 (vals (get-in state [:bonds acct] {}))))
+
 (defn free-collateral
   "What the account may withdraw or commit to new positions: equity less the
-  initial margin its open positions already consume. Never negative."
+  initial margin its open positions already consume, less anything bonded.
+  Never negative.
+
+  Bonded collateral is subtracted because a bond that could also back a
+  position would be counted twice: once as security the chain can slash and
+  once as margin the trader can lose. Whichever way the account then moved,
+  one of those two claims would be on money that is not there."
   [state acct marks markets]
   (max 0 (- (equity state acct marks)
-            (initial-margin state acct marks markets))))
+            (initial-margin state acct marks markets)
+            (bonded state acct))))
 
 ;; ── account admin ───────────────────────────────────────────────────────────
 
