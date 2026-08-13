@@ -310,8 +310,12 @@
             (recur (reprice! ex market) (inc round))))))))
 
 (defmethod apply-tx :cancel
-  [ex {:keys [market oid]}]
-  (bk/cancel! (get-in ex [:books market]) oid)
+  [ex {:keys [market oid account]}]
+  ;; `account` is who SIGNED this, and until it was passed here nothing
+  ;; compared it to who placed the order — see `bk/cancel!`. A cancel naming
+  ;; somebody else's order is now a no-op block entry rather than a free hand
+  ;; on their book.
+  (bk/cancel! (get-in ex [:books market]) oid account)
   ex)
 
 ;; Set the oracle directly. Only permitted when no publisher set is configured
