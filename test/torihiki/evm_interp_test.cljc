@@ -71,3 +71,41 @@
   (let [r (evm/run {} [0x5b 0x60 0x00 0x56] "0x")]
     (is (= :halt (:status r)))
     (is (= :out-of-gas (:reason r)))))
+
+(defn- hex->n [s] (#?(:clj Integer/parseInt :cljs js/parseInt) s 16))
+
+(deftest signed-arithmetic-reads-the-top-bit
+  (testing "a position is signed and a word is not. An interpreter whose SDIV
+            and SLT read the same bits as unsigned would price a short as an
+            astronomically large long — the exact failure the bridge's two's
+            complement exists to prevent, one layer up."
+    ;; PUSH1 2, PUSH32 -4, SDIV -> -2 ; and SLT(-4, 1) -> 1
+    (let [neg4 (push32 (str (apply str (repeat 62 \f)) "fc"))
+          sdiv (evm/run {} (vec (concat [0x60 2] neg4 [0x05 0x60 0 0x52 0x60 32 0x60 0 0xf3]))
+                        "0x")
+          slt (evm/run {} (vec (concat [0x60 1] neg4 [0x12 0x60 0 0x52 0x60 32 0x60 0 0xf3]))
+                       "0x")]
+      (is (= (str (apply str (repeat 62 \f)) "fe") (:data sdiv))
+          "-4 / 2 did not come back as -2")
+      (is (= 1 (hex->n (:data slt))) "-4 was not less than 1"))))
+
+(deftest storage-survives-within-a-call-and-comes-back
+  ;; PUSH1 7, PUSH1 3, SSTORE ; PUSH1 3, SLOAD ; return it
+  (let [r (evm/run {} [0x60 7 0x60 3 0x55 0x60 3 0x54 0x60 0 0x52 0x60 32 0x60 0 0xf3] "0x")]
+    (is (= 7 (hex->n (:data r))) "SLOAD did not see what SSTORE wrote")
+    (is (= 1 (count (:storage r)))
+        "what the contract wrote did not come back with the result — a store
+         that vanishes is a store nobody can check")))
+
+(deftest a-shift-past-the-word-is-zero-not-a-wrap
+  ;; PUSH1 1, PUSH1 255, SHL -> the sign bit; PUSH1 1, PUSH1 256, SHL -> 0
+  (let [at255 (evm/run {} [0x60 1 0x60 255 0x1b 0x60 0 0x52 0x60 32 0x60 0 0xf3] "0x")
+        at256 (evm/run {} [0x60 1 0x61 0x01 0x00 0x1b 0x60 0 0x52 0x60 32 0x60 0 0xf3] "0x")]
+    (is (= \8 (first (:data at255))) "1 << 255 did not land on the sign bit")
+    (is (= 0 (hex->n (:data at256))) "1 << 256 wrapped instead of vanishing")))
+
+(deftest a-log-is-kept-with-the-result
+  ;; PUSH1 32, PUSH1 0, LOG0
+  (let [r (evm/run {} [0x60 32 0x60 0 0xa0] "0x")]
+    (is (= 1 (count (:logs r))))
+    (is (= [] (:topics (first (:logs r)))))))
