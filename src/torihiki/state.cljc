@@ -365,13 +365,27 @@
         (assoc-in [:funding market] fnd/empty-accumulator)
         (assoc-in [:last-funding-rate market] rate))))
 
-(defmethod apply-tx :liquidate
-  [ex {:keys [market]}]
+(defn sweep-liquidations
+  "Liquidate everyone liquidatable on `market`, or do nothing.
+
+  ## Why this never throws
+
+  It refused a market with no mark by throwing. `apply-block` catches nothing,
+  so that threw out of the block — and its own docstring says why that cannot
+  be allowed: a transaction that throws stops every validator at the same
+  place, so anybody able to submit one can stop the chain. `:liquidate` names
+  its market and `api/validate` only checks that the market EXISTS, so a
+  market that exists without a price yet was a one-transaction halt.
+
+  A market with no mark and a market with a stale one are the same situation —
+  there is no price anybody vouches for — and the answer was already written
+  for the second: waiting is reversible and liquidating at a price nobody
+  vouches for is not. Bad debt growing while the feed is down is the smaller
+  cost. Doing nothing is that answer; throwing was never a different policy,
+  only a louder way to fail at it."
+  [ex market]
   (let [book (get-in ex [:books market])
         mark (get-in ex [:marks market] (get-in ex [:oracle market] 0))
-        _ (when-not (pos? mark)
-            (throw (ex-info "torihiki.state: refusing to liquidate without a mark"
-                            {:market market})))
         ;; A stale oracle stops liquidation. Closing somebody's position at a
         ;; price nobody currently vouches for is irreversible; waiting is not.
         ;; Bad debt can grow while the feed is down, and that is the smaller
@@ -397,7 +411,19 @@
                               (:markets ex') (:liq-params ex') take-fn)]
          (assoc ex' :clearing (:state r))))
      ex
-     (if stale? [] (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))))
+     (if (or stale? (not (pos? mark)))
+       []
+       (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))))
+
+(defmethod apply-tx :liquidate
+  [ex {:keys [market]}]
+  ;; Kept, and now redundant on its own chain: `apply-block` sweeps every
+  ;; market at the end of every block, so a `:liquidate` transaction can only
+  ;; do what would have happened anyway a moment later. It stays because it is
+  ;; the seam the tests drive one market through, and because a keeper that
+  ;; wants a position closed WITHIN a block rather than after it still has a
+  ;; way to ask.
+  (sweep-liquidations ex market))
 
 ;; ── blocks ──────────────────────────────────────────────────────────────────
 
@@ -414,36 +440,56 @@
   Rejections are part of the block's outcome and therefore part of the state
   root — two validators must agree on what was refused as much as on what was
   executed, and without that a sequencer could quietly drop a transaction and
-  still produce a matching root."
+  still produce a matching root.
+
+  ## Liquidation runs because the block ended, not because somebody asked
+
+  Every market is swept after the transactions, in sorted market order. It
+  used to happen only when a `:liquidate` transaction appeared, which made
+  solvency depend on a keeper choosing to send one: with nobody sending, an
+  underwater account simply stayed open and its bad debt grew. That is a
+  strange thing for a chain to leave to goodwill in general, and it is a
+  contradiction now in particular — `torihiki.commit` publishes what the
+  exchange owes, and a number that is only trustworthy while a keeper is
+  awake is not an attestation.
+
+  The sweep costs a scan of the accounts per market per block, and that is a
+  real cost rather than a free one: it is proportional to accounts, not to
+  positions at risk, so it is the thing to index first when it stops being
+  cheap. Paying it every block is what makes it unconditional."
   ([ex block] (apply-block ex block nil))
   ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id derive-account]
                                 :as _opts}]
-   (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))]
-     (doseq [[_ book] (:books ex)] (bk/reset-events! book))
-     (reduce
-      (fn [e [i entry]]
-        (if verify-fn
-          ;; Authenticated: the entry is a signed envelope around a transaction.
-          (if-let [reason (auth/check e entry chain-id verify-fn derive-account)]
-            ;; Authentication failed, so this was never from the account —
-            ;; nothing is consumed and nothing is applied.
-            (update e :rejected conj {:index i :tx (:tx (:tx entry)) :reason reason})
-            ;; Authenticated. The nonce is consumed even if the transaction
-            ;; then fails validation: the holder authorised THAT nonce for THAT
-            ;; transaction, and leaving it unspent would make the signature
-            ;; reusable.
-            (let [e (auth/accept e entry)
-                  t (assoc (:tx entry) :account (:account entry))]
-              (if-let [reason (api/validate e t)]
-                (update e :rejected conj {:index i :tx (:tx t) :reason reason})
-                (apply-tx e t))))
-          ;; Unauthenticated mode: for tests, for replay of an already-agreed
-          ;; log, and for a sequencer that authenticates at its own edge.
-          (if-let [reason (api/validate e entry)]
-            (update e :rejected conj {:index i :tx (:tx entry) :reason reason})
-            (apply-tx e entry))))
-      ex
-      (map-indexed vector txs)))))
+   (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))
+         applied
+         (reduce
+          (fn [e [i entry]]
+            (if verify-fn
+              ;; Authenticated: the entry is a signed envelope around a tx.
+              (if-let [reason (auth/check e entry chain-id verify-fn derive-account)]
+                ;; Authentication failed, so this was never from the account —
+                ;; nothing is consumed and nothing is applied.
+                (update e :rejected conj {:index i :tx (:tx (:tx entry)) :reason reason})
+                ;; Authenticated. The nonce is consumed even if the transaction
+                ;; then fails validation: the holder authorised THAT nonce for
+                ;; THAT transaction, and leaving it unspent would make the
+                ;; signature reusable.
+                (let [e (auth/accept e entry)
+                      t (assoc (:tx entry) :account (:account entry))]
+                  (if-let [reason (api/validate e t)]
+                    (update e :rejected conj {:index i :tx (:tx t) :reason reason})
+                    (apply-tx e t))))
+              ;; Unauthenticated mode: for tests, for replay of an already-agreed
+              ;; log, and for a sequencer that authenticates at its own edge.
+              (if-let [reason (api/validate e entry)]
+                (update e :rejected conj {:index i :tx (:tx entry) :reason reason})
+                (apply-tx e entry))))
+          (do (doseq [[_ book] (:books ex)] (bk/reset-events! book)) ex)
+          (map-indexed vector txs))]
+     ;; Sorted, because `keys` on a Clojure map has no specified order and two
+     ;; validators sweeping markets in different orders would take different
+     ;; fills from books that liquidation itself moves.
+     (reduce sweep-liquidations applied (sort (keys (:books applied)))))))
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
