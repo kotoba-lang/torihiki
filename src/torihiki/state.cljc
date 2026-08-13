@@ -262,6 +262,46 @@
       (update ex :withdrawals dissoc claim)
       ex)))
 
+(defmethod apply-tx :withdraw-attest
+  [ex {:keys [account claim txid dest]}]
+  ;; The exit, said by the validators instead of by one key.
+  ;;
+  ;; `:withdraw-settle` above is the bridge authority reporting that it paid.
+  ;; It is the same shape as `:deposit` and has the same problem in the other
+  ;; direction: the one key that can settle a claim can also settle one that
+  ;; was never paid, and the chain would have no way to tell. Where deposits
+  ;; are attested, the exit has to be too, or the escrow is only half witnessed.
+  ;;
+  ;; A validator says: this claim was paid, by this transaction on the other
+  ;; chain, to this address. `attest-quorum` distinct bonded validators saying
+  ;; the same thing settles it. The txid and destination are part of what has
+  ;; to match — a quorum agreeing that "something was paid" is not evidence
+  ;; that THIS claim was.
+  ;;
+  ;; The claim is removed on quorum, exactly as `:withdraw-settle` removes it,
+  ;; and the payment is recorded under `:paid` so a reader can follow the money
+  ;; off the chain. `:withdraw-settle` stays for chains that run with a bridge
+  ;; and no validator set to ask.
+  (let [w (get-in ex [:withdrawals claim])
+        p (get-in ex [:paid claim])
+        bonded? (pos? (cl/stake-of (:clearing ex) account))
+        shape {:txid txid :dest dest :amount (:amount w) :account (:account w)}
+        agrees? (or (nil? p) (= (select-keys shape [:txid :dest])
+                                (select-keys p [:txid :dest])))]
+    (cond
+      (not (and (string? txid) (seq txid) (string? dest) (seq dest))) ex
+      (nil? w) ex
+      (not bonded?) ex
+      (not agrees?) ex
+      :else
+      (let [attests (conj (:attests p #{}) account)
+            p' (merge shape {:attests attests})]
+        (if (< (count attests) attest-quorum)
+          (assoc-in ex [:paid claim] p')
+          (-> ex
+              (assoc-in [:paid claim] (assoc p' :settled? true))
+              (update :withdrawals dissoc claim)))))))
+
 (defmethod apply-tx :withdraw-cancel
   [ex {:keys [account claim]}]
   ;; A payout that could not be made, handed back. Gated on OWNERSHIP rather
@@ -1197,6 +1237,22 @@
                        (if (:credited? t) 1 0) (count (:attests t #{}))]))
       (into (enc-string (:asset t "")))
       (into (mapcat enc-int (sort (:attests t #{}))))))
+
+(def ^:const enc-tag-paid 21)
+
+(defn- encode-paid
+  "One settled exit: which claim, paid by which transaction on the other
+  chain, to where, and who said so.
+
+  Kept after the claim itself is gone. A withdrawal that has been paid and one
+  that never existed are the same absence in `:withdrawals`, and an escrow
+  where those two look alike is an escrow nobody can audit."
+  [claim p]
+  (-> (enc-ints [enc-tag-paid claim (:amount p 0) (:account p 0)
+                 (if (:settled? p) 1 0) (count (:attests p #{}))])
+      (into (enc-string (:txid p "")))
+      (into (enc-string (:dest p "")))
+      (into (mapcat enc-int (sort (:attests p #{}))))))
 
 (def ^:const enc-tag-governance 12)
 
