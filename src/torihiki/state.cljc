@@ -326,6 +326,30 @@
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))
 
+(defmethod apply-tx :list-market
+  [ex {:keys [account market spec book-opts]}]
+  ;; Listing a market on a RUNNING chain.
+  ;;
+  ;; Markets were genesis-only, and a chain restores from a checkpoint — so
+  ;; adding one to the source added it to a chain nobody was running. A market
+  ;; has to arrive as a state transition or it does not arrive at all.
+  ;;
+  ;; Gated on `:bridge-authority` because that is the authority this chain
+  ;; already has, and listing is the same kind of question as who may mint:
+  ;; whoever can list can price, and pricing is what margin reads. With no
+  ;; authority configured nobody can list — the same answer `:withdraw-settle`
+  ;; gives, and for the same reason: an unconfigured chain has no governance,
+  ;; and pretending otherwise would hand it to whoever asks first.
+  (let [bridge (:bridge-authority ex)]
+    (if (or (nil? bridge) (not= account bridge)
+            (contains? (:markets ex) market)
+            (not (map? spec)))
+      ex
+      (-> ex
+          (assoc-in [:markets market] (assoc spec :id market))
+          (assoc-in [:books market] (bk/new-book (or book-opts {})))
+          (assoc-in [:funding market] fnd/empty-accumulator)))))
+
 (defmethod apply-tx :cancel-all
   [ex {:keys [market account]}]
   ;; The risk control every venue has and this did not: one transaction that

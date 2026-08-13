@@ -205,6 +205,19 @@
       ;; against it. See `torihiki.state/apply-tx :withdraw-settle`.
       :else nil)
 
+    :list-market
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (integer? market) (pos? market))) :unknown-market
+      ;; Already listed is refused here rather than in the engine so a client
+      ;; sees why, and so the engine's no-op stays a safety net rather than
+      ;; the only check.
+      (contains? (:markets ex) market) :unknown-market
+      (not (map? (:spec t))) :missing-field
+      (not (and (integer? (:tick (:spec t))) (pos? (:tick (:spec t))))) :missing-field
+      (not (and (integer? (:lot (:spec t))) (pos? (:lot (:spec t))))) :missing-field
+      :else nil)
+
     (:withdraw-settle :withdraw-cancel)
     (cond
       (not (integer? account)) :bad-account
