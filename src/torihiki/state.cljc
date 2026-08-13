@@ -217,7 +217,7 @@
         oracle (if (pos? oracle) oracle (get-in ex [:last market] 0))]
     (assoc-in ex [:marks market] (mk/mark-price book oracle (:mark-params ex)))))
 
-(declare fire-triggers apply-tx-order)
+(declare fire-triggers apply-tx-order apply-tx-spot-order spot?)
 
 (defmethod apply-tx :order
   [ex {:keys [account market side level qty flags builder builder-fee]
@@ -238,7 +238,68 @@
         flags (if reduce-only? (bit-or flags bk/flag-ioc) flags)]
     (if (not (pos? qty))
       ex
-      (apply-tx-order ex account market side level qty flags builder builder-fee))))
+      (if (spot? ex market)
+        (apply-tx-spot-order ex account market side level qty flags)
+        (apply-tx-order ex account market side level qty flags builder builder-fee)))))
+
+(defn spot?
+  "Whether `market` settles as an exchange of balances rather than as a
+  margined position."
+  [ex market]
+  (= :spot (get-in ex [:markets market :kind])))
+
+(defn- spot-backing
+  "What resting this order would commit, as `[asset amount]`.
+
+  A buy commits quote (asset 0 — the collateral the venue keeps books in); a
+  sell commits the base asset. Quote is `price x qty` because that is what the
+  order will owe if it fills at its own limit."
+  [ex market side level qty]
+  (if (= side bk/bid)
+    [0 (fx/notional level qty)]
+    [(get-in ex [:markets market :asset]) qty]))
+
+(defn- apply-tx-spot-order
+  [ex account market side level qty flags]
+  ;; Refused whole, not clamped.
+  ;;
+  ;; A perp order that asks for more margin than it has is a margin question
+  ;; the clearinghouse answers later; a spot sell of an asset you do not hold
+  ;; would CREATE it the moment it filled. There is nothing to answer later
+  ;; with, so the answer is at the door.
+  (let [[asset need] (spot-backing ex market side level qty)
+        have (if (zero? asset)
+               (- (get-in ex [:clearing :accounts account :collateral] 0)
+                  (get-in ex [:clearing :committed account 0] 0))
+               (cl/balance (:clearing ex) account asset))]
+    (if (> need have)
+      ex
+      (let [book (get-in ex [:books market])
+            before (bk/event-count book)
+            base (get-in ex [:markets market :asset])
+            mkt (get-in ex [:markets market])
+            _ (bk/place! book side level qty flags account)
+            fills (drop before (bk/fills book))
+            ;; Committed first, then released per fill: an order that fills
+            ;; immediately never rests, and doing it in this order means the
+            ;; two paths do not need to know which happened.
+            ex (update ex :clearing cl/commit-spot account asset need)]
+        (reduce
+         (fn [ex' {:keys [taker-owner maker-owner level qty taker-side]}]
+           (let [buyer (if (= taker-side bk/bid) taker-owner maker-owner)
+                 seller (if (= taker-side bk/bid) maker-owner taker-owner)
+                 t-rate (get mkt :taker-fee-rate 0)
+                 m-rate (get mkt :maker-fee-rate 0)
+                 [b-rate s-rate] (if (= taker-side bk/bid) [t-rate m-rate] [m-rate t-rate])]
+             (-> ex'
+                 (update :clearing cl/spot-fill buyer seller base qty level b-rate s-rate)
+                 ;; Both sides release what this fill consumed of their
+                 ;; reservation: the buyer's quote and the seller's asset.
+                 (update :clearing cl/release-spot buyer 0 (fx/notional level qty))
+                 (update :clearing cl/release-spot seller base qty)
+                 (assoc-in [:last market] level))))
+         ex
+         fills)))))
 
 (defn- apply-tx-order
   [ex account market side level qty flags builder builder-fee]
@@ -628,12 +689,19 @@
 
 (defmethod apply-tx :cancel
   [ex {:keys [market oid account]}]
+  ;; A cancelled spot order gives back what it had reserved. Doing it here,
+  ;; from the order the book still holds, is the only place both the size and
+  ;; the price are still known.
   ;; `account` is who SIGNED this, and until it was passed here nothing
   ;; compared it to who placed the order — see `bk/cancel!`. A cancel naming
   ;; somebody else's order is now a no-op block entry rather than a free hand
   ;; on their book.
-  (bk/cancel! (get-in ex [:books market]) oid account)
-  ex)
+  (let [o (bk/order-of (get-in ex [:books market]) oid)
+        cancelled (bk/cancel! (get-in ex [:books market]) oid account)]
+    (if (and (pos? cancelled) (spot? ex market))
+      (let [[asset amount] (spot-backing ex market (:side o) (:level o) cancelled)]
+        (update ex :clearing cl/release-spot account asset amount))
+      ex)))
 
 ;; Set the oracle directly. Only permitted when no publisher set is configured
 ;; (see torihiki.api/validate). A devnet with one operator uses this; a market
@@ -1162,7 +1230,8 @@
   [clearing a]
   (let [{:keys [collateral deficit positions]} (get-in clearing [:accounts a])
         mkts (sort (keys positions))]
-    (reduce (fn [acc m]
+    (into
+     (reduce (fn [acc m]
               (let [p (get positions m)]
                 (into acc (enc-ints [enc-tag-position m (:size p)
                                      (:entry-notional p)
@@ -1197,8 +1266,21 @@
                          (reduce + 0 (vals (get-in clearing [:bonds a] {})))
                          (count (get-in clearing [:bonds a] {}))
                          (reduce + 0 (map :amount (get-in clearing [:unbonding a] [])))
+                         ;; Spot balances and what resting spot orders have
+                         ;; already committed. A balance is a holding the same
+                         ;; way collateral is, and a commitment decides whether
+                         ;; the next order is backed — so both are claims on
+                         ;; money and both belong under the root.
+                         (count (get-in clearing [:balances a] {}))
                          (count mkts)]))
-            mkts)))
+            mkts)
+        (reduce (fn [acc as]
+                  (into acc (enc-ints [enc-tag-account a as
+                                       (get-in clearing [:balances a as] 0)
+                                       (get-in clearing [:committed a as] 0)])))
+                []
+                (sort (distinct (concat (keys (get-in clearing [:balances a] {}))
+                                        (keys (get-in clearing [:committed a] {})))))))))
 
 (def ^:private id-pad
   "Sixteen zeros: the width of the largest i53, 9007199254740992.
@@ -1269,7 +1351,10 @@
                                       ;; An account can have bound a referrer
                                       ;; and never traded; the binding is
                                       ;; still authority over money.
-                                      (keys (:referrers clearing)))))]
+                                      (keys (:referrers clearing))
+                                      ;; An account can hold a spot balance and
+                                      ;; nothing else.
+                                      (keys (:balances clearing)))))]
     (vec
      (concat
       [{:id "00" :bytes (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])}
