@@ -76,8 +76,8 @@
   judgement here would give two places to keep in agreement."
   [ex {:keys [tx account market] :as t}]
   (case tx
-    (:order :cancel :trigger :cancel-trigger :oracle :oracle-submit
-     :funding-sample :funding-settle :liquidate)
+    (:order :cancel :cancel-all :amend :trigger :cancel-trigger :oracle
+     :oracle-submit :funding-sample :funding-settle :liquidate)
     (cond
       (not (market-exists? ex market)) :unknown-market
 
@@ -100,6 +100,21 @@
       ;; the deployed chain: `/orders` returned `{"oid":0,...}` for a resting
       ;; order that nobody, including its owner, could cancel.
       (if-not (nat-int? (:oid t)) :missing-field nil)
+
+      (= tx :cancel-all)
+      ;; Nothing but the market and the signer, both already checked. There is
+      ;; no id to get wrong, which is the point: a maker pulling out does not
+      ;; want a transaction that can be refused for a shape reason.
+      (when-not (integer? account) :bad-account)
+
+      (= tx :amend)
+      (cond
+        (not (integer? account)) :bad-account
+        (not (nat-int? (:oid t))) :missing-field
+        ;; The new resting shape has to be a legal order in its own right —
+        ;; the same check `:order` gets, because that is what an amend
+        ;; becomes whenever it cannot keep its place in the queue.
+        :else (validate-order-shape ex market (assoc t :side 0 :flags 0)))
 
       (= tx :cancel-trigger)
       (if-not (integer? (:id t)) :missing-field nil)

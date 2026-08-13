@@ -580,11 +580,74 @@
         (slab/add! (slab/field b ctl) ctl-resting -1)
         q))))
 
+(defn reduce-to!
+  "Shrink a resting order of `owner`'s to `new-qty` WITHOUT losing its place in
+  the queue. Returns the quantity removed, or 0 when nothing was done.
+
+  ## Why this is not cancel-and-replace
+
+  An amend that only reduces size is the one modification a book can honour
+  without giving up time priority, and every venue does: the order ahead of
+  you did not move, so there is no reason you should fall behind it. Doing it
+  as cancel-plus-place would send a market maker to the back of the queue
+  every time they trim, which turns risk management into a cost and is why
+  they would rather leave the order too big.
+
+  Increasing is different and is NOT this function: the extra size was never
+  queued, and letting it inherit the original's position would let anybody
+  hold a place in line with one lot and claim it with a thousand.
+
+  `new-qty` of 0 is a cancellation and is refused here rather than quietly
+  becoming one, so a caller that means to cancel says so — `cancel!` is the
+  function that also frees the slot and decrements the resting count, and a
+  zero-quantity order left linked into a level would be a ghost in every walk
+  of the book."
+  [^Book b oid owner new-qty]
+  (let [oid (long oid)
+        new-qty (long new-qty)
+        slot (slot-of oid)]
+    (if (or (neg? slot) (>= slot (long (slab/field b cap)))
+            (not= (gen-of oid) (slab/get (slab/field b o-gen) slot))
+            (not (pos? (slab/get (slab/field b o-qty) slot)))
+            (not= (long owner) (slab/get (slab/field b o-owner) slot))
+            (not (pos? new-qty)))
+      0
+      (let [q (slab/get (slab/field b o-qty) slot)]
+        (if (>= new-qty q)
+          0
+          (let [side (slab/get (slab/field b o-side) slot)
+                level (slab/get (slab/field b o-level) slot)
+                removed (- q new-qty)]
+            (slab/set! (slab/field b o-qty) slot new-qty)
+            (slab/add! (slab/field b lvl-qty)
+                       (+ (* side (long (slab/field b n-levels))) level) (- removed))
+            removed))))))
+
 ;; ── read-only views ─────────────────────────────────────────────────────────
 
 (defn level-qty
   ^long [^Book b side level]
   (slab/get (slab/field b lvl-qty) (+ (* (long side) (long (slab/field b n-levels))) (long level))))
+
+(defn order-of
+  "One resting order by id — `{:oid :owner :side :level :qty}` — or nil when
+  the id does not name a live order.
+
+  The same validity test `cancel!` makes, exposed as a question instead of an
+  action, so a caller can decide what to do about an order before touching it.
+  `amend` needs exactly that: whether a modification keeps its place in the
+  queue depends on the price and size the order already has."
+  [^Book b oid]
+  (let [oid (long oid)
+        slot (slot-of oid)]
+    (when-not (or (neg? slot) (>= slot (long (slab/field b cap)))
+                  (not= (gen-of oid) (slab/get (slab/field b o-gen) slot))
+                  (not (pos? (slab/get (slab/field b o-qty) slot))))
+      {:oid oid
+       :owner (slab/get (slab/field b o-owner) slot)
+       :side (slab/get (slab/field b o-side) slot)
+       :level (slab/get (slab/field b o-level) slot)
+       :qty (slab/get (slab/field b o-qty) slot)})))
 
 (defn level-orders
   "The resting queue at one price level, head first — i.e. in time priority.
@@ -730,6 +793,34 @@
             (if (zero? masked)
               (recur (* (inc wi) 32))
               (+ (* wi 32) (slab/lowest-set-bit masked)))))))))
+
+(defn cancel-all!
+  "Cancel every order `owner` has resting. Returns the total quantity removed.
+
+  Walks the occupied levels rather than the whole ladder, so it costs what the
+  book HOLDS — the same property `state-root` and the snapshot already have.
+
+  The next level is read BEFORE the cancellations at this one, because
+  cancelling the last order at a level clears its bit and `next-occupied`
+  would then walk from a level that no longer exists. The ids are collected
+  before cancelling for the same reason one step down: `cancel!` unlinks, and
+  a walk that followed `o-next` while unlinking would follow a freed slot."
+  [^Book b owner]
+  (let [owner (long owner)]
+    (loop [side bid total 0]
+      (if (> side ask)
+        total
+        (recur
+         (inc side)
+         (+ total
+            (loop [l (best b side) acc 0]
+              (if (neg? l)
+                acc
+                (let [nxt (next-occupied b side l)
+                      ids (into [] (comp (filter #(= owner (long (:owner %))))
+                                         (map :oid))
+                                (level-orders b side l))]
+                  (recur nxt (reduce (fn [s oid] (+ s (cancel! b oid owner))) acc ids)))))))))))
 
 (defn impact-price
   "The average price a market order of `notional` would pay on `side`, in
