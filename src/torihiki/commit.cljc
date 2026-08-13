@@ -96,6 +96,22 @@
   [leaves]
   (:hash (:root (tree leaves))))
 
+(defn shortfall
+  "What the exchange owes less what the escrow is attested to hold, or nil when
+  nobody has attested.
+
+  Positive means the attested assets do not cover the liabilities — the number
+  a reader wants and the one a venue is least likely to volunteer. Negative
+  means over-collateralised, which is a fine thing to be and still worth
+  showing, because a reader who cannot see the sign cannot tell the two apart.
+
+  nil is not zero. A chain with no attestation has not said its reserves are
+  fine; it has said nothing, and reporting that as a shortfall of zero would
+  turn silence into a claim."
+  [leaves attested]
+  (when attested
+    (- (reduce + 0 (map #(:sum % 0) leaves)) (long attested))))
+
 (defn reserves
   "The total collateral committed by `leaves` — the root's sum.
 

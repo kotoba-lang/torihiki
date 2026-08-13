@@ -154,6 +154,9 @@
    ;; Which validator a bond backs. Unsigned, a delegation could be re-aimed
    ;; at whoever wanted the weight.
    (:validator tx)
+   ;; What the escrow is said to hold, and as of when. Unsigned, anybody who
+   ;; could reach the node could make the venue look solvent.
+   (:height* tx)
    ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
    ;; and fee SCHEDULES, which are vectors of maps.
    ;;

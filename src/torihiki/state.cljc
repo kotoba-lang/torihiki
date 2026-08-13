@@ -454,6 +454,39 @@
   ;; money never moved, so waiting costs the holder nothing but the ask.
   (update ex :clearing cl/collect-unbonded account (:height ex 0)))
 
+(defmethod apply-tx :attest-reserves
+  [ex {:keys [account amount height*]}]
+  ;; The asset side of proof of reserves, said on the chain.
+  ;;
+  ;; `commit/reserves` is the liability side and the chain can compute it
+  ;; alone: what every account holds, authenticated, with each able to prove
+  ;; its share. The chain cannot compute the other side — whether the money
+  ;; exists — because the money is somewhere else.
+  ;;
+  ;; What it CAN do is record the claim and let anybody compare. The bridge
+  ;; says how much the escrow holds; `/reserves` puts that beside what is
+  ;; owed. A shortfall becomes a number a reader can see rather than a thing
+  ;; they have to take somebody's word for.
+  ;;
+  ;; Only the bridge, because it is the only party that can see the escrow.
+  ;; With no bridge configured nobody can attest — an unbacked chain has no
+  ;; escrow to attest about, and a chain that let anybody claim reserves would
+  ;; be worse than one that admits it has none.
+  (let [bridge (:bridge-authority ex)]
+    (if (or (nil? bridge) (not= account bridge) (not (integer? amount)) (neg? amount))
+      ex
+      (assoc ex :reserve-attestation
+             {:amount amount
+              ;; The height the attestation was MADE at, so a reader can see
+              ;; how stale it is. An attestation with no age is a claim that
+              ;; never expires, and reserves move.
+              :at (:height ex 0)
+              ;; What the attestor says it was looking at. Optional and
+              ;; unverified — a block height on another chain, a statement
+              ;; date — recorded because an attestation nobody can locate in
+              ;; time cannot be checked against anything.
+              :as-of height*}))))
+
 (defmethod apply-tx :vault-deposit
   [ex {:keys [account vault amount]}]
   ;; Outside money into a vault, for shares.
@@ -1378,6 +1411,14 @@
     (vec
      (concat
       [{:id "00" :bytes (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])}
+       ;; The reserve attestation. In the root because a reader compares it
+       ;; against what the root already commits to — an attestation outside
+       ;; the root would be a number the venue could change without changing
+       ;; anything a client verifies.
+       {:id "00:00" :bytes (enc-ints [enc-tag-exchange
+                                      (or (:amount (:reserve-attestation ex)) 0)
+                                      (or (:at (:reserve-attestation ex)) 0)
+                                      (if (:reserve-attestation ex) 1 0)])}
        {:id "00:01" :bytes (encode-governance ex)}
        {:id "01" :bytes (encode-rejections (:rejected ex []))}
        {:id "02:00" :bytes (enc-ints [enc-tag-nonce (count auth-accts)])}]
