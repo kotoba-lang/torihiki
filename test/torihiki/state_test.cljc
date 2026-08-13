@@ -535,3 +535,79 @@
     (is (= 6 (bk/reduce-to! b oid 7 4)))
     (is (= 4 (bk/level-qty b bk/bid 50)))
     (is (= 1 (bk/resting-count b)) "a reduced order must still be resting")))
+
+;; ── more than one market ────────────────────────────────────────────────────
+;;
+;; `:books` was always a map keyed by market id and every transaction has
+;; always named its market, but nothing ever built a second one — so the
+;; multi-market claim was shape without evidence.
+
+(def mkt2 (assoc (cl/market {:id 2 :max-leverage 20 :tick 1 :lot 1})
+                 :taker-fee-rate (fx/bps 5)
+                 :maker-fee-rate 0))
+
+(defn- two-markets []
+  (st/new-exchange {:markets [mkt mkt2]
+                    :book-opts {:n-levels 4096 :cap 65536 :ev-cap 65536}}))
+
+(deftest two-markets-keep-separate-books
+  (let [ex (-> (two-markets)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (st/apply-tx {:tx :oracle :market 2 :price 900})
+               (funded [70] 100000000)
+               (st/apply-tx {:tx :order :account 70 :market 1
+                             :side bk/bid :level 400 :qty 3})
+               (st/apply-tx {:tx :order :account 70 :market 2
+                             :side bk/bid :level 800 :qty 5}))]
+    (is (= 1 (bk/resting-count (get-in ex [:books 1]))))
+    (is (= 1 (bk/resting-count (get-in ex [:books 2]))))
+    (is (= 3 (bk/level-qty (get-in ex [:books 1]) bk/bid 400)))
+    (is (= 5 (bk/level-qty (get-in ex [:books 2]) bk/bid 800)))
+    (is (= 0 (bk/level-qty (get-in ex [:books 2]) bk/bid 400))
+        "market 2 must not hold market 1's order")
+    ;; and each market prices itself
+    (is (not= (get-in ex [:marks 1]) (get-in ex [:marks 2])))))
+
+(deftest cancel-all-is-per-market
+  ;; It takes a market, so pulling out of one must not pull out of the other —
+  ;; a maker hedging across markets would otherwise lose the hedge.
+  (let [ex (-> (two-markets)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (st/apply-tx {:tx :oracle :market 2 :price 900})
+               (funded [71] 100000000)
+               (st/apply-tx {:tx :order :account 71 :market 1
+                             :side bk/bid :level 400 :qty 3})
+               (st/apply-tx {:tx :order :account 71 :market 2
+                             :side bk/bid :level 800 :qty 5})
+               (st/apply-tx {:tx :cancel-all :account 71 :market 1}))]
+    (is (= 0 (bk/resting-count (get-in ex [:books 1]))))
+    (is (= 1 (bk/resting-count (get-in ex [:books 2])))
+        "cancelling on market 1 emptied market 2")))
+
+(deftest the-root-commits-to-every-market
+  (let [a (-> (two-markets) (st/apply-tx {:tx :oracle :market 1 :price 500}))
+        b (-> (two-markets) (st/apply-tx {:tx :oracle :market 2 :price 500}))]
+    (is (not= (st/state-root a) (st/state-root b))
+        "the same price on a different market produced the same root")))
+
+(deftest a-block-sweeps-every-market
+  ;; The end-of-block liquidation sweep walks `(:books ex)`, so a second market
+  ;; has to be swept too — an account underwater on market 2 must not survive
+  ;; because market 1 was the one being watched.
+  (let [ex (-> (two-markets)
+               (st/apply-tx {:tx :oracle :market 2 :price 500})
+               (funded [72] 1000)
+               (funded [73] 100000000)
+               (st/apply-tx {:tx :order :account 73 :market 2
+                             :side bk/ask :level 500 :qty 100})
+               (st/apply-tx {:tx :order :account 72 :market 2
+                             :side bk/bid :level 500 :qty 100}))]
+    (is (pos? (:size (cl/position (:clearing ex) 72 2))))
+    (let [after (st/apply-block ex {:height 1 :ts 1
+                                    :txs [{:tx :oracle :market 2 :price 300}]})]
+      (is (not (cl/liquidatable? (:clearing after) 72 (:marks after) (:markets after)))
+          "market 2 was never swept"))))
+
+(deftest duplicate-market-ids-are-refused
+  (is (thrown? #?(:clj Exception :cljs :default)
+               (st/new-exchange {:markets [mkt mkt] :book-opts {}}))))
