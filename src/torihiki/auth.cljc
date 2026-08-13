@@ -140,6 +140,10 @@
    ;; The ladder: how many rungs and how far apart. Unsigned, an attacker
    ;; could widen a quote or multiply its size without touching the signature.
    (:count* tx) (:step tx)
+   ;; Who is paid for routing this order and how much. Unsigned, an order could
+   ;; be re-aimed at an attacker's account, or its fee raised to the cap, and
+   ;; the signature would still verify.
+   (:builder tx) (:builder-fee tx)
    ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
    ;; and fee SCHEDULES, which are vectors of maps.
    ;;
