@@ -31,17 +31,34 @@
 
 (def ^:const word-bits 256)
 
-(def ^:const two-256
-  "2^256, as the modulus two's complement is taken in."
-  (apply * (repeat 32 256N)))
+(def two-256
+  "2^256, as the modulus two's complement is taken in.
+
+  Reader-conditional, because the two runtimes have different big integers and
+  this namespace has to give the same 64 characters on both. `bigint` is
+  Clojure's and does not exist in ClojureScript: the first version used it
+  unguarded, every JVM test passed, and the node would not start —
+  `Unable to resolve symbol: bigint`. A `.cljc` file that only runs on one
+  side is a `.cljc` file in name."
+  #?(:clj (apply * (repeat 32 256N))
+     :cljs (js/BigInt "115792089237316195423570985008687907853269984665640564039457584007913129639936")))
 
 (defn- hex-word
   "One 32-byte ABI word, as 64 hex characters. Two's complement for negatives:
   a position of -5 is not `-5` in a word, it is `2^256 - 5`, and a caller
-  decoding `int256` reads it back as -5."
+  decoding `int256` reads it back as -5.
+
+  `BigInt.asUintN` on the ClojureScript side, which is exactly this
+  conversion and one call. Two attempts before it were arithmetic —
+  `(mod (bigint n) two-256)` does not compile there at all (`bigint` is
+  Clojure's), and `(rem (+ (rem b m) m) m)` compiles and then throws
+  `Cannot convert a BigInt value to a number`, because ClojureScript's
+  arithmetic coerces its arguments and BigInt refuses to be coerced. The
+  JVM tests passed through both."
   [n]
-  (let [v (mod (bigint n) two-256)
-        s (str/replace (.toString #?(:clj (biginteger v) :cljs v) 16) #"^0x" "")]
+  (let [s #?(:clj (.toString (biginteger (mod (bigint n) two-256)) 16)
+             :cljs (.toString (js/BigInt.asUintN 256 (js/BigInt n)) 16))
+        s (str/replace s #"^0x" "")]
     (str (apply str (repeat (- 64 (count s)) \0)) s)))
 
 (defn- parse-word
@@ -54,6 +71,11 @@
   (let [body (subs calldata 10)                     ; past "0x" and the selector
         off (* n 64)]
     (when (>= (count body) (+ off 64))
+      ;; Account ids reach 2^45 and market ids are small, so a double holds
+      ;; every argument these five take exactly. Parsing the whole 256-bit word
+      ;; into a JS number would lose precision above 2^53 — but a caller
+      ;; passing something that large is passing an account that cannot exist,
+      ;; and the lookup misses either way.
       #?(:clj (BigInteger. ^String (subs body off (+ off 64)) 16)
          :cljs (js/parseInt (subs body off (+ off 64)) 16)))))
 
