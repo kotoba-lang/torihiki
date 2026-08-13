@@ -348,6 +348,11 @@
      :symbol (:symbol m)
      :open-interest (cl/open-interest (:clearing ex) market)
      :open-interest-cap (:open-interest-cap m)
+     ;; The fee schedule, so a client can show what a trade will cost and what
+     ;; volume would make it cost less. A venue that charges by tier and does
+     ;; not publish the tiers is asking to be trusted about the price.
+     :fee-tiers (mapv #(select-keys % [:min-volume :taker-fee-rate :maker-fee-rate])
+                      (:fee-tiers m []))
      :margin-tiers (mapv #(select-keys % [:max-notional :max-leverage
                                           :initial-margin-rate
                                           :maintenance-margin-rate])
