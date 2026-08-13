@@ -350,6 +350,35 @@
      ex
      due)))
 
+(defmethod apply-tx :scale
+  [ex {:keys [account market side level qty count* step flags]}]
+  ;; A ladder of resting orders in one transaction.
+  ;;
+  ;; A maker quoting ten levels otherwise sends ten transactions, each with its
+  ;; own nonce, and the nonces are strictly sequential — so one refusal in the
+  ;; middle strands every order after it. Placing the ladder as one transaction
+  ;; makes it arrive whole or not at all, which is what a quote IS.
+  ;;
+  ;; `step` walks AWAY from the top of book: down for bids, up for asks. The
+  ;; sign is not the caller's to choose, because a ladder that walked the wrong
+  ;; way would cross the book and take instead of quote — the opposite of what
+  ;; a scale order is for, arriving through the same door.
+  (let [dir (if (= side bk/bid) -1 1)
+        book (get-in ex [:books market])
+        n-levels (:n-levels book)]
+    (reduce
+     (fn [ex' i]
+       (let [lvl (+ level (* dir i step))]
+         (if (or (neg? lvl) (>= lvl n-levels))
+           ;; Off the ladder. Skipped rather than refused: a scale that ran
+           ;; past the end of the book would otherwise take the orders that
+           ;; did fit with it.
+           ex'
+           (apply-tx ex' {:tx :order :account account :market market
+                          :side side :level lvl :qty qty :flags (or flags 0)}))))
+     ex
+     (range count*))))
+
 (defmethod apply-tx :twap
   [ex {:keys [account market side qty slices every]}]
   ;; An order worked over time instead of all at once — the thing a size that

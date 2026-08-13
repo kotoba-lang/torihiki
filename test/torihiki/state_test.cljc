@@ -7,6 +7,7 @@
             [torihiki.clearing :as cl]
             [torihiki.liquidation :as liq]
             [torihiki.api :as api]
+            [torihiki.auth :as auth]
             [torihiki.commit :as cm]
             [torihiki.state :as st]))
 
@@ -907,3 +908,58 @@
     (is (= :bad-quantity (api/validate ex {:tx :twap :account 10 :market 1
                                            :side bk/bid :qty 3 :slices 4 :every 1}))
         "a schedule whose slices round to nothing was accepted")))
+
+;; ── scale orders ────────────────────────────────────────────────────────────
+
+(deftest a-scale-places-a-ladder-in-one-transaction
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [20] 1000000000)
+               (st/apply-tx {:tx :scale :account 20 :market 1
+                             :side bk/bid :level 400 :qty 2 :count* 4 :step 5}))
+        book (get-in ex [:books 1])]
+    (is (= 4 (bk/resting-count book)))
+    (is (= [2 2 2 2] (mapv #(bk/level-qty book bk/bid %) [400 395 390 385]))
+        "the rungs are not where the ladder said")))
+
+(deftest a-ladder-walks-away-from-the-book
+  ;; A bid ladder that walked UP would cross and take. The direction is not
+  ;; the caller's to choose.
+  (let [asks (-> (fresh)
+                 (st/apply-tx {:tx :oracle :market 1 :price 500})
+                 (funded [21] 1000000000)
+                 (st/apply-tx {:tx :scale :account 21 :market 1
+                               :side bk/ask :level 600 :qty 1 :count* 3 :step 10}))
+        book (get-in asks [:books 1])]
+    (is (= [1 1 1] (mapv #(bk/level-qty book bk/ask %) [600 610 620])))
+    (is (= 0 (bk/level-qty book bk/ask 590))
+        "an ask ladder walked toward the book")))
+
+(deftest a-ladder-that-runs-off-the-book-keeps-what-fits
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [22] 1000000000)
+               ;; step down from 5 by 3: 5, 2, then -1 and -4 are off the end
+               (st/apply-tx {:tx :scale :account 22 :market 1
+                             :side bk/bid :level 5 :qty 1 :count* 4 :step 3}))]
+    (is (= 2 (bk/resting-count (get-in ex [:books 1])))
+        "the rungs that fit were lost with the ones that did not")))
+
+(deftest a-ladder-of-one-and-a-step-of-zero-are-refused
+  (let [ex (fresh)]
+    (is (= :missing-field (api/validate ex {:tx :scale :account 1 :market 1
+                                            :side bk/bid :level 100 :qty 1
+                                            :count* 1 :step 5})))
+    (is (= :missing-field (api/validate ex {:tx :scale :account 1 :market 1
+                                            :side bk/bid :level 100 :qty 1
+                                            :count* 4 :step 0}))
+        "a step of zero stacks the whole ladder on one level")))
+
+(deftest the-signature-covers-the-shape-of-the-ladder
+  (let [tx {:tx :scale :market 1 :side 0 :level 100 :qty 1 :count* 4 :step 5}]
+    (is (not= (auth/signing-payload "c" 1 1 tx)
+              (auth/signing-payload "c" 1 1 (assoc tx :count* 40)))
+        "the number of rungs was not signed")
+    (is (not= (auth/signing-payload "c" 1 1 tx)
+              (auth/signing-payload "c" 1 1 (assoc tx :step 50)))
+        "the spacing was not signed")))
