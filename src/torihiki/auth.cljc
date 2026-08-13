@@ -144,6 +144,10 @@
    ;; be re-aimed at an attacker's account, or its fee raised to the cap, and
    ;; the signature would still verify.
    (:builder tx) (:builder-fee tx)
+   ;; Who is credited for introducing this account. Bound once and forever, so
+   ;; an unsigned field here is an attacker claiming somebody's fee stream for
+   ;; the life of the account.
+   (:referrer tx)
    ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
    ;; and fee SCHEDULES, which are vectors of maps.
    ;;

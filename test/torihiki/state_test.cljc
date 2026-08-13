@@ -1039,3 +1039,66 @@
     (is (not= (auth/signing-payload "c" 1 1 tx)
               (auth/signing-payload "c" 1 1 (assoc tx :builder-fee 1000000)))
         "the builder's cut was not signed")))
+
+;; ── referral ────────────────────────────────────────────────────────────────
+;;
+;; A share of what the VENUE keeps, not a surcharge on the trader.
+
+(defn- referral-fixture []
+  (-> (fresh)
+      (st/apply-tx {:tx :oracle :market 1 :price 500})
+      (funded [40 41 42] 1000000000)
+      (st/apply-tx {:tx :order :account 41 :market 1
+                    :side bk/ask :level 500 :qty 20000})))
+
+(deftest a-referrer-is-paid-out-of-the-venues-fee
+  ;; TWO fixtures, not one branched twice. `bk/place!` mutates the book's slab
+  ;; in place — that is deliberate and documented — so two futures taken from
+  ;; one state share a book, and the first to run eats the liquidity the second
+  ;; was going to trade against. The first version of this did exactly that and
+  ;; measured a fill that never happened.
+  (let [a (referral-fixture)
+        before-a (get-in a [:clearing :accounts 40 :collateral])
+        plain (st/apply-tx a {:tx :order :account 40 :market 1
+                              :side bk/bid :level 500 :qty 20000})
+        b (referral-fixture)
+        before-b (get-in b [:clearing :accounts 40 :collateral])
+        before-ref (get-in b [:clearing :accounts 42 :collateral])
+        referred (-> b
+                     (st/apply-tx {:tx :set-referrer :account 40 :referrer 42})
+                     (st/apply-tx {:tx :order :account 40 :market 1
+                                   :side bk/bid :level 500 :qty 20000}))
+        paid-plain (- before-a (get-in plain [:clearing :accounts 40 :collateral]))
+        paid-referred (- before-b (get-in referred [:clearing :accounts 40 :collateral]))
+        earned (- (get-in referred [:clearing :accounts 42 :collateral]) before-ref)]
+    (is (pos? paid-plain) "nothing filled, so nothing is being measured")
+    (is (pos? earned) "the referrer was not paid")
+    (is (= paid-plain paid-referred)
+        "being referred changed what the trader paid — that is a surcharge")
+    (is (= (- (get-in plain [:clearing :fees-collected])
+              (get-in referred [:clearing :fees-collected]))
+           earned)
+        "the referrer's share did not come out of the venue's fee")))
+
+(deftest a-referrer-is-bound-once
+  (let [ex (-> (referral-fixture)
+               (st/apply-tx {:tx :set-referrer :account 40 :referrer 42})
+               (st/apply-tx {:tx :set-referrer :account 40 :referrer 41}))]
+    (is (= 42 (get-in ex [:clearing :referrers 40]))
+        "the last client to touch the account took the stream")))
+
+(deftest an-account-cannot-refer-itself
+  (let [ex (st/apply-tx (referral-fixture) {:tx :set-referrer :account 40 :referrer 40})]
+    (is (nil? (get-in ex [:clearing :referrers 40]))
+        "a rebate was collected by pointing the referral at yourself")))
+
+(deftest the-referrer-is-in-the-root
+  (let [a (referral-fixture)
+        b (st/apply-tx a {:tx :set-referrer :account 40 :referrer 42})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "who is paid on every future fill sat outside the root")))
+
+(deftest the-signature-covers-the-referrer
+  (is (not= (auth/signing-payload "c" 1 1 {:tx :set-referrer :referrer 42})
+            (auth/signing-payload "c" 1 1 {:tx :set-referrer :referrer 99}))
+      "an attacker could claim somebody's fee stream for the life of the account"))

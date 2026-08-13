@@ -24,7 +24,7 @@
   ;; than deleted because its job never was to hold one particular digest — it
   ;; is to make an accidental encoding change impossible to land quietly, and
   ;; that job is the same on the far side of a deliberate one.
-  (is (= "1ebbfe8e39bc091c5e1373d1fc41b875161f39fe460c46fdecb78671c8713bfb"
+  (is (= "b075b9117986de0b121cd37a87289d7629eaff8b25aeaf7e66a765995fb1b5e0"
          (st/flat-root (ex)))))
 
 (deftest the-root-carries-the-total-collateral
