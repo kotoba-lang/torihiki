@@ -454,6 +454,16 @@
   ;; money never moved, so waiting costs the holder nothing but the ask.
   (update ex :clearing cl/collect-unbonded account (:height ex 0)))
 
+(defmethod apply-tx :set-leverage
+  [ex {:keys [account market leverage]}]
+  ;; A trader asking for a stricter margin requirement than the market
+  ;; demands. See `cl/set-leverage` for why it is refused rather than clamped,
+  ;; and why it cannot be changed under an open position.
+  (update ex :clearing cl/set-leverage account market
+          (get-in ex [:markets market])
+          leverage
+          (pos? (fx/abs* (:size (cl/position (:clearing ex) account market))))))
+
 (defmethod apply-tx :attest-reserves
   [ex {:keys [account amount height*]}]
   ;; The asset side of proof of reserves, said on the chain.
@@ -1325,15 +1335,29 @@
                          ;; the next order is backed — so both are claims on
                          ;; money and both belong under the root.
                          (count (get-in clearing [:balances a] {}))
+                         ;; The chosen leverage per market. It decides the
+                         ;; margin this account must hold, so a replica that
+                         ;; disagreed would liquidate at a different point.
+                         (count (get-in clearing [:leverage a] {}))
                          (count mkts)]))
             mkts)
-        (reduce (fn [acc as]
+        ;; Chosen leverage, then spot holdings. `into` takes two collections,
+        ;; so these are concatenated rather than passed as a third argument —
+        ;; which is what the first version did, and it threw an index error
+        ;; from inside the encoder on every root computation.
+        (concat
+         (reduce (fn [acc m]
+                   (into acc (enc-ints [enc-tag-account a m
+                                        (get-in clearing [:leverage a m] 0)])))
+                 []
+                 (sort (keys (get-in clearing [:leverage a] {}))))
+         (reduce (fn [acc as]
                   (into acc (enc-ints [enc-tag-account a as
                                        (get-in clearing [:balances a as] 0)
                                        (get-in clearing [:committed a as] 0)])))
                 []
-                (sort (distinct (concat (keys (get-in clearing [:balances a] {}))
-                                        (keys (get-in clearing [:committed a] {})))))))))
+                 (sort (distinct (concat (keys (get-in clearing [:balances a] {}))
+                                         (keys (get-in clearing [:committed a] {}))))))))))
 
 (def ^:private id-pad
   "Sixteen zeros: the width of the largest i53, 9007199254740992.

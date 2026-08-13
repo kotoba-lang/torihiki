@@ -1374,3 +1374,61 @@
         b (st/apply-tx a {:tx :attest-reserves :account 77 :amount 500})]
     (is (not= (st/state-root a) (st/state-root b))
         "the venue could change its attested reserves without changing the root")))
+
+;; ── chosen leverage ─────────────────────────────────────────────────────────
+;;
+;; A trader picks how much margin to hold, bounded by what the market allows.
+;; Choosing is always a request for a STRICTER requirement — the market's
+;; maximum is the most anybody may take.
+
+(deftest choosing-lower-leverage-raises-the-margin-required
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [10] 100000000))
+        plain (cl/initial-margin-rate-for (:clearing ex) 10 1 (get-in ex [:markets 1]) 1000)
+        after (st/apply-tx ex {:tx :set-leverage :account 10 :market 1 :leverage 2})
+        chosen (cl/initial-margin-rate-for (:clearing after) 10 1
+                                           (get-in after [:markets 1]) 1000)]
+    (is (> chosen plain) "choosing 2x on a 40x market did not raise the requirement")
+    (is (= (fx/fdiv fx/rate-scale 2) chosen))))
+
+(deftest leverage-above-the-market-maximum-is-refused
+  ;; Clamping would size a position against a number the trader did not get.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [11] 100000000)
+               (st/apply-tx {:tx :set-leverage :account 11 :market 1 :leverage 400}))]
+    (is (nil? (cl/chosen-leverage (:clearing ex) 11 1))
+        "a trader took more leverage than the market allows")))
+
+(deftest leverage-cannot-be-changed-under-an-open-position
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [12 13] 1000000000)
+               (st/apply-tx {:tx :order :account 13 :market 1
+                             :side bk/ask :level 500 :qty 100})
+               (st/apply-tx {:tx :order :account 12 :market 1
+                             :side bk/bid :level 500 :qty 100})
+               (st/apply-tx {:tx :set-leverage :account 12 :market 1 :leverage 2}))]
+    (is (pos? (:size (cl/position (:clearing ex) 12 1))))
+    (is (nil? (cl/chosen-leverage (:clearing ex) 12 1))
+        "the margin requirement moved under an open position")))
+
+(deftest a-chosen-leverage-never-loosens-a-tier
+  ;; The market's tier is the ceiling; a choice only ever tightens.
+  (let [tiered (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1
+                                  :margin-tiers [{:max-notional 100 :max-leverage 2}]})
+                      :taker-fee-rate 0 :maker-fee-rate 0)
+        ex (-> (st/new-exchange {:market tiered :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+               (funded [14] 100000000)
+               (st/apply-tx {:tx :set-leverage :account 14 :market 1 :leverage 40}))
+        ;; notional 50 falls in the 2x tier; asking for 40x must not escape it
+        r (cl/initial-margin-rate-for (:clearing ex) 14 1 (get-in ex [:markets 1]) 50)]
+    (is (= (fx/fdiv fx/rate-scale 2) r)
+        "a chosen leverage escaped the market's own tier")))
+
+(deftest the-chosen-leverage-is-in-the-root
+  (let [a (-> (fresh) (funded [15] 1000000))
+        b (st/apply-tx a {:tx :set-leverage :account 15 :market 1 :leverage 3})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "what an account must hold sat outside the root")))

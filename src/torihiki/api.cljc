@@ -284,6 +284,13 @@
            (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
       :else nil)
 
+    :set-leverage
+    (cond
+      (not (integer? account)) :bad-account
+      (not (contains? (:markets ex) market)) :unknown-market
+      (not (and (integer? (:leverage t)) (pos? (:leverage t)))) :missing-field
+      :else nil)
+
     :attest-reserves
     (cond
       (not (integer? account)) :bad-account
