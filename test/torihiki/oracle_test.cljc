@@ -150,3 +150,45 @@
                              :txs [{:tx :oracle-submit :account 102 :market 1 :price 1000}]})]
       (is (not= (st/state-root a) (st/state-root b))
           "same price, different publisher, different root"))))
+
+;; ── stake weighting ─────────────────────────────────────────────────────────
+;;
+;; A plain median counts publishers. Publishers are cheap to create, so
+;; counting them means a majority of small voices moves the price. Weighting by
+;; stake makes the cost of moving it the cost of acquiring the stake.
+
+(deftest stake-decides-whose-price-wins
+  (let [subs {1 {:price 100 :ts 0} 2 {:price 100 :ts 0} 3 {:price 500 :ts 0}}
+        pubs #{1 2 3}
+        params {:quorum 2 :max-age 10}]
+    (is (= 100 (:price (orc/aggregate subs pubs 0 params)))
+        "unweighted, the two agreeing publishers win")
+    ;; publisher 3 has more at risk than 1 and 2 together
+    (let [stake {1 1 2 1 3 10}]
+      (is (= 500 (:price (orc/aggregate subs pubs 0 params #(get stake % 0))))
+          "stake did not move the aggregate"))))
+
+(deftest an-unbonded-publisher-weighs-nothing
+  (let [subs {1 {:price 100 :ts 0} 2 {:price 900 :ts 0} 3 {:price 900 :ts 0}}
+        pubs #{1 2 3}
+        params {:quorum 2 :max-age 10}
+        stake {1 10 2 0 3 0}]
+    (is (= 100 (:price (orc/aggregate subs pubs 0 params #(get stake % 0))))
+        "two publishers with nothing at risk outvoted the one that had")))
+
+(deftest with-no-stake-at-all-it-is-the-plain-median
+  ;; A chain whose publishers are unbonded has nothing to weigh. Falling back
+  ;; is better than stopping: the alternative is an outage caused by a
+  ;; governance gap.
+  (let [subs {1 {:price 100 :ts 0} 2 {:price 200 :ts 0} 3 {:price 300 :ts 0}}
+        pubs #{1 2 3}
+        params {:quorum 2 :max-age 10}]
+    (is (= (:price (orc/aggregate subs pubs 0 params))
+           (:price (orc/aggregate subs pubs 0 params (constantly 0)))))))
+
+(deftest weighting-still-refuses-below-quorum
+  (let [subs {1 {:price 100 :ts 0}}
+        pubs #{1 2 3}
+        params {:quorum 2 :max-age 10}]
+    (is (:stale? (orc/aggregate subs pubs 0 params #(get {1 1000} % 0)))
+        "one heavily staked publisher was allowed to set the price alone")))
