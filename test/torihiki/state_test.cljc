@@ -1323,3 +1323,10 @@
     (is (empty? missing) (str "reasons with no code: " (vec missing))))
   (is (= (count (set (vals st/reason-codes))) (count st/reason-codes))
       "two reasons share a code, so they are indistinguishable in the root"))
+(deftest a-spot-market-listed-through-json-is-still-spot
+  ;; JSON has no keywords: `:kind :spot` goes out and "spot" comes back.
+  ;; Comparing only to the keyword would list a spot market and run it as a
+  ;; perp — balances that never move and positions nobody asked for.
+  (let [ex (st/new-exchange {:markets [mkt (assoc spot-mkt :kind "spot")]
+                             :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
+    (is (st/spot? ex 3))))
