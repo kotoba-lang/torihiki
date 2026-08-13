@@ -6,6 +6,7 @@
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.liquidation :as liq]
+            [torihiki.api :as api]
             [torihiki.commit :as cm]
             [torihiki.state :as st]))
 
@@ -611,3 +612,64 @@
 (deftest duplicate-market-ids-are-refused
   (is (thrown? #?(:clj Exception :cljs :default)
                (st/new-exchange {:markets [mkt mkt] :book-opts {}}))))
+
+;; ── listing a market on a running chain ─────────────────────────────────────
+;;
+;; Markets were genesis-only, and a chain restores from a checkpoint — so
+;; adding one to the source added it to a chain nobody was running.
+
+(def ^:private spec2 {:max-leverage 20 :tick 10 :lot 1
+                      :taker-fee-rate 500000 :maker-fee-rate 100000
+                      :initial-margin-rate 50000000
+                      :maintenance-margin-rate 25000000})
+
+(defn- with-bridge [b]
+  (assoc (fresh) :bridge-authority b))
+
+(deftest the-bridge-can-list-a-market-and-it-works
+  (let [ex (-> (with-bridge 77)
+               (st/apply-tx {:tx :list-market :account 77 :market 5 :spec spec2
+                             :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}}))]
+    (is (contains? (:markets ex) 5))
+    (is (some? (get-in ex [:books 5])))
+    ;; and it is a real market: it prices, it rests orders, it roots
+    (let [ex (-> ex
+                 (st/apply-tx {:tx :oracle :market 5 :price 900})
+                 (funded [80] 100000000)
+                 (st/apply-tx {:tx :order :account 80 :market 5
+                               :side bk/bid :level 100 :qty 4}))]
+      (is (= 900 (get-in ex [:oracle 5])))
+      (is (= 4 (bk/level-qty (get-in ex [:books 5]) bk/bid 100))))))
+
+(deftest only-the-bridge-may-list
+  (let [ex (with-bridge 77)]
+    (is (= ex (st/apply-tx ex {:tx :list-market :account 78 :market 5 :spec spec2}))
+        "a stranger listed a market")
+    (is (= (dissoc ex :bridge-authority)
+           (dissoc (st/apply-tx (dissoc ex :bridge-authority)
+                                {:tx :list-market :account 78 :market 5 :spec spec2})
+                   :bridge-authority))
+        "a chain with no authority let somebody list")))
+
+(deftest listing-cannot-replace-a-live-market
+  ;; The market being replaced is one that has orders resting in it and
+  ;; positions margined against it; a new book at the same id would strand
+  ;; both while every id already signed keeps pointing there.
+  (let [ex (-> (with-bridge 77)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [81] 100000000)
+               (st/apply-tx {:tx :order :account 81 :market 1
+                             :side bk/bid :level 400 :qty 6}))
+        after (st/apply-tx ex {:tx :list-market :account 77 :market 1 :spec spec2})]
+    (is (= 6 (bk/level-qty (get-in after [:books 1]) bk/bid 400))
+        "an existing market was replaced and its book went with it"))
+  (is (= :unknown-market
+         (api/validate (-> (with-bridge 77))
+                       {:tx :list-market :account 77 :market 1 :spec spec2}))))
+
+(deftest a-listed-market-is-in-the-root
+  (let [a (with-bridge 77)
+        b (st/apply-tx a {:tx :list-market :account 77 :market 5 :spec spec2
+                          :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "listing a market did not change the root")))
