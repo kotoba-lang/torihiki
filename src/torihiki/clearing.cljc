@@ -319,6 +319,28 @@
           [(get t :taker-fee-rate (first base)) (get t :maker-fee-rate (second base))]
           base)))))
 
+(defn pay-builder
+  "Move `amount` from `payer` to `builder`.
+
+  A transfer, not a fee: it does not touch `:fees-collected`, because the
+  venue is not the one charging it. Whoever wrote the client is, and the
+  trader agreed to it by signing the order — so the money goes to them and
+  the exchange's books show none of it as income.
+
+  Refused, rather than clamped, when the payer cannot afford it: an order that
+  fills and then partially pays its builder would leave a debt with no name.
+  `torihiki.api` caps the rate so this is rare; making it a no-op keeps a
+  builder from being paid out of collateral that is backing a position."
+  [state payer builder amount]
+  (let [amount (long amount)]
+    (if (or (not (pos? amount))
+            (= payer builder)
+            (> amount (get-in state [:accounts payer :collateral] 0)))
+      state
+      (-> state
+          (update-in [:accounts payer :collateral] - amount)
+          (update-in [:accounts builder :collateral] (fnil + 0) amount)))))
+
 (defn settle-deficit
   "Move an account's negative collateral into `:deficit`, leaving collateral at
   zero. Idempotent, and a no-op on an account that is not underwater.

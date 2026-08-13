@@ -974,3 +974,68 @@
                             :oracle-publishers [1 2] :publisher-stake {1 1 2 10}})]
     (is (not= (st/state-root a) (st/state-root b))
         "the weights sat outside the root")))
+
+;; ── builder codes ───────────────────────────────────────────────────────────
+;;
+;; A share of what a trade costs, paid to whoever wrote the client that routed
+;; it — by the trader who signed the order, not by the venue.
+
+(defn- builder-fixture []
+  (-> (fresh)
+      (st/apply-tx {:tx :oracle :market 1 :price 500})
+      (funded [30 31 32] 1000000000)
+      ;; 31 quotes, 30 will take, 32 is the builder
+      (st/apply-tx {:tx :order :account 31 :market 1
+                    :side bk/ask :level 500 :qty 20000})))
+
+(deftest a-builder-is-paid-by-the-taker-and-not-by-the-venue
+  (let [ex (builder-fixture)
+        before-taker (get-in ex [:clearing :accounts 30 :collateral])
+        before-builder (get-in ex [:clearing :accounts 32 :collateral])
+        before-fees (get-in ex [:clearing :fees-collected])
+        after (st/apply-tx ex {:tx :order :account 30 :market 1
+                               :side bk/bid :level 500 :qty 20000
+                               :builder 32 :builder-fee (fx/bps 5)})
+        paid (- before-taker (get-in after [:clearing :accounts 30 :collateral]))
+        earned (- (get-in after [:clearing :accounts 32 :collateral]) before-builder)]
+    (is (pos? earned) "the builder was not paid")
+    (is (> paid earned) "the taker paid only the builder, not the exchange too")
+    (is (= (- (get-in after [:clearing :fees-collected]) before-fees)
+           (- paid earned))
+        "the builder's cut landed in the venue's fees")))
+
+(deftest the-maker-never-pays-a-builder-it-did-not-choose
+  (let [ex (builder-fixture)
+        before-maker (get-in ex [:clearing :accounts 31 :collateral])
+        after (st/apply-tx ex {:tx :order :account 30 :market 1
+                               :side bk/bid :level 500 :qty 20000
+                               :builder 32 :builder-fee (fx/bps 5)})
+        ;; the maker's collateral moves by its own fee only, which is what it
+        ;; would have moved without a builder at all
+        with-builder (- before-maker (get-in after [:clearing :accounts 31 :collateral]))
+        plain (let [a (st/apply-tx ex {:tx :order :account 30 :market 1
+                                       :side bk/bid :level 500 :qty 20000})]
+                (- before-maker (get-in a [:clearing :accounts 31 :collateral])))]
+    (is (= with-builder plain)
+        "the maker paid for the taker's builder")))
+
+(deftest a-builder-fee-over-the-cap-is-refused
+  (let [ex (builder-fixture)]
+    (is (nil? (api/validate ex {:tx :order :account 30 :market 1
+                                :side bk/bid :level 500 :qty 1
+                                :builder 32 :builder-fee api/max-builder-fee-rate})))
+    (is (= :builder-fee-too-high
+           (api/validate ex {:tx :order :account 30 :market 1
+                             :side bk/bid :level 500 :qty 1
+                             :builder 32 :builder-fee (inc api/max-builder-fee-rate)}))
+        "a client could charge whatever it wanted")))
+
+(deftest the-signature-covers-who-is-paid-for-routing
+  (let [tx {:tx :order :market 1 :side 0 :level 500 :qty 1
+            :builder 32 :builder-fee 100}]
+    (is (not= (auth/signing-payload "c" 1 1 tx)
+              (auth/signing-payload "c" 1 1 (assoc tx :builder 99)))
+        "the builder was not signed")
+    (is (not= (auth/signing-payload "c" 1 1 tx)
+              (auth/signing-payload "c" 1 1 (assoc tx :builder-fee 1000000)))
+        "the builder's cut was not signed")))

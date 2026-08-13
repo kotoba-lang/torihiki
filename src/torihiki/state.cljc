@@ -220,7 +220,8 @@
 (declare fire-triggers apply-tx-order)
 
 (defmethod apply-tx :order
-  [ex {:keys [account market side level qty flags] :or {flags 0}}]
+  [ex {:keys [account market side level qty flags builder builder-fee]
+      :or {flags 0}}]
   (let [reduce-only? (pos? (bit-and flags bk/flag-reduce-only))
         ;; Reduce-only is clamped, not rejected: a trader closing a position
         ;; often sends slightly more than they hold, and the intent is
@@ -237,10 +238,10 @@
         flags (if reduce-only? (bit-or flags bk/flag-ioc) flags)]
     (if (not (pos? qty))
       ex
-      (apply-tx-order ex account market side level qty flags))))
+      (apply-tx-order ex account market side level qty flags builder builder-fee))))
 
 (defn- apply-tx-order
-  [ex account market side level qty flags]
+  [ex account market side level qty flags builder builder-fee]
   (let [book (get-in ex [:books market])
         before (bk/event-count book)
         _oid (bk/place! book side level qty flags account)
@@ -269,6 +270,20 @@
              (-> ex'
                  (update :clearing cl/apply-fill taker-owner market taker-delta level t-rate)
                  (update :clearing cl/apply-fill maker-owner market maker-delta level m-rate)
+                 ;; The builder's cut: paid by the taker who agreed to it and
+                 ;; credited to the builder, not to the venue. A fee that went
+                 ;; to `:fees-collected` would be the exchange charging on the
+                 ;; client's behalf — a different arrangement from the one the
+                 ;; trader signed.
+                 ;;
+                 ;; Only on the fills of the order that CARRIED the builder:
+                 ;; the maker never saw it and cannot have agreed to it.
+                 (cond->
+                  (and builder (pos? (long (or builder-fee 0)))
+                       (= taker-owner account))
+                   (update :clearing cl/pay-builder taker-owner builder
+                           (fx/mul-rate (fx/abs* (fx/notional level qty))
+                                        (long builder-fee))))
                  (update :clearing cl/add-volume taker-owner h notional)
                  (update :clearing cl/add-volume maker-owner h notional)
                  ;; the fill sets the LAST price, never the mark
@@ -445,7 +460,12 @@
                                (if (pos? q)
                                  (apply-tx-order e (:account t) market
                                                  (:side o) (:level o) q
-                                                 (bit-or (:flags o 0) bk/flag-ioc))
+                                                 (bit-or (:flags o 0) bk/flag-ioc)
+                                                 ;; A trigger's order carries no
+                                                 ;; builder: the routing client
+                                                 ;; is not on the other end when
+                                                 ;; a stop fires blocks later.
+                                                 nil nil)
                                  e)))
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))

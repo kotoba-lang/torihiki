@@ -44,6 +44,7 @@
     :bad-trigger-direction
     :bad-trigger-price
     :bad-trigger-order
+    :builder-fee-too-high
     :open-interest-cap
     :not-a-publisher
     :oracle-is-aggregated
@@ -67,6 +68,25 @@
     (not (int-in? (or flags 0) 0 7)) :bad-flags
     :else nil))
 
+(def ^:const max-builder-fee-rate
+  "The most a builder may charge, as a rate against `fx/rate-scale`. Ten basis
+  points.
+
+  A builder fee is set by whoever wrote the client, and the trader signing the
+  order is agreeing to a number they may not have read — so the cap is what
+  stands between an interface earning from routing and an interface taking the
+  account. Hyperliquid caps it for the same reason.
+
+  An order over the cap is REFUSED rather than trimmed: trimming would fill the
+  trader at a cost they did not agree to, which is the same harm arriving
+  quietly.
+
+  It lives here and not in `torihiki.state` because `state` requires this
+  namespace and not the other way round — the cap is a validation policy, and
+  putting it where the engine is would make the engine the thing that decides
+  what a client may charge."
+  1000000)
+
 (defn validate
   "nil when `tx` may be applied, otherwise a keyword from `reasons`.
 
@@ -83,6 +103,15 @@
 
       (= tx :order)
       (or (when-not (integer? account) :bad-account)
+          ;; A builder fee is a number the trader may not have read. The cap is
+          ;; what stands between an interface earning from routing and an
+          ;; interface taking the account.
+          (when (some? (:builder t))
+            (cond
+              (not (integer? (:builder t))) :bad-account
+              (not (and (integer? (:builder-fee t)) (pos? (:builder-fee t))))
+              :missing-field
+              (> (:builder-fee t) max-builder-fee-rate) :builder-fee-too-high))
           (validate-order-shape ex market t)
           ;; Conservative on purpose: the check assumes the whole order could
           ;; open new interest, because whether it does depends on which side
