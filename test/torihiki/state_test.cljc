@@ -1315,6 +1315,14 @@
     (is (not= (st/state-root a) (st/state-root b))
         "a holding sat outside the root")))
 
+(deftest every-refusal-reason-has-its-own-code
+  ;; `encode-rejections` folds an unknown reason to 0, so two different
+  ;; refusals commit to the same bytes — and the root is supposed to make what
+  ;; was refused as agreed as what was executed.
+  (let [missing (remove #(contains? st/reason-codes %) api/reasons)]
+    (is (empty? missing) (str "reasons with no code: " (vec missing))))
+  (is (= (count (set (vals st/reason-codes))) (count st/reason-codes))
+      "two reasons share a code, so they are indistinguishable in the root"))
 (deftest a-spot-market-listed-through-json-is-still-spot
   ;; JSON has no keywords: `:kind :spot` goes out and "spot" comes back.
   ;; Comparing only to the keyword would list a spot market and run it as a
