@@ -142,8 +142,38 @@
             "the print must not be able to liquidate account 5")))))
 
 (deftest liquidation-refuses-to-run-without-a-mark
-  (testing "no oracle, no book: the engine stops rather than guessing"
+  (testing "no oracle, no book: the engine does nothing rather than guessing"
     (let [ex (-> (exchange)
                  (st/apply-tx {:tx :deposit :account 1 :amount 1000}))]
-      (is (thrown? #?(:clj Exception :cljs :default)
-                   (st/apply-tx ex {:tx :liquidate :market 1}))))))
+      ;; This asserted `thrown?`, and the throw was wrong for the reason
+      ;; `apply-block` states about itself: it catches nothing, so a
+      ;; transaction that throws stops every validator at the same place.
+      ;; `api/validate` only checks that the market EXISTS, so a market
+      ;; without a price yet was a one-transaction halt of the chain.
+      ;;
+      ;; Refusing is still the policy — it is the same policy a stale oracle
+      ;; already had, and for the same reason: waiting is reversible and
+      ;; closing a position at a price nobody vouches for is not. Doing
+      ;; nothing IS refusing. Throwing was a louder way to fail at it.
+      (is (= ex (st/apply-tx ex {:tx :liquidate :market 1}))
+          "the state must be untouched, and the chain must still be running"))))
+
+(deftest liquidation-runs-because-the-block-ended
+  (testing "an underwater account is closed with no keeper transaction"
+    (let [ex (-> (exchange)
+                 (st/apply-tx {:tx :oracle :market 1 :price 500})
+                 (st/apply-tx {:tx :deposit :account 5 :amount 1000})
+                 (st/apply-tx {:tx :deposit :account 6 :amount 100000000})
+                 ;; 5 goes long 100 at 500 against 6
+                 (st/apply-tx {:tx :order :account 6 :market 1
+                               :side bk/ask :level 500 :qty 100})
+                 (st/apply-tx {:tx :order :account 5 :market 1
+                               :side bk/bid :level 500 :qty 100}))]
+      (is (pos? (:size (cl/position (:clearing ex) 5 1)))
+          "account 5 must actually be long, or this proves nothing")
+      ;; The price collapses. No `:liquidate` transaction anywhere in the
+      ;; block — the only thing that happens is that the block ends.
+      (let [after (st/apply-block ex {:height 1 :ts 1
+                                      :txs [{:tx :oracle :market 1 :price 300}]})]
+        (is (not (cl/liquidatable? (:clearing after) 5 (:marks after) {1 mkt}))
+            "the sweep must have closed or reduced the position it found")))))
