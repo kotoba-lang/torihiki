@@ -244,9 +244,15 @@
 
 (defn spot?
   "Whether `market` settles as an exchange of balances rather than as a
-  margined position."
+  margined position.
+
+  Accepts the keyword and the string. A market listed by transaction arrives
+  through JSON, and JSON has no keywords — `:kind :spot` goes out and \"spot\"
+  comes back. Comparing only to the keyword would list a spot market and then
+  run it as a perp: balances that never move and positions nobody asked for."
   [ex market]
-  (= :spot (get-in ex [:markets market :kind])))
+  (let [k (get-in ex [:markets market :kind])]
+    (or (= :spot k) (= "spot" k))))
 
 (defn- spot-backing
   "What resting this order would commit, as `[asset amount]`.
