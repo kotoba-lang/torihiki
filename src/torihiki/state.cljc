@@ -761,6 +761,44 @@
                           ;; root, which is the whole reason they are encoded.
                           (keys (:agents ex))))))
 
+(def ^:const enc-tag-market-spec 15)
+
+(defn- encode-market-spec
+  "One market's parameters: what it is called, how it ticks, and every rate the
+  clearinghouse charges or margins against.
+
+  These were not in the root. They are consensus-critical — the margin rates
+  decide who is liquidatable and the fee rates decide what every fill costs —
+  so two replicas configured differently would liquidate different accounts
+  and charge different fees. The balances they produced would diverge and be
+  caught, eventually; the CONFIGURATION that produced them would not be, so
+  the root said nothing about the difference until somebody was near
+  liquidation. That is the same argument `encode-governance` makes about who
+  may mint, one level down.
+
+  Tiers are folded in order. `margin-tiers` is sorted at construction, so the
+  order here is the market's own and not a map iteration."
+  [ex m]
+  (let [spec (get-in ex [:markets m])
+        tiers (:margin-tiers spec [])]
+    (reduce (fn [acc t]
+              (into acc (enc-ints [enc-tag-market-spec m
+                                   (:max-notional t) (:max-leverage t)
+                                   (:initial-margin-rate t)
+                                   (:maintenance-margin-rate t)])))
+            (-> (enc-ints [enc-tag-market-spec m
+                           (:tick spec 0) (:lot spec 0)
+                           (:max-leverage spec 0)
+                           (:initial-margin-rate spec 0)
+                           (:maintenance-margin-rate spec 0)
+                           (:taker-fee-rate spec 0)
+                           (:maker-fee-rate spec 0)
+                           (or (:open-interest-cap spec) 0)
+                           (if (:open-interest-cap spec) 1 0)
+                           (count tiers)])
+                (into (enc-string (:symbol spec ""))))
+            tiers)))
+
 (def ^:const enc-tag-agent 14)
 
 (defn- encode-auth-account
@@ -932,6 +970,8 @@
         {:id (str "02:01:" (pad-id a)) :bytes (encode-auth-account ex a)})
       (for [m mkts]
         {:id (str "03:" (pad-id m)) :bytes (encode-oracle-market ex m)})
+      (for [m mkts]
+        {:id (str "03:9:" (pad-id m)) :bytes (encode-market-spec ex m)})
       [{:id "04:00" :bytes (encode-clearing-totals clearing)}]
       (for [a accts]
         {:id (str "04:01:" (pad-id a))

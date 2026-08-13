@@ -53,10 +53,16 @@
   cannot absorb it at the price the margin assumed, and the difference is paid
   by the insurance fund or by ADL.
 
-  `open-interest-cap` is optional and is checked by `torihiki.api`."
-  [{:keys [id max-leverage tick lot margin-tiers open-interest-cap]}]
+  `open-interest-cap` is optional and is checked by `torihiki.api`.
+
+  `symbol` is what a human calls this market. Not used by any arithmetic here
+  and committed to the state root all the same: it is what a terminal puts on
+  a trade ticket, so two replicas that disagreed about it would label the same
+  position two different things."
+  [{:keys [id symbol max-leverage tick lot margin-tiers open-interest-cap]}]
   (let [initial (fx/fdiv fx/rate-scale max-leverage)]
     (cond-> {:id id
+             :symbol (or symbol (str "MKT-" id))
              :tick tick
              :lot lot
              :max-leverage max-leverage
