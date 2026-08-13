@@ -1185,7 +1185,21 @@
    :bad-amount 9
    :bad-trigger-direction 10
    :bad-trigger-price 11
-   :bad-trigger-order 12})
+   :bad-trigger-order 12
+   :not-the-bridge 13
+   :open-interest-cap 14
+   :not-a-publisher 15
+   :oracle-is-aggregated 16
+   :builder-fee-too-high 17
+   ;; APPENDED, and appended is the only safe place — renumbering one would
+   ;; silently change every historical root.
+   ;;
+   ;; These five had no code, so `encode-rejections` folded them all to 0:
+   ;; a block that refused a deposit from the wrong account and a block that
+   ;; refused an order over the open-interest cap committed to the SAME bytes.
+   ;; The root is supposed to make what was refused as agreed as what was
+   ;; executed, and for these five it agreed only that something was.
+   })
 
 (defn- encode-rejections
   [rejected]
