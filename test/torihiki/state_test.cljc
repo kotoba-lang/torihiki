@@ -272,3 +272,65 @@
       (is (= 30 (reduce + 0 (map :qty (:adl-closed r)))))
       (is (= 70 (:adl-unfilled r)) "the rest stays with the vault, and says so")
       (is (= 70 (:size (cl/position (:state r) st/vault-account 1)))))))
+
+;; ── the non-negativity invariant ────────────────────────────────────────────
+;;
+;; `torihiki.commit` kept every merkle-sum leaf at zero because collateral
+;; could go negative, and merkle-sum refuses a negative leaf. These are the
+;; assertions that the reason is gone.
+
+(deftest an-uncovered-shortfall-becomes-debt-not-a-negative-balance
+  ;; An empty insurance fund: stage 3 covers nothing, so the hole survives the
+  ;; waterfall. It used to survive as a negative `:collateral`.
+  (let [{:keys [state]} (insolvent-long 480 0)
+        refuse (fn [_ _] [0 0])
+        r (liq/liquidate state 100 1 480 0 liq-markets liq/default-params refuse)
+        acct (get-in (:state r) [:accounts 100])]
+    (is (= 0 (:collateral acct)) "collateral must never be negative")
+    (is (pos? (:deficit acct)) "and the hole must still be on the books")))
+
+(deftest the-debt-is-the-hole-and-not-a-rounding-of-it
+  ;; `collateral - deficit` is the single number the old encoding held, so the
+  ;; split must be exact — nothing invented, nothing forgiven. Asserted on a
+  ;; synthetic negative balance rather than on the waterfall's output, because
+  ;; here the number it started from is known.
+  (let [s (assoc-in (cl/new-state) [:accounts 100 :collateral] -250)
+        s' (cl/settle-deficit s 100)
+        {:keys [collateral deficit]} (get-in s' [:accounts 100])]
+    (is (= 0 collateral))
+    (is (= 250 deficit))
+    (is (= -250 (- collateral deficit))
+        "the split must reconstruct the number it replaced")))
+
+(deftest no-account-is-underwater-after-the-waterfall
+  ;; Asserted over every account the waterfall can touch, not just the one it
+  ;; was aimed at: the vault inherits positions and auto-deleveraged
+  ;; counterparties are filled at the bankruptcy price, so either can be the
+  ;; one that ends up negative.
+  (let [{:keys [state]} (insolvent-long 480 0)
+        refuse (fn [_ _] [0 0])
+        r (liq/liquidate state 100 1 480 0 liq-markets liq/default-params refuse)]
+    (doseq [[a acct] (:accounts (:state r))]
+      (is (not (neg? (or (:collateral acct) 0)))
+          (str "account " a " holds negative collateral"))
+      (is (not (neg? (or (:deficit acct) 0)))
+          (str "account " a " owes a negative debt")))))
+
+(deftest a-deposit-pays-the-debt-before-it-credits-the-balance
+  (let [s (assoc-in (cl/new-state) [:accounts 100 :deficit] 300)]
+    (let [s' (cl/deposit s 100 100)]
+      (is (= 200 (get-in s' [:accounts 100 :deficit])))
+      (is (= 0 (get-in s' [:accounts 100 :collateral] 0))
+          "nothing may be credited while the debt stands"))
+    (let [s' (cl/deposit s 100 500)]
+      (is (= 0 (get-in s' [:accounts 100 :deficit])))
+      (is (= 200 (get-in s' [:accounts 100 :collateral]))
+          "and the remainder lands as collateral"))))
+
+(deftest settling-a-solvent-account-changes-nothing
+  ;; Idempotence, and the no-op case — `liquidate` settles the same account
+  ;; twice when a counterparty is also the vault.
+  (let [s (cl/deposit (cl/new-state) 100 1000)]
+    (is (= s (cl/settle-deficit s 100)))
+    (is (= (cl/settle-deficit s 100)
+           (cl/settle-deficit (cl/settle-deficit s 100) 100)))))

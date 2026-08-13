@@ -24,8 +24,41 @@
   ;; than deleted because its job never was to hold one particular digest — it
   ;; is to make an accidental encoding change impossible to land quietly, and
   ;; that job is the same on the far side of a deliberate one.
-  (is (= "a5f7705ac48334c9b674322497ab7d9681d0e6f39bd9cc131d47f0388992e2e3"
+  (is (= "92e967ae7b728fa0a1b8479b0f63c934783ac7017512f5ed624e9a6ac1c5e6df"
          (st/flat-root (ex)))))
+
+(deftest the-root-carries-the-total-collateral
+  ;; Proof of reserves, liability half. The sums were all zero until bad debt
+  ;; stopped living in `:collateral` as a negative number; this is the
+  ;; assertion that they carry something now, and that the something is right.
+  (let [e (ex)
+        expected (reduce + 0 (map (fn [[_ a]] (or (:collateral a) 0))
+                                  (get-in e [:clearing :accounts])))]
+    (is (pos? expected) "the scenario holds collateral, or this proves nothing")
+    (is (= expected (cm/reserves (st/canonical-leaves e))))))
+
+(deftest only-collateral-counts-toward-the-total
+  ;; A book, a nonce and a set of oracle submissions are not quantities of
+  ;; money. If any of them carried a sum, the root's total would be a number
+  ;; with no unit — and it would still verify, which is the dangerous part.
+  (is (= #{0} (set (map #(:sum % 0)
+                        (remove #(clojure.string/starts-with? (:id %) "04:01:")
+                                (st/canonical-leaves (ex))))))))
+
+(deftest a-leaf-sum-cannot-be-moved-without-moving-the-root
+  ;; What makes it safe for `verify` to read the tree's total out of the proof
+  ;; it is checking: every node preimage contains its sum, so a forged total
+  ;; recomputes to a different root hash.
+  (let [e (ex)
+        root (st/state-root e)
+        ls (st/canonical-leaves e)
+        a (first (sort (keys (get-in e [:clearing :accounts]))))
+        p (cm/proof ls (cm/account-leaf-id a))]
+    (is (cm/verify p root))
+    (is (not (cm/verify (update p :sum + 1) root))
+        "a leaf claiming more collateral than it has still verified")
+    (is (not (cm/verify (update p :reserves + 1) root))
+        "a tree claiming more reserves than it holds still verified")))
 
 (deftest governance-is-under-the-root
   ;; The property the leaf exists for, stated directly: change who may mint,

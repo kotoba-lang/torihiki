@@ -156,7 +156,7 @@
        (sort-by (juxt (comp - :score) :account))
        vec))
 
-(defn liquidate
+(defn- liquidate*
   "Run the waterfall for one account and market. Returns
   `{:state .. :closed .. :stage ..}` where `:stage` names how far down the
   waterfall the close had to go — `:book`, `:vault`, `:insurance`, or `:adl`.
@@ -224,6 +224,32 @@
                      :adl-closed (:closed r)
                      :adl-unfilled (:unfilled r)
                      :covered covered}))))))))))
+
+(defn liquidate
+  "The waterfall, with the hole it may leave behind moved out of `:collateral`.
+
+  `liquidate*` is the waterfall itself and is unchanged: stages 1 to 4 still
+  decide where a position goes and who pays for it. What this adds is the last
+  piece of bookkeeping the waterfall never did — when a stage leaves an account
+  owing more than it had, that debt is recorded as `:deficit` instead of being
+  left as a negative `:collateral`.
+
+  The accounts that can end up underwater are exactly the ones the waterfall
+  touched: the liquidated account, the backstop vault that inherited its
+  position, and any counterparty auto-deleveraged at the bankruptcy price. They
+  are settled in a fixed order rather than as a set, because iteration order of
+  a Clojure set is unspecified and two validators walking it differently is a
+  fork. `settle-deficit` is idempotent, so the duplicate when a counterparty is
+  also the vault costs a comparison.
+
+  See `torihiki.clearing/settle-deficit` for why the debt is worth keeping and
+  `torihiki.commit` for what being able to add up `:collateral` buys."
+  [state acct mkt mark now markets params take-fn]
+  (let [r (liquidate* state acct mkt mark now markets params take-fn)
+        touched (into [acct (:backstop-vault state ::vault)]
+                      (map :account)
+                      (:adl-closed r))]
+    (assoc r :state (reduce cl/settle-deficit (:state r) touched))))
 
 (defn scan
   "Every account currently liquidatable on `mkt`, in a deterministic order.
