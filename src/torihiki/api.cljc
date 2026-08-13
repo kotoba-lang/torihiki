@@ -264,6 +264,16 @@
       :missing-field
       :else nil)
 
+    (:vault-deposit :vault-withdraw)
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:vault t))) :bad-account
+      (and (= tx :vault-deposit)
+           (not (and (integer? (:amount t)) (pos? (:amount t))))) :bad-amount
+      (and (= tx :vault-withdraw)
+           (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
+      :else nil)
+
     :set-referrer
     (cond
       (not (integer? account)) :bad-account

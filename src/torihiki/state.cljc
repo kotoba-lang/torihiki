@@ -367,6 +367,26 @@
      ex
      due)))
 
+(defmethod apply-tx :vault-deposit
+  [ex {:keys [account vault amount]}]
+  ;; Outside money into a vault, for shares.
+  ;;
+  ;; The backstop vault was already an ordinary account — a position it absorbs
+  ;; is margined like anyone else's rather than through a privileged path — and
+  ;; that is what makes this possible without inventing a second kind of
+  ;; account. What it could NOT do was take money from anybody but its
+  ;; operator, so the capital standing behind the liquidation waterfall was
+  ;; whatever one account happened to hold. The gap ledger called that out:
+  ;; Hyperliquid's backstop takes outside deposits and this one could not.
+  (update ex :clearing cl/vault-deposit account vault amount))
+
+(defmethod apply-tx :vault-withdraw
+  [ex {:keys [account vault shares]}]
+  ;; Paid out of what the vault holds FREE — collateral that is not backing its
+  ;; positions.
+  (update ex :clearing cl/vault-withdraw account vault shares
+          (cl/free-collateral (:clearing ex) vault (:marks ex) (:markets ex))))
+
 (defmethod apply-tx :set-referrer
   [ex {:keys [account referrer]}]
   ;; Bound once, by the account itself. `cl/set-referrer` refuses a rebind and
@@ -1231,6 +1251,25 @@
          ;; and a sum that holds only while nobody is underwater is a claim
          ;; that breaks when it is needed.
          :sum (or (get-in clearing [:accounts a :collateral]) 0)})
+      ;; Vaults: who holds how many shares of which vault.
+      ;;
+      ;; A share is a claim on the vault's collateral, so a replica that
+      ;; disagreed about the amounts would pay a different number on the next
+      ;; withdrawal — the same argument the account balances themselves carry.
+      ;; Counts alone would not do it: the AMOUNTS are the claim.
+      (let [vs (:vaults clearing {})]
+        (cons
+         {:id "04:02" :bytes (enc-ints [enc-tag-account (count vs)])}
+         (for [v (sort (keys vs))]
+           {:id (str "04:02:" (pad-id v))
+            :bytes (let [holders (sort (keys (get-in vs [v :shares] {})))]
+                     (reduce (fn [acc h]
+                               (into acc (enc-ints [enc-tag-account v h
+                                                    (get-in vs [v :shares h] 0)])))
+                             (enc-ints [enc-tag-account v
+                                        (get-in vs [v :total-shares] 0)
+                                        (count holders)])
+                             holders))})))
       (mapcat
        (fn [m]
          [{:id (str "05:" (pad-id m) ":0")

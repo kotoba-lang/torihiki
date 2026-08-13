@@ -180,6 +180,74 @@
   surface, and this chain has one authority and no way to price a deal."
   100000000)
 
+(defn vault-shares
+  "`[shares-of-acct total-shares]` for `vault`."
+  [state vault acct]
+  [(get-in state [:vaults vault :shares acct] 0)
+   (get-in state [:vaults vault :total-shares] 0)])
+
+(defn vault-deposit
+  "Move `amount` from `acct` into `vault` and mint the shares it buys.
+
+  ## Shares are priced on COLLATERAL, not equity
+
+  A vault holding a position has unrealised PnL, and pricing shares on it would
+  let a depositor buy in cheap the moment before it is realised — or, worse,
+  let an existing holder withdraw at a profit the vault has not actually made
+  and leave the loss to whoever is left. Collateral is what the vault HAS.
+
+  The cost is that a depositor joining a vault with a large unrealised gain
+  gets it at book value, which is a real transfer between depositors. It is
+  the smaller of the two unfairnesses and the one that cannot be timed: the
+  other can.
+
+  The first deposit into an empty vault mints one share per unit, which is
+  where the price starts."
+  [state acct vault amount]
+  (let [amount (long amount)
+        have (get-in state [:accounts acct :collateral] 0)
+        pool (get-in state [:accounts vault :collateral] 0)
+        total (get-in state [:vaults vault :total-shares] 0)]
+    (if (or (not (pos? amount)) (> amount have) (= acct vault))
+      state
+      (let [minted (if (or (zero? total) (zero? pool))
+                     amount
+                     (quot (* amount total) pool))]
+        (if-not (pos? minted)
+          ;; A deposit too small to buy a share would be a donation. Refusing
+          ;; is the honest answer; taking it silently is not.
+          state
+          (-> state
+              (update-in [:accounts acct :collateral] - amount)
+              (update-in [:accounts vault :collateral] (fnil + 0) amount)
+              (update-in [:vaults vault :shares acct] (fnil + 0) minted)
+              (update-in [:vaults vault :total-shares] (fnil + 0) minted)))))))
+
+(defn vault-withdraw
+  "Burn `shares` of `acct`'s holding in `vault` and pay out their share of its
+  collateral.
+
+  `free` is the vault's free collateral. A vault that could pay out the margin
+  behind its positions would be closing somebody else's position to fund an
+  exit, so a withdrawal it cannot cover is refused rather than partially
+  filled — a partial burn priced as if the whole had gone through would
+  misprice every remaining share."
+  [state acct vault shares free]
+  (let [shares (long shares)
+        held (get-in state [:vaults vault :shares acct] 0)
+        total (get-in state [:vaults vault :total-shares] 0)
+        pool (get-in state [:accounts vault :collateral] 0)]
+    (if (or (not (pos? shares)) (> shares held) (not (pos? total)))
+      state
+      (let [payout (quot (* shares pool) total)]
+        (if (or (not (pos? payout)) (> payout (long free)))
+          state
+          (-> state
+              (update-in [:accounts vault :collateral] - payout)
+              (update-in [:accounts acct :collateral] (fnil + 0) payout)
+              (update-in [:vaults vault :shares acct] - shares)
+              (update-in [:vaults vault :total-shares] - shares)))))))
+
 (defn set-referrer
   "Bind `acct`'s referrer, once and forever.
 

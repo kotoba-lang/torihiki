@@ -1102,3 +1102,70 @@
   (is (not= (auth/signing-payload "c" 1 1 {:tx :set-referrer :referrer 42})
             (auth/signing-payload "c" 1 1 {:tx :set-referrer :referrer 99}))
       "an attacker could claim somebody's fee stream for the life of the account"))
+
+;; ── vaults ──────────────────────────────────────────────────────────────────
+;;
+;; The backstop was an ordinary account that could only hold its operator's
+;; money. A vault takes outside deposits for shares, which is what stands
+;; behind the liquidation waterfall on a venue that has one.
+
+(def ^:private vault-acct 900)
+
+(defn- vault-fixture []
+  (-> (fresh)
+      (st/apply-tx {:tx :oracle :market 1 :price 500})
+      (funded [50 51] 1000000)))
+
+(deftest the-first-deposit-sets-the-share-price
+  (let [ex (st/apply-tx (vault-fixture)
+                        {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000})]
+    (is (= [1000 1000] (cl/vault-shares (:clearing ex) vault-acct 50)))
+    (is (= 1000 (get-in ex [:clearing :accounts vault-acct :collateral])))
+    (is (= 999000 (get-in ex [:clearing :accounts 50 :collateral])))))
+
+(deftest a-second-depositor-buys-at-the-current-price
+  ;; The vault earned: 1000 in, 2000 held. A new depositor of 1000 must get
+  ;; half the shares the first did, not the same number.
+  (let [ex (-> (vault-fixture)
+               (st/apply-tx {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000})
+               (update-in [:clearing :accounts vault-acct :collateral] + 1000)
+               (st/apply-tx {:tx :vault-deposit :account 51 :vault vault-acct :amount 1000}))]
+    (is (= 500 (first (cl/vault-shares (:clearing ex) vault-acct 51)))
+        "the second depositor bought at the founding price")
+    (is (= 1500 (second (cl/vault-shares (:clearing ex) vault-acct 51))))))
+
+(deftest withdrawing-pays-a-share-of-what-the-vault-holds
+  (let [ex (-> (vault-fixture)
+               (st/apply-tx {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000})
+               ;; the vault doubles its money
+               (update-in [:clearing :accounts vault-acct :collateral] + 1000)
+               (st/apply-tx {:tx :vault-withdraw :account 50 :vault vault-acct :shares 500}))]
+    (is (= 1000 (get-in ex [:clearing :accounts vault-acct :collateral]))
+        "half the shares did not take half the pool")
+    (is (= 500 (first (cl/vault-shares (:clearing ex) vault-acct 50))))
+    (is (= 1000000 (get-in ex [:clearing :accounts 50 :collateral]))
+        "the depositor got back their stake plus their share of the gain")))
+
+(deftest you-cannot-withdraw-shares-you-do-not-hold
+  (let [ex (-> (vault-fixture)
+               (st/apply-tx {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000}))
+        after (st/apply-tx ex {:tx :vault-withdraw :account 51 :vault vault-acct :shares 100})]
+    (is (= (get-in ex [:clearing :accounts vault-acct :collateral])
+           (get-in after [:clearing :accounts vault-acct :collateral]))
+        "a stranger withdrew from a vault they had not funded")))
+
+(deftest a-deposit-too-small-to-buy-a-share-is-refused
+  (let [ex (-> (vault-fixture)
+               (st/apply-tx {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000})
+               ;; a large gain makes one share expensive
+               (update-in [:clearing :accounts vault-acct :collateral] + 1000000)
+               (st/apply-tx {:tx :vault-deposit :account 51 :vault vault-acct :amount 1}))]
+    (is (= 0 (first (cl/vault-shares (:clearing ex) vault-acct 51))))
+    (is (= 1000000 (get-in ex [:clearing :accounts 51 :collateral]))
+        "the deposit was taken without minting anything — that is a donation")))
+
+(deftest vault-shares-are-in-the-root
+  (let [a (vault-fixture)
+        b (st/apply-tx a {:tx :vault-deposit :account 50 :vault vault-acct :amount 1000})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a claim on the vault's collateral sat outside the root")))
