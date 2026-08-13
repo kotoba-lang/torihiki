@@ -27,13 +27,15 @@
     ;; rest a ladder on both sides. `place!` returns the resting order id, or
     ;; -1 when nothing rested.
     (doseq [l (range 10 20)]
-      (swap! oids conj (bk/place! b bk/bid l (+ 1 l) 0 (+ 100 l))))
+      (swap! oids conj [(bk/place! b bk/bid l (+ 1 l) 0 (+ 100 l)) (+ 100 l)]))
     (doseq [l (range 30 40)]
-      (swap! oids conj (bk/place! b bk/ask l (+ 2 l) 0 (+ 200 l))))
-    ;; cancel every third, so slots come back and generations move
-    (doseq [[i oid] (map-indexed vector @oids)
+      (swap! oids conj [(bk/place! b bk/ask l (+ 2 l) 0 (+ 200 l)) (+ 200 l)]))
+    ;; cancel every third, so slots come back and generations move. The owner
+    ;; is carried beside the id because `cancel!` requires it now — an id alone
+    ;; used to be enough, which is what let anybody cancel anybody.
+    (doseq [[i [oid owner]] (map-indexed vector @oids)
             :when (and (zero? (mod i 3)) (not (neg? oid)))]
-      (bk/cancel! b oid))
+      (bk/cancel! b oid owner))
     ;; take some liquidity, so a level partially empties
     (bk/place! b bk/ask 12 5 0 999)
     (bk/reset-events! b)
@@ -87,7 +89,7 @@
                      (:oid o)))
         r (bk/restore (bk/snapshot b))]
     (is (some? oid))
-    (is (= (bk/cancel! b oid) (bk/cancel! r oid)))
+    (is (= (bk/cancel! b oid 1) (bk/cancel! r oid 1)))
     (is (= (book-shape b) (book-shape r)))))
 
 (deftest generations-of-freed-slots-are-carried
@@ -106,7 +108,7 @@
   ;; its high-water mark.
   (let [b (bk/new-book {:n-levels 256 :cap 1024 :ev-cap 256})]
     (dotimes [_ 500]
-      (bk/cancel! b (bk/place! b bk/bid 50 1 0 1)))
+      (bk/cancel! b (bk/place! b bk/bid 50 1 0 1) 1))
     (is (= 1 (:hwm (bk/snapshot b)))
         "500 placements should reuse one slot, not walk the slab")))
 
