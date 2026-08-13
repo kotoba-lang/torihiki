@@ -250,6 +250,41 @@
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))
 
+(defmethod apply-tx :cancel-all
+  [ex {:keys [market account]}]
+  ;; The risk control every venue has and this did not: one transaction that
+  ;; takes a maker out of the market. Without it, pulling N quotes costs N
+  ;; transactions, each with its own nonce, and the last one lands after the
+  ;; move the maker was trying to get out of the way of.
+  (bk/cancel-all! (get-in ex [:books market]) account)
+  ex)
+
+(defmethod apply-tx :amend
+  [ex {:keys [market oid account level qty]}]
+  (let [book (get-in ex [:books market])
+        cur (bk/order-of book oid)]
+    (cond
+      ;; Not a live order, or not theirs. Same answer as a cancel naming
+      ;; somebody else's order: a no-op block entry.
+      (or (nil? cur) (not= account (:owner cur))) ex
+
+      ;; Same price, smaller size — the one modification that keeps its place
+      ;; in the queue. See `bk/reduce-to!` for why that matters enough to be a
+      ;; separate path.
+      (and (= level (:level cur)) (< qty (:qty cur)))
+      (do (bk/reduce-to! book oid account qty) ex)
+
+      ;; Anything else is a new order at the back of the line, so it IS one.
+      ;; Delegating rather than re-implementing: placing has to run fills
+      ;; through the clearinghouse, reprice the mark and arm triggers, and a
+      ;; second copy of that would be a second definition of what an order
+      ;; does.
+      :else
+      (if (zero? (bk/cancel! book oid account))
+        ex
+        (apply-tx ex {:tx :order :account account :market market
+                      :side (:side cur) :level level :qty qty :flags 0})))))
+
 (defmethod apply-tx :cancel
   [ex {:keys [market oid account]}]
   ;; `account` is who SIGNED this, and until it was passed here nothing

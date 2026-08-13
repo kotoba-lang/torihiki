@@ -295,3 +295,94 @@
     (let [after (st/apply-tx ex {:tx :cancel :account 20 :market 1 :oid oid})]
       (is (= 0 (bk/resting-count (get-in after [:books 1])))
           "and the owner must still be able to cancel their own"))))
+
+;; ── order management ────────────────────────────────────────────────────────
+
+(defn- resting-of [ex acct]
+  (let [book (get-in ex [:books 1])]
+    (vec (for [side [bk/bid bk/ask]
+               lvl (loop [l (bk/best book side) acc []]
+                     (if (neg? l) acc (recur (bk/next-occupied book side l) (conj acc l))))
+               o (bk/level-orders book side lvl)
+               :when (= acct (:owner o))]
+           (assoc o :side side :level lvl)))))
+
+(deftest cancel-all-takes-one-maker-out-and-leaves-the-others
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [30 31] 100000000))
+        ex (reduce (fn [e l] (st/apply-tx e {:tx :order :account 30 :market 1
+                                             :side bk/bid :level l :qty 3}))
+                   ex [380 390 400])
+        ex (st/apply-tx ex {:tx :order :account 31 :market 1
+                            :side bk/bid :level 395 :qty 5})]
+    (is (= 3 (count (resting-of ex 30))))
+    (is (= 1 (count (resting-of ex 31))))
+    (let [after (st/apply-tx ex {:tx :cancel-all :account 30 :market 1})]
+      (is (empty? (resting-of after 30)) "the maker must be out of the market")
+      (is (= 1 (count (resting-of after 31)))
+          "and nobody else's orders may be touched"))))
+
+(deftest amending-down-keeps-the-place-in-the-queue
+  ;; The property that makes amend worth having: trimming size must not send a
+  ;; maker to the back of the line behind an order that has not moved.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [40 41] 100000000)
+               (st/apply-tx {:tx :order :account 40 :market 1
+                             :side bk/bid :level 400 :qty 10})
+               (st/apply-tx {:tx :order :account 41 :market 1
+                             :side bk/bid :level 400 :qty 10}))
+        book (get-in ex [:books 1])
+        [first-oid second-oid] (mapv :oid (bk/level-orders book bk/bid 400))
+        oid (:oid (first (resting-of ex 40)))]
+    (is (= first-oid oid) "account 40 must be at the head, or this proves nothing")
+    (let [after (st/apply-tx ex {:tx :amend :account 40 :market 1
+                                 :oid oid :level 400 :qty 4})
+          q (bk/level-orders (get-in after [:books 1]) bk/bid 400)]
+      (is (= [oid second-oid] (mapv :oid q))
+          "the amended order must still be ahead of the one that did not move")
+      (is (= 4 (:qty (first q))))
+      (is (= 14 (bk/level-qty (get-in after [:books 1]) bk/bid 400))
+          "the level total must follow the order down"))))
+
+(deftest amending-up-goes-to-the-back
+  ;; Size that was never queued must not inherit a place in line, or anybody
+  ;; could hold the front with one lot and claim it with a thousand.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [50 51] 100000000)
+               (st/apply-tx {:tx :order :account 50 :market 1
+                             :side bk/bid :level 400 :qty 2})
+               (st/apply-tx {:tx :order :account 51 :market 1
+                             :side bk/bid :level 400 :qty 2}))
+        oid (:oid (first (resting-of ex 50)))
+        after (st/apply-tx ex {:tx :amend :account 50 :market 1
+                               :oid oid :level 400 :qty 9})
+        q (bk/level-orders (get-in after [:books 1]) bk/bid 400)]
+    (is (= 2 (count q)))
+    (is (= 51 (:owner (first q))) "the order that did not move must now be first")
+    (is (= [2 9] (mapv :qty q)))))
+
+(deftest only-the-owner-may-amend
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [60 61] 100000000)
+               (st/apply-tx {:tx :order :account 60 :market 1
+                             :side bk/bid :level 400 :qty 10}))
+        oid (:oid (first (resting-of ex 60)))
+        after (st/apply-tx ex {:tx :amend :account 61 :market 1
+                               :oid oid :level 400 :qty 1})]
+    (is (= 10 (:qty (first (resting-of after 60))))
+        "a stranger resized somebody else's order")))
+
+(deftest reduce-to-refuses-what-is-not-a-reduction
+  (let [b (bk/new-book {:n-levels 256 :cap 1024 :ev-cap 256})
+        oid (bk/place! b bk/bid 50 10 0 7)]
+    (is (= 0 (bk/reduce-to! b oid 8 5)) "somebody else's order was resized")
+    (is (= 0 (bk/reduce-to! b oid 7 10)) "an unchanged size counted as a reduction")
+    (is (= 0 (bk/reduce-to! b oid 7 20)) "an increase was applied in place")
+    (is (= 0 (bk/reduce-to! b oid 7 0)) "zero must be a cancel, not a reduction")
+    (is (= 6 (bk/reduce-to! b oid 7 4)))
+    (is (= 4 (bk/level-qty b bk/bid 50)))
+    (is (= 1 (bk/resting-count b)) "a reduced order must still be resting")))
