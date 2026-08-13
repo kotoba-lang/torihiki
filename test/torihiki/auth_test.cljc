@@ -242,3 +242,120 @@
   ;; signer cannot be re-read as one that pays somebody else.
   (is (not= (auth/signing-payload "c" 7 1 {:tx :deposit :amount 100})
             (auth/signing-payload "c" 7 1 {:tx :deposit :amount 100 :credit 7}))))
+
+;; ── agent wallets ───────────────────────────────────────────────────────────
+;;
+;; A key a trading program can hold that is useless to whoever steals it: it
+;; trades, and it cannot move money out or extend its own authority.
+
+(def ^:private owner-key "OWNER-KEY-44-CHARS-xxxxxxxxxxxxxxxxxxxxxxxxx")
+(def ^:private agent-key "AGENT-KEY-44-CHARS-yyyyyyyyyyyyyyyyyyyyyyyyy")
+
+(defn- agent-signed
+  "Distinct from this file's existing `signed`: that one takes an account id
+  and derives its key, this one takes the key, which is the whole point when
+  the signer is not the owner."
+  [ex acct k tx]
+  (let [n (auth/expected-nonce ex acct)]
+    {:tx tx :account acct :nonce n :pubkey k
+     :sig (sign k (auth/signing-payload chain acct n tx))}))
+
+(defn- bound-account
+  "An account whose owner key is bound, with `agent-key` authorised."
+  []
+  (let [ex (assoc-in (fresh) [:account-keys 10] owner-key)
+        s (agent-signed ex 10 owner-key {:tx :authorize-agent :account 10
+                                   :agent agent-key :expires nil})]
+    (-> ex (auth/accept s) (st/apply-tx (:tx s)))))
+
+(deftest an-agent-may-trade
+  (let [ex (bound-account)
+        s (agent-signed ex 10 agent-key {:tx :order :account 10 :market 1
+                                   :side bk/bid :level 100 :qty 1})]
+    (is (nil? (auth/check ex s chain verify))
+        "an authorised agent could not place an order")))
+
+(deftest an-agent-may-not-withdraw
+  (let [ex (bound-account)
+        s (agent-signed ex 10 agent-key {:tx :withdraw :account 10 :amount 1})]
+    (is (= :agent-may-not (auth/check ex s chain verify))
+        "a stolen agent key could empty the account")))
+
+(deftest an-agent-may-not-mint-or-revoke-agents
+  (let [ex (bound-account)]
+    (is (= :agent-may-not
+           (auth/check ex (agent-signed ex 10 agent-key
+                                  {:tx :authorize-agent :account 10
+                                   :agent "THIRD-KEY-44-CHARS-zzzzzzzzzzzzzzzzzzzzzzzz"})
+                       chain verify))
+        "an agent minted another agent")
+    (is (= :agent-may-not
+           (auth/check ex (agent-signed ex 10 agent-key
+                                  {:tx :revoke-agent :account 10 :agent agent-key})
+                       chain verify))
+        "an agent could lock the owner out")))
+
+(deftest an-unauthorised-key-is-still-refused
+  (let [ex (bound-account)
+        s (agent-signed ex 10 "STRANGER-KEY-44-CHARS-wwwwwwwwwwwwwwwwwwwww" {:tx :order :account 10 :market 1
+                                                                       :side bk/bid :level 100 :qty 1})]
+    (is (= :wrong-key (auth/check ex s chain verify)))))
+
+(deftest an-expired-agent-is-refused
+  (let [ex (assoc-in (fresh) [:account-keys 10] owner-key)
+        s (agent-signed ex 10 owner-key {:tx :authorize-agent :account 10
+                                   :agent agent-key :expires 5})
+        ex (-> ex (auth/accept s) (st/apply-tx (:tx s)) (assoc :height 4))]
+    (is (nil? (auth/check ex (agent-signed ex 10 agent-key
+                                     {:tx :order :account 10 :market 1
+                                      :side bk/bid :level 100 :qty 1})
+                          chain verify))
+        "the agent expired early")
+    (let [ex (assoc ex :height 5)]
+      (is (= :wrong-key (auth/check ex (agent-signed ex 10 agent-key
+                                                {:tx :order :account 10 :market 1
+                                                 :side bk/bid :level 100 :qty 1})
+                                    chain verify))
+          "the agent outlived its expiry"))))
+
+(deftest revoking-takes-effect-immediately
+  (let [ex (bound-account)
+        s (agent-signed ex 10 owner-key {:tx :revoke-agent :account 10 :agent agent-key})
+        ex (-> ex (auth/accept s) (st/apply-tx (:tx s)))]
+    (is (= :wrong-key (auth/check ex (agent-signed ex 10 agent-key
+                                              {:tx :order :account 10 :market 1
+                                               :side bk/bid :level 100 :qty 1})
+                                  chain verify)))))
+
+(deftest an-agent-key-never-becomes-the-account-key
+  (let [ex (bound-account)]
+    (is (= owner-key (get-in ex [:account-keys 10])))
+    (let [s (agent-signed ex 10 agent-key {:tx :order :account 10 :market 1
+                                     :side bk/bid :level 100 :qty 1})
+          ex (auth/accept ex s)]
+      (is (= owner-key (get-in ex [:account-keys 10]))
+          "an agent signature rebound the account"))))
+
+(deftest the-signature-covers-which-key-is-authorised
+  ;; Unsigned, an authorisation could be re-aimed at an attacker's key in
+  ;; flight and would still verify.
+  (let [ex (assoc-in (fresh) [:account-keys 10] owner-key)
+        s (agent-signed ex 10 owner-key {:tx :authorize-agent :account 10
+                                   :agent agent-key :expires nil})
+        tampered (assoc-in s [:tx :agent] "ATTACKER-KEY-44-CHARS-vvvvvvvvvvvvvvvvvvv")]
+    (is (nil? (auth/check ex s chain verify)))
+    (is (= :bad-signature (auth/check ex tampered chain verify)))))
+
+(deftest the-signature-covers-which-claim-and-which-market-spec
+  (let [ex (assoc-in (fresh) [:account-keys 10] owner-key)
+        s (agent-signed ex 10 owner-key {:tx :withdraw-cancel :account 10 :claim 1})]
+    (is (nil? (auth/check ex s chain verify)))
+    (is (= :bad-signature (auth/check ex (assoc-in s [:tx :claim] 2) chain verify))
+        "the claim a cancel acts on was not signed"))
+  (let [ex (assoc-in (fresh) [:account-keys 10] owner-key)
+        s (agent-signed ex 10 owner-key {:tx :list-market :account 10 :market 9
+                                   :spec {:tick 10 :lot 1 :max-leverage 20}})]
+    (is (nil? (auth/check ex s chain verify)))
+    (is (= :bad-signature
+           (auth/check ex (assoc-in s [:tx :spec :max-leverage] 100) chain verify))
+        "a market's parameters were not signed")))

@@ -205,6 +205,20 @@
       ;; against it. See `torihiki.state/apply-tx :withdraw-settle`.
       :else nil)
 
+    (:authorize-agent :revoke-agent)
+    (cond
+      (not (integer? account)) :bad-account
+      (not (string? (:agent t))) :missing-field
+      ;; A base64 Ed25519 public key is 44 characters. Checking the shape here
+      ;; keeps an unusable authorisation out of the state root rather than
+      ;; discovering it when a key that cannot verify tries to trade.
+      (not= 44 (count (:agent t))) :missing-field
+      (and (= tx :authorize-agent)
+           (some? (:expires t))
+           (not (and (integer? (:expires t)) (pos? (:expires t)))))
+      :missing-field
+      :else nil)
+
     :list-market
     (cond
       (not (integer? account)) :bad-account

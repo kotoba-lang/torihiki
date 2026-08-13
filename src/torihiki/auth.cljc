@@ -70,7 +70,7 @@
 
 (def reasons
   #{:unsigned :bad-signature :bad-nonce :wrong-key :missing-account
-    :not-your-account})
+    :not-your-account :agent-may-not})
 
 (defn- tx-fields
   "Every transaction field that can change what a transaction DOES, in a fixed
@@ -99,7 +99,27 @@
    ;; it appears is a field an attacker can ADD to a signed transaction: the
    ;; signature still verifies because the payload it covered did not mention
    ;; it, and a deposit made out to somebody else arrives looking authentic.
-   (:credit tx)])
+   (:credit tx)
+   ;; APPENDED, in this order, for the reason given above: the payload numbers
+   ;; fields by position, so only the end is safe.
+   ;;
+   ;; `:claim` selects WHICH pending withdrawal a settle or a cancel acts on,
+   ;; and it was not signed. `:withdraw-cancel` is gated on owning the claim
+   ;; and `:withdraw-settle` on being the bridge, so the reachable damage was
+   ;; bounded — but an unsigned field that chooses what a transaction acts on
+   ;; is the exact shape this list exists to prevent, and "bounded today" is a
+   ;; property of the other checks rather than of the signature.
+   (:claim tx)
+   ;; `:agent` and `:expires` decide which key gains authority over an account
+   ;; and for how long. Unsigned, an authorisation could be re-aimed at an
+   ;; attacker's key in flight and would still verify.
+   (:agent tx) (:expires tx)
+   ;; `:spec` is a market's parameters — leverage, tick, fees, margin rates.
+   ;; Rendered as sorted `k=v` pairs rather than printed, because Clojure map
+   ;; print order is unspecified and a payload that depended on it would be a
+   ;; signature that verifies on one runtime and not the other.
+   (when-let [m (:spec tx)]
+     (str/join "," (map (fn [[k v]] (str (name k) "=" v)) (sort-by key m))))])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two
@@ -121,6 +141,38 @@
   [ex account]
   (inc (get-in ex [:nonces account] 0)))
 
+(def agent-forbidden
+  "What a delegated key may NEVER do, however long it lives.
+
+  An agent wallet exists so a trading program can hold a key that is useless to
+  whoever steals it. That is only true if the key cannot move money out and
+  cannot extend its own authority:
+
+  - `:withdraw` — the whole point. A stolen agent key that can withdraw is a
+    stolen account.
+  - `:withdraw-settle` — says money left the exchange. It is the bridge's
+    signature anyway, but an agent of the bridge must not be able to speak for
+    it.
+  - `:authorize-agent` — an agent that can mint agents is an owner.
+  - `:revoke-agent` — an agent that can revoke could lock the owner out of
+    their own account, which is the same loss by a different route.
+
+  Everything else — orders, cancels, amends, triggers, deposits — is what a
+  trading program does, and none of it can take the money anywhere the owner
+  did not already control."
+  #{:withdraw :withdraw-settle :authorize-agent :revoke-agent})
+
+(defn agent-of
+  "The record for `pubkey` acting as an agent of `account`, or nil.
+
+  Expiry is a BLOCK HEIGHT, not a wall clock. The engine has no clock, and a
+  timestamp would make the moment a key stops working depend on which
+  validator you asked."
+  [ex account pubkey]
+  (when-let [a (get-in ex [:agents account pubkey])]
+    (when (or (nil? (:expires a)) (> (:expires a) (:height ex 0)))
+      a)))
+
 (defn check
   "nil when `signed` may be applied as `account`, otherwise a keyword from
   `reasons`. Pure — `verify-fn` does the cryptography and `derive-fn` the
@@ -129,16 +181,30 @@
   `derive-fn` maps a public key to the only account id it may CLAIM. Supplying
   one is what stops a proposer from binding an id it does not hold the key
   for; omitting it leaves ids first-come. Already-bound accounts are unchanged
-  either way: the binding is immutable and the key must match."
+  either way: the binding is immutable and the key must match.
+
+  ## Two kinds of signer
+
+  The owner key is bound to the account and may do anything. An AGENT key is
+  authorised by the owner, expires at a block height, and may not do what
+  `agent-forbidden` lists — a key a trading program can hold that is useless to
+  whoever steals it.
+
+  An agent is never checked against `derive-fn`: an agent id deliberately does
+  not derive its principal's account, which is what makes it a different key
+  rather than a copy of the same one."
   ([ex signed chain-id verify-fn] (check ex signed chain-id verify-fn nil))
   ([ex {:keys [tx account nonce sig pubkey]} chain-id verify-fn derive-fn]
-   (let [bound (get-in ex [:account-keys account])]
+   (let [bound (get-in ex [:account-keys account])
+         agent (when (and bound (not= bound pubkey)) (agent-of ex account pubkey))]
      (cond
        (not (integer? account)) :missing-account
        (or (nil? sig) (nil? pubkey)) :unsigned
-       (and bound (not= bound pubkey)) :wrong-key
+       (and bound (not= bound pubkey) (nil? agent)) :wrong-key
+       (and agent (contains? agent-forbidden (:tx tx))) :agent-may-not
        ;; Only checked when the account is UNBOUND: this decides who may claim
-       ;; an id, not who may keep using one they already hold.
+       ;; an id, not who may keep using one they already hold. An agent cannot
+       ;; reach here — an unbound account has no owner to have authorised one.
        (and (nil? bound) derive-fn (not= account (derive-fn pubkey)))
        :not-your-account
        (not= nonce (expected-nonce ex account)) :bad-nonce
@@ -154,8 +220,14 @@
   rejected transaction leave the nonce unspent would make the signature
   reusable, which is exactly what the nonce exists to prevent. Only a failure
   of authentication itself leaves the state untouched, because such a message
-  was never from the account at all."
+  was never from the account at all.
+
+  The key binding is only ever set from an OWNER signature. `check` refuses an
+  agent on an unbound account, so an agent key cannot arrive here as the first
+  key an account ever saw — but the binding is written as `or` rather than
+  overwritten, so even if it could, it would not take the account over."
   [ex {:keys [account nonce pubkey]}]
   (-> ex
       (assoc-in [:nonces account] nonce)
-      (update-in [:account-keys account] #(or % pubkey))))
+      (update-in [:account-keys account]
+                 #(or % (when (nil? (get-in ex [:agents account pubkey])) pubkey)))))
