@@ -367,6 +367,14 @@
      ex
      due)))
 
+(defmethod apply-tx :set-referrer
+  [ex {:keys [account referrer]}]
+  ;; Bound once, by the account itself. `cl/set-referrer` refuses a rebind and
+  ;; a self-referral; both refusals are about the same thing — a referral that
+  ;; can be moved is a stream that can be taken, and one that can point at
+  ;; yourself is a rebate.
+  (update ex :clearing cl/set-referrer account referrer))
+
 (defmethod apply-tx :scale
   [ex {:keys [account market side level qty count* step flags]}]
   ;; A ladder of resting orders in one transaction.
@@ -1111,6 +1119,12 @@
             ;; reason the collateral beside it is: a deposit pays it down
             ;; before it credits anything, so two replicas that disagreed about
             ;; it would disagree about the balance one block later.
+            ;; The referrer, and the volume. Both decide where money goes on
+            ;; the next fill — the referrer takes a share of the venue's fee,
+            ;; and the volume picks the tier — so a replica that disagreed
+            ;; about either would pay a different account or charge a
+            ;; different price.
+            ;;
             ;; Volume decides which fee tier this account pays, so it is
             ;; authority over money the same way the rates themselves are: two
             ;; replicas that disagreed about it would charge different fees on
@@ -1118,7 +1132,10 @@
             (let [{:keys [epoch cur prev] :or {epoch 0 cur 0 prev 0}}
                   (get-in clearing [:volume a])]
               (enc-ints [enc-tag-account a (or collateral 0) (or deficit 0)
-                         epoch cur prev (count mkts)]))
+                         epoch cur prev
+                         (or (get-in clearing [:referrers a]) 0)
+                         (if (get-in clearing [:referrers a]) 1 0)
+                         (count mkts)]))
             mkts)))
 
 (def ^:private id-pad
@@ -1186,7 +1203,11 @@
         ;; of the leaves puts a discount outside the root. Found by a test
         ;; that asserted the root moves when volume does, and it did not.
         accts (sort (distinct (concat (keys (:accounts clearing))
-                                      (keys (:volume clearing)))))]
+                                      (keys (:volume clearing))
+                                      ;; An account can have bound a referrer
+                                      ;; and never traded; the binding is
+                                      ;; still authority over money.
+                                      (keys (:referrers clearing)))))]
     (vec
      (concat
       [{:id "00" :bytes (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])}

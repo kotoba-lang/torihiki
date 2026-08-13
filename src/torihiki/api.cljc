@@ -264,6 +264,12 @@
       :missing-field
       :else nil)
 
+    :set-referrer
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:referrer t))) :bad-account
+      :else nil)
+
     :scale
     (cond
       (not (integer? account)) :bad-account

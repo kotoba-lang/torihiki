@@ -168,6 +168,34 @@
   [state mkt]
   (get-in state [:open-interest mkt] 0))
 
+(def ^:const referral-share
+  "The fraction of the VENUE's fee that goes to a referrer, as a rate.
+
+  Ten percent. It comes out of what the exchange keeps, not out of what the
+  trader pays — a referral that raised the price of trading would be a
+  surcharge for having been introduced to the venue, which is the opposite of
+  what it is sold as.
+
+  A rate rather than a per-referrer number: a negotiable share is a governance
+  surface, and this chain has one authority and no way to price a deal."
+  100000000)
+
+(defn set-referrer
+  "Bind `acct`'s referrer, once and forever.
+
+  Once, because a referrer who could be replaced is a referrer who can be
+  taken: the last client to touch an account would own its stream. Forever for
+  the same reason — an account that could clear its referrer would let a
+  trader collect their own referral by pointing it at a second account they
+  control, which is a rebate wearing a referral's clothes.
+
+  Self-referral is refused for the same reason spelled out directly."
+  [state acct referrer]
+  (if (or (= acct referrer)
+          (some? (get-in state [:referrers acct])))
+    state
+    (assoc-in state [:referrers acct] referrer)))
+
 (defn apply-fill
   "Credit one fill to one account. `delta` is signed lots, `fee-rate` is
   applied to the traded notional. Returns the new state."
@@ -182,7 +210,18 @@
         (assoc-in [:accounts acct :positions mkt] pos')
         (update-in [:accounts acct :collateral] (fnil + 0) (- realized fee))
         (update-in [:open-interest mkt] (fnil + 0) oi-delta)
-        (update :fees-collected (fnil + 0) fee))))
+        ;; The venue keeps the fee, less the referrer's share.
+        ;;
+        ;; Out of what the exchange keeps, never out of what the trader pays:
+        ;; a referral that raised the price of trading would be a surcharge for
+        ;; having been introduced to the venue. The trader's collateral above
+        ;; is debited by `fee` either way — this only decides where it lands.
+        (as-> st
+              (let [ref (get-in st [:referrers acct])
+                    share (if ref (fx/mul-rate fee referral-share) 0)]
+                (cond-> (update st :fees-collected (fnil + 0) (- fee share))
+                  (pos? share)
+                  (update-in [:accounts ref :collateral] (fnil + 0) share)))))))
 
 ;; ── equity and margin ───────────────────────────────────────────────────────
 
