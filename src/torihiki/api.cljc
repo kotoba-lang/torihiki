@@ -219,6 +219,13 @@
       :missing-field
       :else nil)
 
+    :amend-market
+    (cond
+      (not (integer? account)) :bad-account
+      (not (contains? (:markets ex) market)) :unknown-market
+      (not (map? (:spec t))) :missing-field
+      :else nil)
+
     :list-market
     (cond
       (not (integer? account)) :bad-account
