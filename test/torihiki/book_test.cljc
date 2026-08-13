@@ -30,7 +30,7 @@
       (let [o1 (bk/place! b bk/ask 40 5 0 1)
             _  (bk/place! b bk/ask 900 5 0 1)]
         (is (= 40 (bk/best b bk/ask)))
-        (bk/cancel! b o1)
+        (bk/cancel! b o1 1)
         (is (= 900 (bk/best b bk/ask))
             "after the near level empties, best ask must jump to the far one")))))
 
@@ -84,18 +84,18 @@
 (deftest cancel-frees-the-slot
   (let [b (fresh)
         oid (bk/place! b bk/bid 100 10 0 1)]
-    (is (= 10 (bk/cancel! b oid)))
+    (is (= 10 (bk/cancel! b oid 1)))
     (is (= -1 (bk/best b bk/bid)))
-    (is (= 0 (bk/cancel! b oid)) "cancelling twice is a no-op, not a crash")))
+    (is (= 0 (bk/cancel! b oid 1)) "cancelling twice is a no-op, not a crash")))
 
 (deftest stale-id-cannot-cancel-a-stranger
   (testing "the generation counter is what makes slot reuse safe"
     (let [b (fresh)
           oid1 (bk/place! b bk/bid 100 10 0 1)]
-      (bk/cancel! b oid1)
+      (bk/cancel! b oid1 1)
       (let [oid2 (bk/place! b bk/bid 100 7 0 2)]
         (is (not= oid1 oid2) "the reused slot yields a different id")
-        (is (= 0 (bk/cancel! b oid1)) "the stale id must not cancel the new order")
+        (is (= 0 (bk/cancel! b oid1 1)) "the stale id must not cancel the new order")
         (is (= 7 (bk/level-qty b bk/bid 100)))))))
 
 (deftest determinism-of-replay
@@ -127,7 +127,7 @@
           (let [oid (bk/place! b side level qty 0 (mod i 4))]
             (when (pos? oid) (swap! oids conj oid)))))
       (doseq [oid (take 200 @oids)]
-        (swap! cancelled + (bk/cancel! b oid)))
+        (swap! cancelled + (bk/cancel! b oid 1)))
       (let [filled (reduce + (map :qty (bk/fills b)))
             resting (reduce + (for [s [bk/bid bk/ask] l (range 1024)]
                                 (bk/level-qty b s l)))]

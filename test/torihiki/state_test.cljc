@@ -272,3 +272,26 @@
       (is (= 30 (reduce + 0 (map :qty (:adl-closed r)))))
       (is (= 70 (:adl-unfilled r)) "the rest stays with the vault, and says so")
       (is (= 70 (:size (cl/position (:state r) st/vault-account 1)))))))
+
+;; ── who may cancel an order ─────────────────────────────────────────────────
+
+(deftest only-the-owner-may-cancel-an-order
+  ;; `bk/cancel!` took `[book oid]` and cancelled whatever the id named, and
+  ;; `apply-tx :cancel` passed the id out of the transaction and nothing else.
+  ;; The signature proved who SENT the cancel; nothing compared that to who
+  ;; placed the order, so any authenticated account could empty anybody's book.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [20 99] 1000000)
+               (st/apply-tx {:tx :order :account 20 :market 1
+                             :side bk/bid :level 400 :qty 10}))
+        book (get-in ex [:books 1])
+        oid (:oid (first (bk/level-orders book bk/bid 400)))]
+    (is (some? oid) "account 20 must have a resting order, or this proves nothing")
+    (is (= 1 (bk/resting-count book)))
+    (let [after (st/apply-tx ex {:tx :cancel :account 99 :market 1 :oid oid})]
+      (is (= 1 (bk/resting-count (get-in after [:books 1])))
+          "a stranger cancelled somebody else's resting order"))
+    (let [after (st/apply-tx ex {:tx :cancel :account 20 :market 1 :oid oid})]
+      (is (= 0 (bk/resting-count (get-in after [:books 1])))
+          "and the owner must still be able to cancel their own"))))

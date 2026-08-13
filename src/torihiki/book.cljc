@@ -540,15 +540,36 @@
                   (oid-of b slot))))))))))
 
 (defn cancel!
-  "Remove a resting order. Returns the cancelled quantity, or 0 when the id
-  does not name a live order — which covers both a stale id whose slot has
-  been reused and an order that filled while the cancel was in flight."
-  [^Book b oid]
+  "Remove a resting order that `owner` placed. Returns the cancelled quantity,
+  or 0 when the id does not name a live order of theirs — which covers a stale
+  id whose slot has been reused, an order that filled while the cancel was in
+  flight, and an order belonging to somebody else.
+
+  ## `owner` is required, and it used to not exist
+
+  This took `[b oid]` and cancelled whatever the id named. `torihiki.state`
+  passed the id out of the transaction and nothing else, so **any
+  authenticated account could cancel any other account's resting order** — the
+  signature proved who SENT the cancel and nothing compared that to who placed
+  the order. Demonstrated in `torihiki.state-test`: account 99 emptied account
+  20's book.
+
+  It is an argument rather than an optional one, and there is no two-argument
+  arity left behind. This namespace has one production caller and a fallback
+  that skips the check would be the same hole with a condition in front of it
+  — the same reason `torihiki-node` deleted key derivation instead of keeping
+  it as a fallback.
+
+  A mismatch returns 0 rather than throwing, because that is what every other
+  way of naming an order that cannot be cancelled already does, and because
+  `apply-block` must not be stoppable by a transaction."
+  [^Book b oid owner]
   (let [oid (long oid)
         slot (slot-of oid)]
     (if (or (neg? slot) (>= slot (long (slab/field b cap)))
             (not= (gen-of oid) (slab/get (slab/field b o-gen) slot))
-            (not (pos? (slab/get (slab/field b o-qty) slot))))
+            (not (pos? (slab/get (slab/field b o-qty) slot)))
+            (not= (long owner) (slab/get (slab/field b o-owner) slot)))
       0
       (let [side (slab/get (slab/field b o-side) slot)
             level (slab/get (slab/field b o-level) slot)
