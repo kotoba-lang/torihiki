@@ -10,14 +10,39 @@
 
 ;; ── the compatibility anchor ────────────────────────────────────────────────
 
-(deftest the-bytes-under-the-tree-did-not-change
-  ;; The published digest of the parity scenario, from before the tree existed.
-  ;; It lived in the README, where nothing checked it. The tree changes what
-  ;; `state-root` returns; if it ALSO changed the encoding underneath, then
-  ;; every historical root would have been silently invalidated rather than
-  ;; merely superseded. This is the assertion that says it did not.
-  (is (= "22f75a7ff4777d1c5ae397f47aa2b62b08aba8f2ba131aa6ae506b156cd9c87e"
+(deftest the-encoding-changes-only-on-purpose
+  ;; This pin used to hold `22f75a7f…`, the digest of the parity scenario from
+  ;; before the tree existed, and it was there to prove the tree had not
+  ;; touched the bytes underneath it.
+  ;;
+  ;; The governance leaf DOES touch them, deliberately: `:bridge-authority`
+  ;; and `:oracle-publishers` decide who may mint collateral and who may move
+  ;; the mark, and neither was under the root, so two replicas configured
+  ;; differently agreed on the root while disagreeing about who may mint.
+  ;;
+  ;; So the number moved, once, with a reason. The assertion is kept rather
+  ;; than deleted because its job never was to hold one particular digest — it
+  ;; is to make an accidental encoding change impossible to land quietly, and
+  ;; that job is the same on the far side of a deliberate one.
+  (is (= "a5f7705ac48334c9b674322497ab7d9681d0e6f39bd9cc131d47f0388992e2e3"
          (st/flat-root (ex)))))
+
+(deftest governance-is-under-the-root
+  ;; The property the leaf exists for, stated directly: change who may mint,
+  ;; change nothing else, and the root must move. Before the leaf, these two
+  ;; exchanges produced identical roots.
+  (let [base (ex)
+        other (assoc base :bridge-authority 7)]
+    (is (not= (st/state-root base) (st/state-root other))))
+  ;; And the same for who may publish a price.
+  (let [base (ex)
+        other (update base :oracle-publishers (fnil conj #{}) 99)]
+    (is (not= (st/state-root base) (st/state-root other))))
+  ;; `nil` is not account 0. Zero is a real account id, and a nil authority
+  ;; means the opposite of a restriction, so the two must not collide.
+  (let [none (assoc (ex) :bridge-authority nil)
+        zero (assoc (ex) :bridge-authority 0)]
+    (is (not= (st/state-root none) (st/state-root zero)))))
 
 (deftest the-leaves-concatenate-back-to-the-flat-encoding
   ;; `canonical-bytes` is DEFINED as this concatenation, so this is not a
