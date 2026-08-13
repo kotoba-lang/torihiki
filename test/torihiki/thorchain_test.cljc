@@ -30,21 +30,21 @@
             money THORChain can still take back."
     (let [tip 100
           ok (obs)]
-      (is (= 1 (count (tc/deposits-in 7 "vault-1" tip [ok]))))
-      (is (empty? (tc/deposits-in 7 "vault-2" tip [ok]))
+      (is (= 1 (count (tc/deposits-in 7 #{"vault-1"} tip [ok]))))
+      (is (empty? (tc/deposits-in 7 #{"vault-2"} tip [ok]))
           "attested a transfer that never reached this venue")
-      (is (empty? (tc/deposits-in 7 "vault-1" tip [(obs "memo" "hello")]))
+      (is (empty? (tc/deposits-in 7 #{"vault-1"} tip [(obs "memo" "hello")]))
           "credited a deposit whose sender named no account")
-      (is (empty? (tc/deposits-in 7 "vault-1" tip [(obs "amount" 0)]))
+      (is (empty? (tc/deposits-in 7 #{"vault-1"} tip [(obs "amount" 0)]))
           "attested a zero")
-      (is (empty? (tc/deposits-in 7 "vault-1" 11 [(obs "height" 10)]))
+      (is (empty? (tc/deposits-in 7 #{"vault-1"} 11 [(obs "height" 10)]))
           "attested something one block deep, and an attestation cannot be
            withdrawn")
-      (is (empty? (tc/deposits-in 7 "vault-1" tip [(obs "tx_id" "")]))
+      (is (empty? (tc/deposits-in 7 #{"vault-1"} tip [(obs "tx_id" "")]))
           "attested a transaction with no id — the key the credit is deduped on"))))
 
 (deftest an-observation-becomes-the-transaction-a-validator-signs
-  (let [[tx] (tc/deposits-in 7 "vault-1" 100 [(obs)])]
+  (let [[tx] (tc/deposits-in 7 #{"vault-1"} 100 [(obs)])]
     (is (= {:tx :deposit-attest :account 7 :txid "ABC" :credit 900
             :amount 1000 :asset "ETH.ETH"}
            tx))))
@@ -58,3 +58,16 @@
            (tc/payouts-in 7 tip [p])))
     (is (empty? (tc/payouts-in 7 tip [(assoc p "memo" "OUT")]))
         "a payout naming no claim settled one anyway")))
+
+(deftest a-vault-that-churned-is-still-our-vault
+  (testing "THORChain rotates its asgard every few days, and a deposit sent to
+            the outgoing vault minutes before the rotation is still a real
+            deposit. A watcher holding one address stops crediting on every
+            churn and says nothing — the venue keeps running and quietly stops
+            taking money."
+    (let [old (obs "to" "vault-old")
+          new (obs "to" "vault-new")
+          both #{"vault-old" "vault-new"}]
+      (is (= 2 (count (tc/deposits-in 7 both 100 [old new]))))
+      (is (= 1 (count (tc/deposits-in 7 #{"vault-new"} 100 [old new])))
+          "the address that was ours an hour ago stopped being ours"))))

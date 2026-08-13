@@ -62,17 +62,24 @@
   "Every credited deposit in a THORChain `/tx/details`-shaped answer, as the
   transactions a validator would attest.
 
-  `me` is the attesting validator's account id. `vault` is the inbound address
-  this venue watches — an observation naming a different vault is somebody
-  else's deposit, and checking it here is what stops a validator from being
-  talked into attesting a transfer that never reached us.
+  `me` is the attesting validator's account id. `vaults` is the SET of inbound
+  addresses this venue accepts — an observation naming anything else is
+  somebody else's deposit, and checking it here is what stops a validator from
+  being talked into attesting a transfer that never reached us.
+
+  A SET, not one address, because THORChain's vaults churn: the network
+  rotates its asgard every few days, and a deposit sent to the outgoing vault
+  minutes before the rotation is still a real deposit. Watching one address
+  means that, on every churn, deposits stop being credited and nothing says
+  so — the venue keeps running and quietly stops taking money. The set is the
+  current inbound plus the ones this validator has seen before.
 
   Returns a vector of `:deposit-attest` transactions, one per usable
   observation, in the order given. Anything unusable is DROPPED rather than
   reported: a validator that cannot read an observation has nothing to say
   about it, and saying something anyway is the failure this whole path exists
   to avoid."
-  [me vault tip-height observations]
+  [me vaults tip-height observations]
   (vec
    (for [o observations
          :let [memo (get o :memo (get o "memo"))
@@ -86,8 +93,8 @@
                     (string? txid) (seq txid)
                     (string? asset) (seq asset)
                     (integer? amount) (pos? amount)
-                    ;; The vault we watch, not any vault.
-                    (= vault to)
+                    ;; One of the vaults we watch, not any vault.
+                    (contains? (set vaults) to)
                     ;; Deep enough that THORChain will not take it back.
                     (integer? height)
                     (>= (- tip-height height) min-confirmations))]
