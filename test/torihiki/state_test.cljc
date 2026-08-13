@@ -1244,3 +1244,73 @@
         b (st/apply-tx a {:tx :bond :account 63 :validator 7 :amount 100})]
     (is (not= (st/state-root a) (st/state-root b))
         "a claim the chain can slash sat outside the root")))
+
+;; ── spot ────────────────────────────────────────────────────────────────────
+;;
+;; A spot trade is an exchange of two things both sides already hold. Nothing
+;; is margined: no position to liquidate, no funding, no mark to be wrong
+;; about.
+
+(def ^:private spot-mkt
+  (assoc (cl/market {:id 3 :symbol "BTC-USD" :max-leverage 1 :tick 1 :lot 1})
+         :kind :spot :asset 77
+         :taker-fee-rate (fx/bps 5) :maker-fee-rate (fx/bps 2)))
+
+(defn- spot-fixture []
+  (-> (st/new-exchange {:markets [mkt spot-mkt]
+                        :book-opts {:n-levels 4096 :cap 8192 :ev-cap 8192}})
+      (funded [70 71] 100000000)
+      ;; 71 holds the asset to sell
+      (assoc-in [:clearing :balances 71 77] 1000)))
+
+(deftest a-spot-fill-exchanges-balance-for-collateral
+  (let [ex (-> (spot-fixture)
+               (st/apply-tx {:tx :order :account 71 :market 3
+                             :side bk/ask :level 500 :qty 100})
+               (st/apply-tx {:tx :order :account 70 :market 3
+                             :side bk/bid :level 500 :qty 100}))
+        c (:clearing ex)]
+    (is (= 100 (get-in c [:balances 70 77])) "the buyer did not receive the asset")
+    (is (= 900 (get-in c [:balances 71 77])) "the seller still holds what it sold")
+    (is (< (get-in c [:accounts 70 :collateral]) 100000000) "the buyer paid nothing")
+    (is (> (get-in c [:accounts 71 :collateral]) 100000000) "the seller was not paid")
+    (is (empty? (get-in c [:accounts 70 :positions]))
+        "a spot trade opened a margined position")))
+
+(deftest a-sell-of-what-you-do-not-hold-is-refused
+  ;; A perp order asking for too much margin is a question answered later. A
+  ;; spot sell of an asset you do not hold would CREATE it.
+  (let [ex (spot-fixture)
+        after (st/apply-tx ex {:tx :order :account 70 :market 3
+                               :side bk/ask :level 500 :qty 10})]
+    (is (= 0 (bk/resting-count (get-in after [:books 3])))
+        "an unbacked sell rested on the book")))
+
+(deftest resting-spot-orders-commit-what-they-will-owe
+  ;; Without this an account could rest ten sells of everything it owns and
+  ;; honour whichever filled first.
+  (let [ex (-> (spot-fixture)
+               (st/apply-tx {:tx :order :account 71 :market 3
+                             :side bk/ask :level 500 :qty 1000}))]
+    (is (= 1000 (get-in ex [:clearing :committed 71 77])))
+    (is (= 0 (cl/balance (:clearing ex) 71 77))
+        "the whole holding is committed, so nothing is free")
+    (let [again (st/apply-tx ex {:tx :order :account 71 :market 3
+                                 :side bk/ask :level 400 :qty 1})]
+      (is (= 1 (bk/resting-count (get-in again [:books 3])))
+          "a second sell rested against a holding already spoken for"))))
+
+(deftest cancelling-a-spot-order-gives-the-reservation-back
+  (let [ex (-> (spot-fixture)
+               (st/apply-tx {:tx :order :account 71 :market 3
+                             :side bk/ask :level 500 :qty 400}))
+        oid (:oid (first (bk/level-orders (get-in ex [:books 3]) bk/ask 500)))
+        after (st/apply-tx ex {:tx :cancel :account 71 :market 3 :oid oid})]
+    (is (= 0 (get-in after [:clearing :committed 71 77])))
+    (is (= 1000 (cl/balance (:clearing after) 71 77)))))
+
+(deftest spot-balances-are-in-the-root
+  (let [a (spot-fixture)
+        b (assoc-in a [:clearing :balances 70 77] 5)]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a holding sat outside the root")))

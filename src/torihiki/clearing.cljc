@@ -411,6 +411,54 @@
                (fx/mul-rate (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
                             (get-in markets [mkt :maintenance-margin-rate] 0))))))))
 
+(defn balance
+  "How much of `asset` `acct` holds, free of what its resting spot orders have
+  already committed."
+  [state acct asset]
+  (- (get-in state [:balances acct asset] 0)
+     (get-in state [:committed acct asset] 0)))
+
+(defn commit-spot
+  "Reserve `amount` of `asset` against `acct`'s resting spot orders.
+
+  Reserved rather than moved. An order that took the money when it rested
+  would make cancelling a refund, and a refund is a second place for the
+  amount to be wrong. The balance stays where it is and this says how much of
+  it is already spoken for.
+
+  Without it, an account could rest ten sells of everything it owns and honour
+  whichever filled first — the other nine would create the asset out of
+  nothing when they filled."
+  [state acct asset amount]
+  (update-in state [:committed acct asset] (fnil + 0) (long amount)))
+
+(defn release-spot
+  "Give back a reservation — the order filled, or was cancelled."
+  [state acct asset amount]
+  (update-in state [:committed acct asset] (fnil - 0) (long amount)))
+
+(defn spot-fill
+  "Settle one spot fill: `qty` of `asset` at `price`, buyer to seller.
+
+  Nothing here is margined. A spot trade is an exchange of two things both
+  sides already hold, which is what makes it spot — there is no position to
+  liquidate, no funding to pay, and no mark to be wrong about.
+
+  The fee is charged on the QUOTE side to both parties, in the quote asset,
+  because that is the one the venue keeps its books in."
+  [state buyer seller asset qty price buy-fee-rate sell-fee-rate]
+  (let [quote-amt (fx/notional price qty)
+        bf (fx/mul-rate quote-amt buy-fee-rate)
+        sf (fx/mul-rate quote-amt sell-fee-rate)]
+    (-> state
+        ;; buyer: pays quote, receives asset
+        (update-in [:accounts buyer :collateral] (fnil - 0) (+ quote-amt bf))
+        (update-in [:balances buyer asset] (fnil + 0) qty)
+        ;; seller: gives asset, receives quote
+        (update-in [:balances seller asset] (fnil - 0) qty)
+        (update-in [:accounts seller :collateral] (fnil + 0) (- quote-amt sf))
+        (update :fees-collected (fnil + 0) (+ bf sf)))))
+
 (defn bonded
   "What `acct` has bonded, across every validator it has delegated to.
 
