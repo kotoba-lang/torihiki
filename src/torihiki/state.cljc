@@ -326,6 +326,33 @@
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))
 
+(defmethod apply-tx :authorize-agent
+  [ex {:keys [account agent expires]}]
+  ;; A delegated key. `torihiki.auth/agent-forbidden` is what makes it worth
+  ;; having: this key can trade and cannot move money out, so a trading
+  ;; program can hold it and a thief cannot use it to empty the account.
+  ;;
+  ;; Only an owner signature reaches here — `auth/check` refuses
+  ;; `:authorize-agent` from an agent, so agents cannot mint agents.
+  ;;
+  ;; `expires` is a BLOCK HEIGHT. The engine has no clock, and an expiry in
+  ;; wall time would make the moment a key dies depend on which validator you
+  ;; asked. nil never expires, which is the honest spelling of what a key with
+  ;; no expiry is — rather than a large number that looks like a policy.
+  (if (or (not (string? agent)) (= agent (get-in ex [:account-keys account])))
+    ;; Authorising the owner key as an agent would DEMOTE it: `check` looks for
+    ;; an agent record before it decides what a signer may do.
+    ex
+    (assoc-in ex [:agents account agent] {:expires expires})))
+
+(defmethod apply-tx :revoke-agent
+  [ex {:keys [account agent]}]
+  ;; Revocation is immediate and needs no reason. A key you are unsure about
+  ;; is a key you revoke; making that expensive is how people leave them live.
+  (if (get-in ex [:agents account agent])
+    (update-in ex [:agents account] dissoc agent)
+    ex))
+
 (defmethod apply-tx :list-market
   [ex {:keys [account market spec book-opts]}]
   ;; Listing a market on a RUNNING chain.
@@ -728,14 +755,36 @@
           (enc-ints pubs))))
 
 (defn- auth-accounts [ex]
-  (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))))))
+  (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))
+                          ;; An account can hold agents; leaving it out of this
+                          ;; list would leave its authorisations out of the
+                          ;; root, which is the whole reason they are encoded.
+                          (keys (:agents ex))))))
+
+(def ^:const enc-tag-agent 14)
 
 (defn- encode-auth-account
-  "One account's nonce and key binding."
+  "One account's nonce, key binding, and delegated keys.
+
+  The agents are here because they are authority: a replica that disagreed
+  about which key may trade for an account would accept transactions another
+  replica refuses, and the two would diverge on the next order — the same
+  argument `encode-governance` makes about who may mint.
+
+  Sorted by key, because map iteration order is unspecified and a root that
+  depended on insertion history would differ between a replica that restored
+  from a snapshot and one that never restarted."
   [ex a]
-  (-> (enc-ints [enc-tag-nonce a (get-in ex [:nonces a] 0)])
-      (into (enc-ints [enc-tag-key a]))
-      (into (enc-string (get-in ex [:account-keys a] "")))))
+  (let [agents (sort (keys (get-in ex [:agents a] {})))]
+    (reduce (fn [acc k]
+              (-> acc
+                  (into (enc-ints [enc-tag-agent a (or (:expires (get-in ex [:agents a k])) 0)]))
+                  (into (enc-string k))))
+            (-> (enc-ints [enc-tag-nonce a (get-in ex [:nonces a] 0)])
+                (into (enc-ints [enc-tag-key a]))
+                (into (enc-string (get-in ex [:account-keys a] "")))
+                (into (enc-ints [enc-tag-agent a (count agents)])))
+            agents)))
 
 (def reason-codes
   "A stable integer per rejection reason. `clojure.core/hash` on a keyword is
