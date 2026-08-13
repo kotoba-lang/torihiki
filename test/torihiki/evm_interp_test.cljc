@@ -109,3 +109,18 @@
   (let [r (evm/run {} [0x60 32 0x60 0 0xa0] "0x")]
     (is (= 1 (count (:logs r))))
     (is (= [] (:topics (first (:logs r)))))))
+
+(deftest keccak-is-the-hash-a-mapping-slot-is-made-of
+  (testing "`mapping(uint => uint) m; m[k]` lives at keccak256(k . slot) and
+            nowhere else. An interpreter with a different hash would read and
+            write real storage at addresses no other implementation agrees
+            with — wrong quietly, and only for the contracts that hold the
+            most."
+    ;; KECCAK256 over 32 zero bytes of memory: PUSH1 0, PUSH1 0, MSTORE
+    ;; then PUSH1 32, PUSH1 0, SHA3, return it.
+    (let [r (evm/run {} [0x60 0 0x60 0 0x52 0x60 32 0x60 0 0x20
+                         0x60 0 0x52 0x60 32 0x60 0 0xf3] "0x")]
+      (is (= "290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563"
+             (:data r))
+          "keccak256 of a 32-byte zero word did not match the value every
+           other EVM computes"))))

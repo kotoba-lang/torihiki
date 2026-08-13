@@ -26,12 +26,11 @@
   Storage, signed arithmetic, shifts, `EXP`, and logs are here too.
 
   **Not** implemented: contract creation, `CALL` with value, `DELEGATECALL`,
-  most environment opcodes, and — the one that matters — `KECCAK256`. Solidity
-  computes a mapping slot by hashing, so contracts that use mappings cannot run
-  here yet. It is left out rather than approximated because a hash that is not
-  keccak gives a different slot for the same key, and the contract would read
-  and write real storage at addresses no other implementation agrees with. It
-  needs a keccak in `.cljc`, which is the next piece. An unimplemented opcode halts with `:unknown-opcode`
+  most environment opcodes.
+
+  `KECCAK256` is here, over `torihiki.keccak` — which is why mappings work: a
+  Solidity mapping slot is `keccak256(key . slot)` and nothing else computes
+  the same address. An unimplemented opcode halts with `:unknown-opcode`
   rather than being skipped — an interpreter that ignores what it does not
   know computes a wrong answer confidently, and this is not a place for
   confidence.
@@ -40,7 +39,8 @@
   schedule and does not claim to be: what it is for here is stopping a loop,
   and pricing that is wrong in the same direction for every opcode still
   stops one."
-  (:require [torihiki.evm :as bridge]))
+  (:require [torihiki.evm :as bridge]
+            [torihiki.keccak :as keccak]))
 
 ;; ── 256-bit words ───────────────────────────────────────────────────────────
 ;;
@@ -294,6 +294,14 @@
                         mem sto logs (inc gas) nil)
             0x1b (recur (inc pc) (conj s2 (wshl pop1 pop2)) mem sto logs (inc gas) nil)
             0x1c (recur (inc pc) (conj s2 (wshr pop1 pop2)) mem sto logs (inc gas) nil)
+            ;; KECCAK256. The one opcode this interpreter refused to
+            ;; approximate: Solidity finds a mapping slot by hashing, and a
+            ;; hash that is not keccak puts real storage at addresses no other
+            ;; implementation agrees with.
+            0x20 (recur (inc pc)
+                        (conj s2 (hex->w (keccak/digest-of-hex
+                                          (mem-read mem (w->int pop1) (w->int pop2)))))
+                        mem sto logs (inc gas) nil)
             0x33 (recur (inc pc) (conj stack zero) mem sto logs (inc gas) nil)   ; CALLER: nobody
             0x35 (let [off (w->int pop1)                                 ; CALLDATALOAD
                        hex (subs (str cd (apply str (repeat 64 \0)))
