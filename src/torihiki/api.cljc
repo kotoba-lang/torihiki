@@ -320,6 +320,9 @@
   [ex market]
   (let [m (get-in ex [:markets market])]
     {:id market
+     ;; What to call it. A read model that returns every rate and no name
+     ;; makes the client invent one, and two clients invent two.
+     :symbol (:symbol m)
      :open-interest (cl/open-interest (:clearing ex) market)
      :open-interest-cap (:open-interest-cap m)
      :margin-tiers (mapv #(select-keys % [:max-notional :max-leverage
