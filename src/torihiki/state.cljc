@@ -297,6 +297,87 @@
           ;; trader needs it most.
           (fire-triggers market)))))
 
+(defn- twap-slice-qty
+  "How much this firing should place: the even share, plus whatever rounding
+  left behind on the LAST slice.
+
+  Dividing and letting the remainder vanish would fill less than the trader
+  asked for, and silently — the order would simply end short. Putting the
+  remainder on the last slice keeps the total exact without making any single
+  slice bigger than the schedule the market can see coming."
+  [{:keys [remaining slices-left]}]
+  (if (<= slices-left 1)
+    remaining
+    (max 1 (quot remaining slices-left))))
+
+(defn- fire-twaps
+  "Fire every TWAP on `market` whose next slice is due at this height.
+
+  Sorted by id, because a Clojure map has no specified iteration order and two
+  validators firing slices in different orders would take different fills from
+  the same book — the same rule `liq/scan` and the trigger firing order
+  already follow.
+
+  A slice is an aggressive IOC limit, not a market order: this engine has no
+  market order (`torihiki.api` says why), and IOC is what makes an unfilled
+  slice disappear rather than rest. A TWAP that left resting orders behind
+  would be a different instrument — the trader asked to be filled over time,
+  not to quote."
+  [ex market]
+  (let [due (->> (:twaps ex {})
+                 (filter (fn [[_ t]] (and (= market (:market t))
+                                          (<= (:next-at t) (:height ex 0))
+                                          (pos? (:remaining t)))))
+                 (sort-by key))]
+    (reduce
+     (fn [ex' [id t]]
+       (let [qty (twap-slice-qty t)
+             book (get-in ex' [:books market])
+             ;; Aggressive to the end of the ladder, IOC: take what is there
+             ;; at this instant and drop the rest.
+             level (if (= (:side t) bk/bid) (dec (:n-levels book)) 0)
+             ex' (apply-tx ex' {:tx :order :account (:account t) :market market
+                                :side (:side t) :level level :qty qty
+                                :flags bk/flag-ioc})
+             remaining (max 0 (- (:remaining t) qty))
+             slices-left (max 0 (dec (:slices-left t)))]
+         (if (or (zero? remaining) (zero? slices-left))
+           (update ex' :twaps dissoc id)
+           (update-in ex' [:twaps id] merge
+                      {:remaining remaining
+                       :slices-left slices-left
+                       :next-at (+ (:height ex' 0) (:every t))}))))
+     ex
+     due)))
+
+(defmethod apply-tx :twap
+  [ex {:keys [account market side qty slices every]}]
+  ;; An order worked over time instead of all at once — the thing a size that
+  ;; would move the book against you needs.
+  ;;
+  ;; The schedule is in BLOCKS, like every other duration here: the engine has
+  ;; no clock, and a schedule in seconds would fire at a different point in
+  ;; the chain on every replica.
+  (let [id (inc (:twap-seq ex 0))]
+    (-> ex
+        (assoc :twap-seq id)
+        (assoc-in [:twaps id]
+                  {:id id :account account :market market :side side
+                   :remaining qty :slices-left slices :every every
+                   ;; The first slice fires on the NEXT block rather than
+                   ;; inside this one. A TWAP that put its first slice through
+                   ;; the book in the same block it was submitted would be a
+                   ;; market order wearing a schedule.
+                   :next-at (inc (:height ex 0))
+                   :started-at (:height ex 0)}))))
+
+(defmethod apply-tx :cancel-twap
+  [ex {:keys [account id]}]
+  ;; Only the owner. Same rule as cancelling an order, and for the same reason.
+  (if (= account (:account (get-in ex [:twaps id])))
+    (update ex :twaps dissoc id)
+    ex))
+
 (defmethod apply-tx :cancel-trigger
   [ex {:keys [market id]}]
   (update-in ex [:triggers market] trg/cancel id))
@@ -630,7 +711,11 @@
      ;; Sorted, because `keys` on a Clojure map has no specified order and two
      ;; validators sweeping markets in different orders would take different
      ;; fills from books that liquidation itself moves.
-     (reduce sweep-liquidations applied (sort (keys (:books applied)))))))
+     ;; TWAP slices fire before the sweep: a slice can move the mark, and an
+     ;; account made liquidatable by its own slice should be found by the
+     ;; sweep in the block that made it so, not the next one.
+     (-> (reduce fire-twaps applied (sort (keys (:books applied))))
+         (as-> ex' (reduce sweep-liquidations ex' (sort (keys (:books ex')))))))))
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
@@ -737,6 +822,20 @@
             (enc-ints [enc-tag-oracle-sub m (count pubs)
                        (if (get-in ex [:oracle-stale m] false) 1 0)])
             pubs)))
+
+(def ^:const enc-tag-twap 16)
+
+(defn- encode-twap
+  "One working TWAP: who, where, which way, how much is left, and when the
+  next slice fires.
+
+  In the root because it changes what FUTURE blocks do — the same argument
+  `:triggers` carries. A replica that disagreed about a working schedule would
+  put a different order through the book two blocks later and diverge then,
+  with nothing to point at."
+  [id t]
+  (enc-ints [enc-tag-twap id (:account t) (:market t) (:side t)
+             (:remaining t) (:slices-left t) (:every t) (:next-at t)]))
 
 (def ^:const enc-tag-withdrawal 13)
 
@@ -1052,6 +1151,12 @@
           {:id (str "05:" (pad-id m) ":2")
            :bytes (encode-triggers (get-in ex [:triggers m] []))}])
        mkts)
+      ;; Working TWAPs, before the withdrawals and after the markets.
+      (let [ws (:twaps ex {})]
+        (cons
+         {:id "05:9" :bytes (enc-ints [enc-tag-twap (count ws) (:twap-seq ex 0)])}
+         (for [id (sort (keys ws))]
+           {:id (str "05:9:" (pad-id id)) :bytes (encode-twap id (get ws id))})))
       ;; Pending withdrawals. The count and the next claim number first, so
       ;; the section is self-delimiting the way the nonce and clearing
       ;; sections are.

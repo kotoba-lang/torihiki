@@ -823,3 +823,87 @@
                             :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
     (is (not= (st/state-root a) (st/state-root b))
         "the fee schedule is outside the root")))
+
+;; ── TWAP ────────────────────────────────────────────────────────────────────
+;;
+;; An order worked over time instead of all at once. The schedule is in BLOCKS
+;; because the engine has no clock.
+
+(defn- twap-fixture
+  "A book with liquidity on both sides and an account to work an order into it."
+  []
+  (-> (fresh)
+      (st/apply-tx {:tx :oracle :market 1 :price 500})
+      (funded [10 11] 1000000000)
+      ;; a wall of asks for a buy TWAP to eat
+      (st/apply-tx {:tx :order :account 11 :market 1
+                    :side bk/ask :level 500 :qty 1000})))
+
+(deftest a-twap-does-not-fill-in-the-block-it-was-submitted
+  ;; Otherwise it is a market order wearing a schedule.
+  (let [ex (-> (twap-fixture)
+               (st/apply-tx {:tx :twap :account 10 :market 1
+                             :side bk/bid :qty 100 :slices 4 :every 1}))]
+    (is (= 1 (count (:twaps ex))))
+    (is (= 0 (:size (cl/position (:clearing ex) 10 1)))
+        "the TWAP filled immediately")))
+
+(deftest a-twap-fills-over-blocks-and-finishes-exactly
+  (let [ex (-> (twap-fixture)
+               (st/apply-tx {:tx :twap :account 10 :market 1
+                             :side bk/bid :qty 100 :slices 4 :every 1}))
+        step (fn [e h] (st/apply-block e {:height h :ts h :txs []}))
+        after-1 (step ex 1)
+        after-2 (step after-1 2)
+        after-4 (-> after-2 (step 3) (step 4))]
+    (is (pos? (:size (cl/position (:clearing after-1) 10 1)))
+        "the first slice never fired")
+    (is (< (:size (cl/position (:clearing after-1) 10 1))
+           (:size (cl/position (:clearing after-2) 10 1)))
+        "the second slice added nothing")
+    (is (= 100 (:size (cl/position (:clearing after-4) 10 1)))
+        "the schedule did not fill the whole quantity")
+    (is (empty? (:twaps after-4)) "a finished TWAP must not stay on the books")))
+
+(deftest the-remainder-lands-on-the-last-slice
+  ;; 10 over 4 slices is 2,2,2,4 — not 2,2,2,2 with two lots quietly lost.
+  (let [ex (-> (twap-fixture)
+               (st/apply-tx {:tx :twap :account 10 :market 1
+                             :side bk/bid :qty 10 :slices 4 :every 1}))
+        run (reduce (fn [e h] (st/apply-block e {:height h :ts h :txs []}))
+                    ex (range 1 6))]
+    (is (= 10 (:size (cl/position (:clearing run) 10 1)))
+        "the rounding remainder was dropped")))
+
+(deftest every-controls-the-spacing
+  (let [ex (-> (twap-fixture)
+               (st/apply-tx {:tx :twap :account 10 :market 1
+                             :side bk/bid :qty 100 :slices 4 :every 3}))
+        after-1 (st/apply-block ex {:height 1 :ts 1 :txs []})
+        after-2 (st/apply-block after-1 {:height 2 :ts 2 :txs []})]
+    (is (pos? (:size (cl/position (:clearing after-1) 10 1))))
+    (is (= (:size (cl/position (:clearing after-1) 10 1))
+           (:size (cl/position (:clearing after-2) 10 1)))
+        "a slice fired before its interval had passed")))
+
+(deftest only-the-owner-may-cancel-a-twap
+  (let [ex (-> (twap-fixture)
+               (st/apply-tx {:tx :twap :account 10 :market 1
+                             :side bk/bid :qty 100 :slices 4 :every 1}))]
+    (is (= 1 (count (:twaps (st/apply-tx ex {:tx :cancel-twap :account 11 :id 1})))))
+    (is (empty? (:twaps (st/apply-tx ex {:tx :cancel-twap :account 10 :id 1}))))))
+
+(deftest a-working-twap-is-in-the-root
+  (let [a (twap-fixture)
+        b (st/apply-tx a {:tx :twap :account 10 :market 1
+                          :side bk/bid :qty 100 :slices 4 :every 1})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a working schedule sat outside the root")))
+
+(deftest a-schedule-of-one-is-refused
+  (let [ex (twap-fixture)]
+    (is (= :missing-field (api/validate ex {:tx :twap :account 10 :market 1
+                                            :side bk/bid :qty 10 :slices 1 :every 1})))
+    (is (= :bad-quantity (api/validate ex {:tx :twap :account 10 :market 1
+                                           :side bk/bid :qty 3 :slices 4 :every 1}))
+        "a schedule whose slices round to nothing was accepted")))
