@@ -383,14 +383,57 @@
           0
           (cross-positions state acct)))
 
+(defn chosen-leverage
+  "The leverage `acct` has chosen on `mkt`, or nil when it has not chosen.
+
+  Choosing is a way of asking for a HIGHER margin requirement than the market
+  demands — 5x on a market that allows 40x means five times the collateral per
+  unit of notional. It cannot go the other way: a market's own maximum is the
+  most anybody may take, and a per-account setting that could exceed it would
+  be a leverage limit anyone could opt out of."
+  [state acct mkt]
+  (get-in state [:leverage acct mkt]))
+
+(defn initial-margin-rate-for
+  "The initial-margin rate `acct` pays on `mkt` at `notional`.
+
+  The market's tier says the most leverage this size may take; a chosen
+  leverage only ever tightens it. `max` of the two rates is the whole rule —
+  a higher rate is a stricter requirement, and taking the stricter of the two
+  is what makes the choice safe to honour without re-checking anything else."
+  [state acct mkt market notional]
+  (let [[tier-im _] (rates-for market notional)]
+    (if-let [lev (chosen-leverage state acct mkt)]
+      (max tier-im (fx/fdiv fx/rate-scale lev))
+      tier-im)))
+
 (defn initial-margin
   [state acct marks markets]
   (reduce (fn [acc [mkt pos]]
             (let [n (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
-                  [im _] (rates-for (get markets mkt) n)]
+                  im (initial-margin-rate-for state acct mkt (get markets mkt) n)]
               (+ acc (fx/mul-rate n im))))
           0
           (cross-positions state acct)))
+
+(defn set-leverage
+  "Record `acct`'s chosen leverage on `mkt`, bounded by what the market allows.
+
+  Refused rather than clamped when it exceeds the market's maximum: a trader
+  who asked for 50x on a 40x market and silently got 40x would size a position
+  against the number they asked for.
+
+  Refused, too, while the account holds a position on that market. Lowering
+  the requirement under an open position is how an account becomes
+  under-margined without trading; raising it is harmless but the two would
+  need different rules, and a rule that depends on which direction you move is
+  one nobody remembers correctly."
+  [state acct mkt market lev has-position?]
+  (if (or (not (integer? lev)) (not (pos? lev))
+          (> lev (:max-leverage market 1))
+          has-position?)
+    state
+    (assoc-in state [:leverage acct mkt] lev)))
 
 (defn liquidatable?
   "The solvency test. Strictly less-than: an account sitting exactly at its
