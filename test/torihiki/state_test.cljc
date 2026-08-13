@@ -716,3 +716,31 @@
                                          :max-leverage 40 :tick 1 :lot 1}))))
   (is (= "MKT-7" (:symbol (cl/market {:id 7 :max-leverage 40 :tick 1 :lot 1})))
       "a market without a name still needs one to be called"))
+
+(deftest the-bridge-can-amend-a-market-but-not-what-a-price-means
+  (let [ex (-> (assoc (fresh) :bridge-authority 77)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [90] 100000000)
+               (st/apply-tx {:tx :order :account 90 :market 1
+                             :side bk/bid :level 400 :qty 3}))
+        after (st/apply-tx ex {:tx :amend-market :account 77 :market 1
+                               :spec {:symbol "BTC-PERP" :taker-fee-rate 999
+                                      :tick 1 :lot 99}})]
+    (is (= "BTC-PERP" (get-in after [:markets 1 :symbol])))
+    (is (= 999 (get-in after [:markets 1 :taker-fee-rate])))
+    (is (= (get-in ex [:markets 1 :tick]) (get-in after [:markets 1 :tick]))
+        "the tick changed, so every resting order silently repriced")
+    (is (= (get-in ex [:markets 1 :lot]) (get-in after [:markets 1 :lot])))
+    (is (= 3 (bk/level-qty (get-in after [:books 1]) bk/bid 400))
+        "the book must survive an amend")
+    (is (not= (st/state-root ex) (st/state-root after))
+        "amending a market did not change the root")))
+
+(deftest only-the-bridge-may-amend-a-market
+  (let [ex (assoc (fresh) :bridge-authority 77)]
+    (is (= ex (st/apply-tx ex {:tx :amend-market :account 78 :market 1
+                               :spec {:symbol "STOLEN"}})))
+    (is (= :unknown-market
+           (api/validate ex {:tx :amend-market :account 77 :market 9
+                             :spec {:symbol "NOPE"}}))
+        "a market that does not exist was amendable")))

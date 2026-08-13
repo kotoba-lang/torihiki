@@ -326,6 +326,28 @@
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))
 
+(defmethod apply-tx :amend-market
+  [ex {:keys [account market spec]}]
+  ;; Changing a listed market's parameters — fees, leverage, tiers, the name.
+  ;;
+  ;; `:list-market` refuses an id that already exists, and it should: replacing
+  ;; a live market would strand the orders resting in it. But a market whose
+  ;; parameters can never change is not how any exchange works — fees move,
+  ;; margin schedules tighten — and the alternative to a transaction for it is
+  ;; an operator editing config, which is exactly the thing that put the
+  ;; symbol in the source and not on the chain.
+  ;;
+  ;; **`:tick` and `:lot` are immutable.** They decide what a price LEVEL
+  ;; means, so changing them silently reprices every resting order and every
+  ;; open position — the same class of harm as replacing the market outright,
+  ;; arriving through a door labelled amend.
+  (let [bridge (:bridge-authority ex)
+        cur (get-in ex [:markets market])]
+    (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec)))
+      ex
+      (assoc-in ex [:markets market]
+                (merge cur (dissoc spec :id :tick :lot))))))
+
 (defmethod apply-tx :authorize-agent
   [ex {:keys [account agent expires]}]
   ;; A delegated key. `torihiki.auth/agent-forbidden` is what makes it worth
