@@ -137,7 +137,23 @@
         ;; With publishers configured, the direct setter is closed. Leaving
         ;; both doors open would make the aggregate decorative — an attacker
         ;; would simply use the one that does not aggregate.
-        (seq (:oracle-publishers ex)) :oracle-is-aggregated
+        ;;
+        ;; ONE exception: the authority may open a market that has never had a
+        ;; price. A market listed on a running chain arrives unpriced, and
+        ;; nothing can price it — publishers move a price, they do not create
+        ;; one, and the direct setter is shut. So a listed market could be
+        ;; traded and never margined, with a mark of zero, which is worse than
+        ;; either door being open.
+        ;;
+        ;; It is not a second door into pricing: it closes behind itself the
+        ;; moment it is used, because the condition is that there is no price
+        ;; yet. The authority opens a market once; after that only publishers
+        ;; move it.
+        (and (seq (:oracle-publishers ex))
+             (not (and (zero? (get-in ex [:oracle market] 0))
+                       (some? (:bridge-authority ex))
+                       (= account (:bridge-authority ex)))))
+        :oracle-is-aggregated
         :else nil)
 
       (= tx :oracle-submit)
