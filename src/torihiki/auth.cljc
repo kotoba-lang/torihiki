@@ -137,6 +137,9 @@
    ;; and for how long. Unsigned, an authorisation could be re-aimed at an
    ;; attacker's key in flight and would still verify.
    (:agent tx) (:expires tx)
+   ;; The ladder: how many rungs and how far apart. Unsigned, an attacker
+   ;; could widen a quote or multiply its size without touching the signature.
+   (:count* tx) (:step tx)
    ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
    ;; and fee SCHEDULES, which are vectors of maps.
    ;;

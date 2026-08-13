@@ -235,6 +235,21 @@
       :missing-field
       :else nil)
 
+    :scale
+    (cond
+      (not (integer? account)) :bad-account
+      (not (contains? (:markets ex) market)) :unknown-market
+      (not (contains? #{0 1} (:side t))) :bad-side
+      (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
+      (not (and (integer? (:level t)) (not (neg? (:level t))))) :bad-price-level
+      ;; A ladder of one is an order, and this is not the way to send one.
+      (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
+      :missing-field
+      ;; A step of zero stacks every rung on one level, which is an order for
+      ;; count x qty wearing a ladder's clothes.
+      (not (and (integer? (:step t)) (pos? (:step t)))) :missing-field
+      :else nil)
+
     :twap
     (cond
       (not (integer? account)) :bad-account
