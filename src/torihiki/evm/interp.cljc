@@ -23,9 +23,15 @@
   `STATICCALL` — enough to run a contract that reads the exchange and returns
   the answer, which is the case that exists today.
 
-  **Not** implemented: storage (`SLOAD`/`SSTORE`), contract creation, logs,
-  `CALL` with value, `DELEGATECALL`, the environment opcodes, and the
-  cryptographic ones. An unimplemented opcode halts with `:unknown-opcode`
+  Storage, signed arithmetic, shifts, `EXP`, and logs are here too.
+
+  **Not** implemented: contract creation, `CALL` with value, `DELEGATECALL`,
+  most environment opcodes, and — the one that matters — `KECCAK256`. Solidity
+  computes a mapping slot by hashing, so contracts that use mappings cannot run
+  here yet. It is left out rather than approximated because a hash that is not
+  keccak gives a different slot for the same key, and the contract would read
+  and write real storage at addresses no other implementation agrees with. It
+  needs a keccak in `.cljc`, which is the next piece. An unimplemented opcode halts with `:unknown-opcode`
   rather than being skipped — an interpreter that ignores what it does not
   know computes a wrong answer confidently, and this is not a place for
   confidence.
@@ -44,8 +50,15 @@
 ;; node that `+` coerced a BigInt.
 
 (def ^:private modulus
+  "2^256 — on BOTH sides.
+
+  The ClojureScript half was `(js/BigInt.asUintN 256 (js/BigInt -1))`, which
+  is 2^256 MINUS ONE. Everything derived from it was off by one there and
+  right on the JVM, so `NOT` would have differed between the runtime the tests
+  run on and the runtime the node runs on. The two lines have to name the same
+  number or the parity this file exists for is decorative."
   #?(:clj (.shiftLeft java.math.BigInteger/ONE 256)
-     :cljs (js/BigInt.asUintN 256 (js/BigInt -1))))       ; 2^256 - 1
+     :cljs (js/BigInt "115792089237316195423570985008687907853269984665640564039457584007913129639936")))
 
 (defn- w
   "Coerce to a 256-bit word."
@@ -76,6 +89,8 @@
 #?(:cljs (def ^:private jsand (js/Function. "a" "b" "return a & b;")))
 #?(:cljs (def ^:private jsor  (js/Function. "a" "b" "return a | b;")))
 #?(:cljs (def ^:private jsxor (js/Function. "a" "b" "return a ^ b;")))
+#?(:cljs (def ^:private jsshl (js/Function. "a" "b" "return a << b;")))
+#?(:cljs (def ^:private jsshr (js/Function. "a" "b" "return a >> b;")))
 
 (defn- w+ [a b] (wrap (+ a b)))
 (defn- w- [a b] (wrap (- a b)))
@@ -121,6 +136,73 @@
     (str (apply str (repeat (- 64 (count s)) \0)) s)))
 
 (defn- hex->w [s] (w #?(:clj (java.math.BigInteger. ^String s 16) :cljs (js/BigInt (str "0x" s)))))
+
+(def ^:private sign-bit (w #?(:clj (.shiftLeft java.math.BigInteger/ONE 255)
+                              :cljs (js/BigInt "57896044618658097711785492504343953926634992332820282019728792003956564819968"))))
+
+(defn- neg?w
+  "Is this word negative when read as `int256`? The top bit, which is the only
+  thing that makes a word signed — the value itself is the same 256 bits."
+  [a]
+  (not (wzero? (wand a sign-bit))))
+
+(defn- ->signed
+  "The signed value of a word, as a big integer that may be negative.
+
+  NOT `w-`, which wraps: `(w- a modulus)` is `wrap(a - 2^256)`, which is `a`
+  again. SDIV(-4, 2) came back as 2^255 - 2 — the unsigned quotient, wearing
+  the shape of a real answer. On the ClojureScript side `BigInt.asIntN` says
+  this in one call and is the same conversion `asUintN` undoes."
+  [a]
+  #?(:clj (if (neg?w a) (.subtract (biginteger a) (biginteger modulus)) (biginteger a))
+     :cljs (js/BigInt.asIntN 256 a)))
+
+(defn- <-signed [n] (w n))
+
+(defn- wsdiv [a b]
+  (if (wzero? b) zero
+      (let [x (->signed a) y (->signed b)]
+        (<-signed #?(:clj (.divide (biginteger x) (biginteger y))
+                     :cljs (jsdiv x y))))))
+
+(defn- wsmod [a b]
+  (if (wzero? b) zero
+      (let [x (->signed a) y (->signed b)]
+        (<-signed #?(:clj (.remainder (biginteger x) (biginteger y))
+                     :cljs (jsmod x y))))))
+
+(defn- wslt [a b]
+  (let [x (->signed a) y (->signed b)]
+    #?(:clj (if (neg? (.compareTo (biginteger x) (biginteger y))) one zero)
+       :cljs (if (jslt x y) one zero))))
+
+(defn- wsgt [a b]
+  (let [x (->signed a) y (->signed b)]
+    #?(:clj (if (pos? (.compareTo (biginteger x) (biginteger y))) one zero)
+       :cljs (if (jsgt x y) one zero))))
+
+(defn- wshl [shift a]
+  (let [n (w->int shift)]
+    (if (>= n 256) zero
+        #?(:clj (wrap (.shiftLeft (biginteger a) n))
+           :cljs (wrap (jsshl a (js/BigInt n)))))))
+
+(defn- wshr [shift a]
+  (let [n (w->int shift)]
+    (if (>= n 256) zero
+        #?(:clj (.shiftRight (biginteger a) n)
+           :cljs (wrap (jsshr a (js/BigInt n)))))))
+
+(defn- wexp [a b]
+  ;; Bounded by the modulus at every step, so a large exponent costs time and
+  ;; not memory. `modPow` on the JVM does the same thing in one call.
+  #?(:clj (.modPow (biginteger a) (biginteger b)
+                   (.shiftLeft java.math.BigInteger/ONE 256))
+     :cljs (loop [base (wrap a) e b acc one]
+             (if (wzero? e) acc
+                 (recur (wrap (* base base))
+                        (jsdiv e (js/BigInt 2))
+                        (if (wzero? (jsmod e (js/BigInt 2))) acc (wrap (* acc base))))))))
 
 ;; ── the machine ─────────────────────────────────────────────────────────────
 
@@ -169,56 +251,106 @@
   second matching engine with none of the first one's checks."
   [ex code calldata]
   (let [cd (if (and (string? calldata) (> (count calldata) 2)) (subs calldata 2) "")]
-    (loop [pc 0 stack [] mem {} gas 0 ret nil]
+    (loop [pc 0 stack [] mem {} sto {} logs [] gas 0 ret nil]
       (cond
         (>= gas gas-limit) {:status :halt :reason :out-of-gas :gas gas}
-        ret ret
-        (>= pc (count code)) {:status :return :data "" :gas gas}
+        ret (assoc ret :storage sto :logs logs)
+        (>= pc (count code)) {:status :return :data "" :gas gas
+                              :storage sto :logs logs}
         :else
         (let [op (nth code pc)
               pop1 (peek stack) s1 (when (seq stack) (pop stack))
               pop2 (when s1 (peek s1)) s2 (when (seq s1) (pop s1))]
           (case op
             0x00 {:status :return :data "" :gas gas}
-            0x01 (recur (inc pc) (conj s2 (w+ pop1 pop2)) mem (inc gas) nil)
-            0x02 (recur (inc pc) (conj s2 (w* pop1 pop2)) mem (inc gas) nil)
-            0x03 (recur (inc pc) (conj s2 (w- pop1 pop2)) mem (inc gas) nil)
-            0x04 (recur (inc pc) (conj s2 (wdiv pop1 pop2)) mem (inc gas) nil)
-            0x06 (recur (inc pc) (conj s2 (wmod pop1 pop2)) mem (inc gas) nil)
-            0x10 (recur (inc pc) (conj s2 (wlt pop1 pop2)) mem (inc gas) nil)
-            0x11 (recur (inc pc) (conj s2 (wgt pop1 pop2)) mem (inc gas) nil)
-            0x14 (recur (inc pc) (conj s2 (weq pop1 pop2)) mem (inc gas) nil)
-            0x15 (recur (inc pc) (conj s1 (if (wzero? pop1) one zero)) mem (inc gas) nil)
-            0x16 (recur (inc pc) (conj s2 (wand pop1 pop2)) mem (inc gas) nil)
-            0x17 (recur (inc pc) (conj s2 (wor pop1 pop2)) mem (inc gas) nil)
-            0x18 (recur (inc pc) (conj s2 (wxor pop1 pop2)) mem (inc gas) nil)
-            0x19 (recur (inc pc) (conj s1 (wnot pop1)) mem (inc gas) nil)
-            0x33 (recur (inc pc) (conj stack zero) mem (inc gas) nil)   ; CALLER: nobody
+            0x01 (recur (inc pc) (conj s2 (w+ pop1 pop2)) mem sto logs (inc gas) nil)
+            0x02 (recur (inc pc) (conj s2 (w* pop1 pop2)) mem sto logs (inc gas) nil)
+            0x03 (recur (inc pc) (conj s2 (w- pop1 pop2)) mem sto logs (inc gas) nil)
+            0x04 (recur (inc pc) (conj s2 (wdiv pop1 pop2)) mem sto logs (inc gas) nil)
+            0x05 (recur (inc pc) (conj s2 (wsdiv pop1 pop2)) mem sto logs (inc gas) nil)
+            0x06 (recur (inc pc) (conj s2 (wmod pop1 pop2)) mem sto logs (inc gas) nil)
+            0x07 (recur (inc pc) (conj s2 (wsmod pop1 pop2)) mem sto logs (inc gas) nil)
+            0x08 (let [m (peek s2) s3 (pop s2)]                           ; ADDMOD
+                   (recur (inc pc) (conj s3 (wmod (w+ pop1 pop2) m))
+                          mem sto logs (inc gas) nil))
+            0x09 (let [m (peek s2) s3 (pop s2)]                           ; MULMOD
+                   (recur (inc pc) (conj s3 (wmod (w* pop1 pop2) m))
+                          mem sto logs (inc gas) nil))
+            0x0a (recur (inc pc) (conj s2 (wexp pop1 pop2)) mem sto logs (inc gas) nil)
+            0x10 (recur (inc pc) (conj s2 (wlt pop1 pop2)) mem sto logs (inc gas) nil)
+            0x11 (recur (inc pc) (conj s2 (wgt pop1 pop2)) mem sto logs (inc gas) nil)
+            0x12 (recur (inc pc) (conj s2 (wslt pop1 pop2)) mem sto logs (inc gas) nil)
+            0x13 (recur (inc pc) (conj s2 (wsgt pop1 pop2)) mem sto logs (inc gas) nil)
+            0x14 (recur (inc pc) (conj s2 (weq pop1 pop2)) mem sto logs (inc gas) nil)
+            0x15 (recur (inc pc) (conj s1 (if (wzero? pop1) one zero)) mem sto logs (inc gas) nil)
+            0x16 (recur (inc pc) (conj s2 (wand pop1 pop2)) mem sto logs (inc gas) nil)
+            0x17 (recur (inc pc) (conj s2 (wor pop1 pop2)) mem sto logs (inc gas) nil)
+            0x18 (recur (inc pc) (conj s2 (wxor pop1 pop2)) mem sto logs (inc gas) nil)
+            0x19 (recur (inc pc) (conj s1 (wnot pop1)) mem sto logs (inc gas) nil)
+            0x1a (recur (inc pc)                                          ; BYTE
+                        (conj s2 (let [i (w->int pop1)]
+                                   (if (>= i 32) zero
+                                       (hex->w (subs (w->hex64 pop2) (* 2 i) (+ 2 (* 2 i)))))))
+                        mem sto logs (inc gas) nil)
+            0x1b (recur (inc pc) (conj s2 (wshl pop1 pop2)) mem sto logs (inc gas) nil)
+            0x1c (recur (inc pc) (conj s2 (wshr pop1 pop2)) mem sto logs (inc gas) nil)
+            0x33 (recur (inc pc) (conj stack zero) mem sto logs (inc gas) nil)   ; CALLER: nobody
             0x35 (let [off (w->int pop1)                                 ; CALLDATALOAD
                        hex (subs (str cd (apply str (repeat 64 \0)))
                                  (* 2 off) (+ (* 2 off) 64))]
-                   (recur (inc pc) (conj s1 (hex->w hex)) mem (inc gas) nil))
-            0x36 (recur (inc pc) (conj stack (w (quot (count cd) 2))) mem (inc gas) nil)
-            0x50 (recur (inc pc) s1 mem (inc gas) nil)                   ; POP
+                   (recur (inc pc) (conj s1 (hex->w hex)) mem sto logs (inc gas) nil))
+            0x36 (recur (inc pc) (conj stack (w (quot (count cd) 2))) mem sto logs (inc gas) nil)
+            0x50 (recur (inc pc) s1 mem sto logs (inc gas) nil)                   ; POP
             0x51 (recur (inc pc)                                          ; MLOAD
                         (conj s1 (hex->w (mem-read mem (w->int pop1) 32)))
-                        mem (inc gas) nil)
+                        mem sto logs (inc gas) nil)
             0x52 (recur (inc pc) s2                                       ; MSTORE
                         (mem-write mem (w->int pop1) (w->hex64 pop2))
-                        (inc gas) nil)
-            0x56 (recur (w->int pop1) s1 mem (inc gas) nil)                ; JUMP
+                        sto logs (inc gas) nil)
+            0x53 (recur (inc pc) s2                                       ; MSTORE8
+                        (assoc mem (w->int pop1)
+                               (w->int (wmod pop2 (w 256))))
+                        sto logs (inc gas) nil)
+            ;; Storage. Per-contract and in-memory: this interpreter runs one
+            ;; contract for one call, and what it wrote comes back in the
+            ;; result rather than being committed anywhere. A store that
+            ;; persisted into the exchange would be a second place state
+            ;; lives, and there is no transaction type that would have agreed
+            ;; to it.
+            0x54 (recur (inc pc) (conj s1 (get sto (w->hex64 pop1) zero))
+                        mem sto logs (inc gas) nil)
+            0x55 (recur (inc pc) s2 mem (assoc sto (w->hex64 pop1) pop2)
+                        logs (inc gas) nil)
+            0x56 (recur (w->int pop1) s1 mem sto logs (inc gas) nil)                ; JUMP
             0x57 (recur (if (wzero? pop2) (inc pc) (w->int pop1))          ; JUMPI
-                        s2 mem (inc gas) nil)
-            0x58 (recur (inc pc) (conj stack (w pc)) mem (inc gas) nil)     ; PC
-            0x5b (recur (inc pc) stack mem (inc gas) nil)                   ; JUMPDEST
-            0xf3 (recur (inc pc) s2 mem (inc gas)                           ; RETURN
+                        s2 mem sto logs (inc gas) nil)
+            0x58 (recur (inc pc) (conj stack (w pc)) mem sto logs (inc gas) nil)     ; PC
+            0x59 (recur (inc pc)                                          ; MSIZE
+                        (conj stack (w (if (seq mem) (* 32 (inc (quot (apply max (keys mem)) 32))) 0)))
+                        mem sto logs (inc gas) nil)
+            0x5a (recur (inc pc) (conj stack (w (- gas-limit gas)))        ; GAS
+                        mem sto logs (inc gas) nil)
+            0x5b (recur (inc pc) stack mem sto logs (inc gas) nil)                   ; JUMPDEST
+            0xf3 (recur (inc pc) s2 mem sto logs (inc gas)                           ; RETURN
                         {:status :return
                          :data (mem-read mem (w->int pop1) (w->int pop2))
                          :gas gas})
-            0xfd (recur (inc pc) s2 mem (inc gas)                           ; REVERT
+            0xfd (recur (inc pc) s2 mem sto logs (inc gas)                           ; REVERT
                         {:status :revert
                          :data (mem-read mem (w->int pop1) (w->int pop2))
                          :gas gas})
+            ;; LOG0..LOG4. Recorded, not emitted — there is nowhere to emit
+            ;; to. A contract's events are part of what it did, so they come
+            ;; back with the result and a caller that wants them has them.
+            0xa0 (recur (inc pc) s2 mem sto
+                        (conj logs {:data (mem-read mem (w->int pop1) (w->int pop2))
+                                    :topics []})
+                        (inc gas) nil)
+            0xa1 (let [t1 (peek s2) s3 (pop s2)]
+                   (recur (inc pc) s3 mem sto
+                          (conj logs {:data (mem-read mem (w->int pop1) (w->int pop2))
+                                      :topics [(w->hex64 t1)]})
+                          (inc gas) nil))
             0xfa ;; STATICCALL(gas, addr, argOff, argLen, retOff, retLen)
             ;; Bottom-to-top, which is the order `take-last` gives and the
             ;; REVERSE of the order the opcode is written in. Destructured the
@@ -240,27 +372,27 @@
               (if out
                 (recur (inc pc) (conj st one)
                        (mem-write mem (w->int ro) (subs out 2 (+ 2 (* 2 (min 32 (w->int rl))))))
-                       (inc gas) nil)
+                       sto logs (inc gas) nil)
                 ;; A failed static call pushes zero and writes nothing. That is
                 ;; the EVM's own convention and it matters here: the bridge
                 ;; returns nil for a question the exchange did not understand,
                 ;; and turning that into a zero WORD would be a plausible
                 ;; answer rather than a failure the contract can branch on.
-                (recur (inc pc) (conj st zero) mem (inc gas) nil)))
+                (recur (inc pc) (conj st zero) mem sto logs (inc gas) nil)))
             ;; PUSH1..PUSH32
             (if (and (>= op 0x60) (<= op 0x7f))
               (let [[v pc'] (push-bytes code pc (- op 0x5f))]
-                (recur pc' (conj stack v) mem (inc gas) nil))
+                (recur pc' (conj stack v) mem sto logs (inc gas) nil))
               ;; DUP1..DUP16
               (if (and (>= op 0x80) (<= op 0x8f))
                 (let [n (- op 0x7f)]
-                  (recur (inc pc) (conj stack (nth stack (- (count stack) n))) mem (inc gas) nil))
+                  (recur (inc pc) (conj stack (nth stack (- (count stack) n))) mem sto logs (inc gas) nil))
                 ;; SWAP1..SWAP16
                 (if (and (>= op 0x90) (<= op 0x9f))
                   (let [n (- op 0x8f)
                         i (- (count stack) 1) j (- (count stack) 1 n)]
                     (recur (inc pc)
                            (assoc stack i (nth stack j) j (nth stack i))
-                           mem (inc gas) nil))
+                           mem sto logs (inc gas) nil))
                   {:status :halt :reason :unknown-opcode :opcode op :pc pc
                    :gas gas})))))))))
