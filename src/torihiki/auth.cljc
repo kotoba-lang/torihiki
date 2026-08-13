@@ -194,7 +194,11 @@
    ;; "somebody sent money" and "this account has collateral". `:asset` says
    ;; which asset, `:dest` where a withdrawal is paid. An unsigned `:dest` is
    ;; an attacker choosing where somebody else's money goes.
-   (:txid tx) (:asset tx) (:dest tx)])
+   (:txid tx) (:asset tx) (:dest tx)
+   ;; Contract code and the salt that places it. Unsigned, an attacker could
+   ;; swap the bytecode of a deployment in flight and it would land, signed by
+   ;; somebody who never saw it, at the address they were told to expect.
+   (:code tx) (:salt tx)])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two

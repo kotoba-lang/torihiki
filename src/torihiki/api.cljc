@@ -325,6 +325,14 @@
       (not (and (string? (:asset t)) (seq (:asset t)))) :missing-field
       :else nil)
 
+    ;; Contract code, published into the chain.
+    :evm-deploy
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (string? (:code t)) (seq (:code t)))) :missing-field
+      (odd? (count (:code t))) :missing-field
+      :else nil)
+
     :set-referrer
     (cond
       (not (integer? account)) :bad-account

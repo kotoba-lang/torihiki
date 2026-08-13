@@ -153,6 +153,12 @@
   [bytes]
   (apply str (map hex-byte (digest-bytes bytes))))
 
+(defn bytes->hex
+  "Byte values to hex, no `0x`. The inverse of `hex->bytes`, and here so that
+  callers do not each write their own zero-padding."
+  [bytes]
+  (apply str (map hex-byte bytes)))
+
 (defn hex->bytes [s]
   (let [s (str/replace s #"^0x" "")]
     (vec (for [i (range (quot (count s) 2))]
@@ -164,3 +170,15 @@
   storage slot are both spelled in."
   [hex]
   (digest-hex (hex->bytes hex)))
+
+(defn create2-address
+  "Where CREATE2 puts code: the low 20 bytes of
+  `keccak256(0xff ++ sender ++ salt ++ keccak256(code))`.
+
+  Here rather than in the interpreter because the chain computes it too — a
+  deploy transaction and the opcode have to land in the same place or a
+  contract is at one address for the node and another for the consensus."
+  [sender salt-hex code-hex]
+  (str "0x" (subs (digest-of-hex (str "ff" (str/replace sender #"^0x" "")
+                                      salt-hex (digest-of-hex code-hex)))
+                  24)))

@@ -1644,3 +1644,43 @@
         "a different payment was counted toward this claim's quorum")
     (is (nil? (get-in a3 [:withdrawals claim])))
     (is (= "0xaaa" (get-in a3 [:paid claim :dest])))))
+
+(deftest contract-code-is-chain-state
+  ;; The interpreter runs against a world of accounts. Keeping that world in
+  ;; the node would let two replicas answer `eth_call` differently, both
+  ;; confidently, with nothing in the root to say so.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (funded [310] 1000))
+        before (st/state-root ex)
+        code "6001600155"
+        after (st/apply-tx ex {:tx :evm-deploy :account 310 :code code})
+        addr (first (keys (:evm after)))]
+    (is (some? addr) "the deploy did not land")
+    (is (= code (get-in after [:evm addr :code])))
+    (is (not= before (st/state-root after))
+        "code nobody can see in the root is code nobody can check")
+    ;; A second deploy of the same code by the same account is the same
+    ;; address, and must not overwrite.
+    (let [again (st/apply-tx after {:tx :evm-deploy :account 310 :code "60ff"})
+          re (st/apply-tx after {:tx :evm-deploy :account 310 :code code})]
+      (is (= code (get-in re [:evm addr :code]))
+          "a redeploy overwrote code a caller may already depend on")
+      (is (= 2 (count (:evm again)))
+          "different code did not get its own address"))))
+
+(deftest a-paid-exit-is-in-the-state-root
+  ;; The gate the `:paid` section did not have. Its leaves were written once
+  ;; and did not land, and nothing noticed, because the tests for settlement
+  ;; asked the map instead of the root.
+  (let [ex (-> (fresh)
+               (st/apply-tx {:tx :oracle :market 1 :price 500})
+               (validators [251 252 253])
+               (funded [306] 50000)
+               (st/apply-tx {:tx :withdraw :account 306 :amount 10000}))
+        claim (:withdraw-seq ex)
+        before (st/state-root ex)
+        one (st/apply-tx ex {:tx :withdraw-attest :account 251 :claim claim
+                             :txid "THOR-P" :dest "0xabc"})]
+    (is (not= before (st/state-root one))
+        "an attestation about somebody's money left no mark on the root")))
