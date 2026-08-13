@@ -280,3 +280,15 @@
   (let [ex (assoc (fresh) :bridge-authority 7)]
     (is (= :bad-account
            (api/validate ex {:tx :deposit :account 7 :credit "42" :amount 100})))))
+
+(deftest order-id-zero-is-a-real-order
+  ;; `bk/oid-of` is `slot * gen-mod + generation`, so the first order to occupy
+  ;; slot 0 has id 0. `validate` required `pos?`, which made that order
+  ;; uncancellable by anybody — seen on the deployed chain, where `/orders`
+  ;; showed a resting order with `"oid":0`.
+  (let [ex (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                             :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
+    (is (nil? (api/validate ex {:tx :cancel :account 1 :market 1 :oid 0}))
+        "order id 0 must be accepted")
+    (is (= :missing-field (api/validate ex {:tx :cancel :account 1 :market 1 :oid -1}))
+        "and a negative id must still be refused")))

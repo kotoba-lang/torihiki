@@ -94,7 +94,12 @@
               :open-interest-cap)))
 
       (= tx :cancel)
-      (if-not (and (integer? (:oid t)) (pos? (:oid t))) :missing-field nil)
+      ;; `nat-int?`, not `pos?`. An order id is `slot * gen-mod + generation`
+      ;; (`bk/oid-of`), so the first order to occupy slot 0 has id 0 — a live,
+      ;; cancellable order that this refused as a missing field. Observed on
+      ;; the deployed chain: `/orders` returned `{"oid":0,...}` for a resting
+      ;; order that could not be cancelled by anyone, including its owner.
+      (if-not (and (integer? (:oid t)) (nat-int? (:oid t))) :missing-field nil)
 
       (= tx :cancel-trigger)
       (if-not (integer? (:id t)) :missing-field nil)
