@@ -359,3 +359,27 @@
     (is (= :bad-signature
            (auth/check ex (assoc-in s [:tx :spec :max-leverage] 100) chain verify))
         "a market's parameters were not signed")))
+
+(deftest a-nested-spec-signs-the-same-through-json
+  ;; The failure this exists for: a market spec carrying fee tiers is a vector
+  ;; of maps, and a map that has been through JSON does not hold its keys in
+  ;; the order the one that was signed did. Every amend carrying tiers came
+  ;; back `bad-signature` on the deployed chain — four in a row.
+  (let [spec {:symbol "X" :taker-fee-rate 350000
+              :fee-tiers [{:min-volume 0 :taker-fee-rate 350000 :maker-fee-rate 100000}
+                          {:min-volume 100 :taker-fee-rate 250000 :maker-fee-rate 50000}]}
+        ;; the same data, keys in a different order — what a JSON round trip
+        ;; can hand back
+        reordered {:taker-fee-rate 350000 :symbol "X"
+                   :fee-tiers [{:maker-fee-rate 100000 :taker-fee-rate 350000 :min-volume 0}
+                               {:taker-fee-rate 250000 :maker-fee-rate 50000 :min-volume 100}]}]
+    (is (= (auth/canonical-value spec) (auth/canonical-value reordered))
+        "the same spec rendered differently depending on how it was held")
+    (is (= (auth/signing-payload chain 1 1 {:tx :amend-market :market 1 :spec spec})
+           (auth/signing-payload chain 1 1 {:tx :amend-market :market 1 :spec reordered})))
+    ;; and it still distinguishes specs that really differ
+    (is (not= (auth/canonical-value spec)
+              (auth/canonical-value (assoc-in spec [:fee-tiers 0 :taker-fee-rate] 1))))
+    ;; order within a schedule is meaning, not incidental
+    (is (not= (auth/canonical-value spec)
+              (auth/canonical-value (update spec :fee-tiers reverse))))))

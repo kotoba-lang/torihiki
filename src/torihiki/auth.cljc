@@ -72,6 +72,29 @@
   #{:unsigned :bad-signature :bad-nonce :wrong-key :missing-account
     :not-your-account :agent-may-not})
 
+(defn canonical-value
+  "A structure as a string that does not depend on how it is held.
+
+  Maps are emitted with their keys sorted and their values rendered the same
+  way; sequences keep their order, because in a schedule the order IS the
+  meaning. Keywords become their names, so `:min-volume` and `\"min-volume\"`
+  — the same field before and after a JSON round trip — render identically.
+
+  nil is the empty string rather than `\"null\"`, so a field that is absent and
+  a field that is explicitly nil sign the same, which is what every other
+  optional field in the payload already does."
+  [v]
+  (cond
+    (nil? v) ""
+    (map? v) (str "{" (str/join "," (map (fn [[k x]]
+                                           (str (if (keyword? k) (name k) (str k))
+                                                "=" (canonical-value x)))
+                                         (sort-by (fn [[k _]] (if (keyword? k) (name k) (str k))) v)))
+                  "}")
+    (sequential? v) (str "[" (str/join "," (map canonical-value v)) "]")
+    (keyword? v) (name v)
+    :else (str v)))
+
 (defn- tx-fields
   "Every transaction field that can change what a transaction DOES, in a fixed
   order. Anything omitted here is a field an attacker could alter without
@@ -114,12 +137,17 @@
    ;; and for how long. Unsigned, an authorisation could be re-aimed at an
    ;; attacker's key in flight and would still verify.
    (:agent tx) (:expires tx)
-   ;; `:spec` is a market's parameters — leverage, tick, fees, margin rates.
-   ;; Rendered as sorted `k=v` pairs rather than printed, because Clojure map
-   ;; print order is unspecified and a payload that depended on it would be a
-   ;; signature that verifies on one runtime and not the other.
-   (when-let [m (:spec tx)]
-     (str/join "," (map (fn [[k v]] (str (name k) "=" v)) (sort-by key m))))])
+   ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
+   ;; and fee SCHEDULES, which are vectors of maps.
+   ;;
+   ;; Rendered by `canonical-value`, all the way down. The first version sorted
+   ;; the top-level keys and then called `str` on each value, which is exactly
+   ;; the trap the docstring below warns about, one level in: a nested map
+   ;; prints in whatever order it happens to hold, and a spec that has been
+   ;; through JSON does not hold it in the same order as the one that was
+   ;; signed. Measured on the deployed chain — every market amend carrying fee
+   ;; tiers came back `bad-signature`, four in a row.
+   (canonical-value (:spec tx))])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two
