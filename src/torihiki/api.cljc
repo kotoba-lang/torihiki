@@ -284,6 +284,19 @@
            (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
       :else nil)
 
+    :create-sub-account
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:sub t))) :bad-account
+      :else nil)
+
+    :transfer
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:to t))) :bad-account
+      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      :else nil)
+
     :set-leverage
     (cond
       (not (integer? account)) :bad-account

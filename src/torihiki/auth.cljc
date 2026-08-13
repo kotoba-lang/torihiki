@@ -157,6 +157,10 @@
    ;; What the escrow is said to hold, and as of when. Unsigned, anybody who
    ;; could reach the node could make the venue look solvent.
    (:height* tx)
+   ;; Which sub-account is being created, and where a transfer goes. Unsigned,
+   ;; a transfer could be re-aimed inside the family — still the owner's money,
+   ;; and still not the pool they chose.
+   (:sub tx) (:to tx)
    ;; `:spec` is a market's parameters — leverage, tick, fees, and the margin
    ;; and fee SCHEDULES, which are vectors of maps.
    ;;
