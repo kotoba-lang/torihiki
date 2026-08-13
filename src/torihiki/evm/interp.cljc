@@ -296,17 +296,16 @@
                code args))))))
 
 (defn create-address
-  "Where `CREATE2` puts a contract: the low 20 bytes of
-  `keccak256(0xff ++ sender ++ salt ++ keccak256(initcode))`.
+  "Where `CREATE2` puts a contract.
 
-  This is the address every other implementation computes, which is the only
-  property that matters — a deployer that lands the same code somewhere else
-  is a deployer whose addresses nobody can predict, and predicting them is
-  what `CREATE2` is for."
+  `torihiki.keccak/create2-address`, not a second copy. The chain computes
+  this too — `:evm-deploy` puts code at the same address — and two derivations
+  that have to agree are one derivation with an extra chance to disagree."
   [sender salt-hex init-code]
-  (let [inner (keccak/digest-hex init-code)
-        pre (str "ff" (subs sender 2) salt-hex inner)]
-    (str "0x" (subs (keccak/digest-of-hex pre) 24))))
+  ;; The CODE, not its digest. `create2-address` hashes the code itself —
+  ;; handing it a hash hashed twice and put every contract at an address no
+  ;; other implementation would name.
+  (keccak/create2-address sender salt-hex (keccak/bytes->hex init-code)))
 
 (defn run
   "Execute `code` against the exchange. Returns

@@ -32,6 +32,7 @@
             [torihiki.oracle :as orc]
             [torihiki.api :as api]
             [torihiki.auth :as auth]
+            [torihiki.keccak :as kc]
             [kotoba.bytes :as b]
             [kotoba.bytes.sha256 :as sha]
             [torihiki.commit :as cm]))
@@ -227,6 +228,42 @@
           (-> ex
               (assoc-in [:inbound txid] (assoc t' :credited? true))
               (update :clearing cl/deposit credit amount)))))))
+
+(defn- account-as-address
+  "An account id rendered as a 20-byte address. This chain's identity is an
+  account number; borrowing Ethereum's would mean naming a key nobody here
+  holds."
+  [n]
+  (let [h #?(:clj (Long/toHexString (long n)) :cljs (.toString n 16))]
+    (str "0x" (apply str (concat (repeat (- 40 (count h)) \0) h)))))
+
+(defmethod apply-tx :evm-deploy
+  [ex {:keys [account code salt]}]
+  ;; Contract code, published into the CHAIN rather than into a node.
+  ;;
+  ;; `torihiki.evm.interp` runs against a world of accounts, and the first way
+  ;; to give it one was to keep that world in the node. That is wrong in a way
+  ;; that only shows up later: two replicas would answer `eth_call`
+  ;; differently, both confidently, and nothing in the state root would say
+  ;; so. The code a contract is called at IS consensus state.
+  ;;
+  ;; The address is CREATE2's, from `torihiki.keccak` — the same derivation the
+  ;; opcode uses, because two derivations that have to agree are one
+  ;; derivation with an extra chance to disagree.
+  ;;
+  ;; Deploying over an address that already holds code is refused rather than
+  ;; allowed to overwrite. An address whose code can change under a caller is
+  ;; an address nobody can audit, and CREATE2's whole promise is that the
+  ;; answer is a function of its inputs.
+  (let [salt (or salt (apply str (repeat 64 \0)))]
+    (if (or (not (string? code)) (empty? code) (odd? (count code))
+            (not (re-matches #"[0-9a-fA-F]+" code))
+            (not (re-matches #"[0-9a-f]{64}" salt)))
+      ex
+      (let [addr (kc/create2-address (account-as-address account) salt code)]
+        (if (get-in ex [:evm addr])
+          ex
+          (assoc-in ex [:evm addr] {:code code :by account}))))))
 
 (defmethod apply-tx :withdraw
   [ex {:keys [account amount]}]
@@ -1254,6 +1291,19 @@
       (into (enc-string (:dest p "")))
       (into (mapcat enc-int (sort (:attests p #{}))))))
 
+(def ^:const enc-tag-evm 22)
+
+(defn- encode-evm
+  "One deployed contract: where it lives, who put it there, and its code.
+
+  The CODE is in the preimage, not a length or a hash of it. A root that
+  covered only the address would call two chains identical while a caller got
+  different bytecode from each — and bytecode is the one thing a contract IS."
+  [addr c]
+  (-> (enc-string addr)
+      (into (enc-ints [enc-tag-evm (:by c 0)]))
+      (into (enc-string (:code c "")))))
+
 (def ^:const enc-tag-governance 12)
 
 (defn- encode-governance
@@ -1708,7 +1758,30 @@
                                           (count (filter (comp :credited? val) ins))])}
            (for [txid (sort (keys ins))]
              {:id (str "07:01:" txid)
-              :bytes (encode-inbound txid (get ins txid))}))))))))
+              :bytes (encode-inbound txid (get ins txid))}))))
+      ;; Exits that were paid.
+      ;;
+      ;; Written once before this and it did not land: the edit matched
+      ;; nothing, said nothing, and the tests for settlement asked the `:paid`
+      ;; MAP rather than the root — so a settled withdrawal was invisible to
+      ;; the one number whose job is to make replicas disagree out loud. Every
+      ;; section here now has a gate that asks the root.
+      (let [ps (:paid ex {})]
+        (when (seq ps)
+          (cons
+           {:id "07:02" :bytes (enc-ints [enc-tag-paid (count ps)
+                                          (count (filter (comp :settled? val) ps))])}
+           (for [claim (sort (keys ps))]
+             {:id (str "07:03:" (pad-id claim))
+              :bytes (encode-paid claim (get ps claim))}))))
+      ;; Deployed contract code. Same "empty means absent" rule, same reason.
+      (let [cs (:evm ex {})]
+        (when (seq cs)
+          (cons
+           {:id "08:00" :bytes (enc-ints [enc-tag-evm (count cs)])}
+           (for [addr (sort (keys cs))]
+             {:id (str "08:01:" addr)
+              :bytes (encode-evm addr (get cs addr))}))))))))
 
 (defn canonical-bytes
   "The exact byte sequence `flat-root` digests. Exposed because a state root
