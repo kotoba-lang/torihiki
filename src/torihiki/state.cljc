@@ -492,6 +492,45 @@
                        (if (get-in ex [:oracle-stale m] false) 1 0)])
             pubs)))
 
+(def ^:const enc-tag-governance 12)
+
+(defn- encode-governance
+  "The two configured authorities: who may create collateral, and who may
+  publish a price.
+
+  `encode-oracle-market` above already gives the argument for half of this —
+  a sequencer that could add or drop a SUBMISSION without changing the root
+  could move the mark invisibly. The same sentence is true of the set of
+  accounts allowed to submit, and of the one account allowed to mint, and
+  neither was committed to anything. They were read straight off the config
+  map every replica was started with.
+
+  What that costs is not a wrong balance; every balance stays exactly right.
+  It is that two replicas configured differently produce the SAME root while
+  disagreeing about who may mint — so the number whose entire job is to catch
+  divergence reports none, and the disagreement surfaces later as collateral
+  that one replica accepted and another refused. It is the failure mode
+  `torihiki.api` describes for unbacked collateral, moved up a level: the
+  arithmetic is exact and means nothing.
+
+  It also fixes what a proof proves. `commit/balance-proof` lets a client
+  check one balance against the root without replaying the chain; until now
+  that client could learn the balance and could not learn whether the mint
+  behind it was authorised, because the authority was not under the root it
+  was checking against.
+
+  A `nil` authority is encoded as its own flag rather than as account 0. Zero
+  is a real account id, and `nil` means the opposite of a restriction — it is
+  the devnet faucet, where anybody may credit themselves."
+  [ex]
+  (let [bridge (:bridge-authority ex)
+        pubs (sort (:oracle-publishers ex))]
+    (into (enc-ints [enc-tag-governance
+                     (if (some? bridge) 1 0)
+                     (or bridge 0)
+                     (count pubs)])
+          (enc-ints pubs))))
+
 (defn- auth-accounts [ex]
   (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))))))
 
@@ -597,14 +636,24 @@
 
   Each entry is `{:id <sortable string> :bytes <ints>}`.
 
-  ## The cut is a refinement, not a redesign
+  ## The cut was a refinement; the governance leaf is not
 
-  `canonical-bytes` is now the concatenation of these leaves, and it produces
-  the SAME bytes it produced before — the test suite pins that against the
-  parity scenario's published digest `22f75a7f…`, which used to live only in
-  the README. So the tree is a structure placed OVER the existing encoding
-  rather than a new encoding, and everything the old digest committed to is
-  still committed to, in the same order.
+  When the tree landed, `canonical-bytes` still produced the SAME bytes it
+  produced before, so the tree was a structure placed OVER the existing
+  encoding rather than a new encoding.
+
+  `00:01` breaks that. It adds bytes, so every digest moves — `flat-root` and
+  `state-root` both, and the parity scenario's published digest with them.
+  That is the point rather than a side effect: the authorities were not under
+  the root, and there is no way to put them under it that leaves the root
+  alone.
+
+  **This is a state-encoding fork.** Replicas on either side of it compute
+  different roots for identical state, which is exactly the shape of the
+  divergence bug the root exists to catch, so a rolling upgrade of a live
+  chain does not work — every replica has to cross together, or the chain
+  stops at the first vote that disagrees. See `enc-tag-governance` for what is
+  being bought.
 
   Ids sort into that order (`clojure.core/sort` on strings), with numbers
   zero-padded — unpadded, account 10 would sort before account 9 and the
@@ -624,6 +673,7 @@
     (vec
      (concat
       [{:id "00" :bytes (enc-ints [enc-tag-exchange (:height ex) (:ts ex) (count mkts)])}
+       {:id "00:01" :bytes (encode-governance ex)}
        {:id "01" :bytes (encode-rejections (:rejected ex []))}
        {:id "02:00" :bytes (enc-ints [enc-tag-nonce (count auth-accts)])}]
       (for [a auth-accts]
