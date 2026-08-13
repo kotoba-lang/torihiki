@@ -93,7 +93,10 @@
   ;; PUSH1 7, PUSH1 3, SSTORE ; PUSH1 3, SLOAD ; return it
   (let [r (evm/run {} [0x60 7 0x60 3 0x55 0x60 3 0x54 0x60 0 0x52 0x60 32 0x60 0 0xf3] "0x")]
     (is (= 7 (hex->n (:data r))) "SLOAD did not see what SSTORE wrote")
-    (is (= 1 (count (:storage r)))
+    ;; Under the account, now that there are accounts: storage belongs to an
+    ;; address rather than to a call, which is what `DELEGATECALL` needs it to
+    ;; mean.
+    (is (= 1 (count (:storage (val (first (:world r))))))
         "what the contract wrote did not come back with the result — a store
          that vanishes is a store nobody can check")))
 
@@ -124,3 +127,77 @@
              (:data r))
           "keccak256 of a 32-byte zero word did not match the value every
            other EVM computes"))))
+
+;; ── contracts calling contracts ─────────────────────────────────────────────
+
+(def ^:private lib-addr "0x00000000000000000000000000000000000000aa")
+(def ^:private me-addr "0x00000000000000000000000000000000000000bb")
+
+;; PUSH1 7, PUSH1 3, SSTORE, STOP — writes 7 into slot 3 of whoever's storage
+;; it runs against. That is the whole difference between CALL and DELEGATECALL.
+(def ^:private writer-code [0x60 7 0x60 3 0x55 0x00])
+
+(defn- call-code
+  "PUSH the six STATICCALL/CALL/DELEGATECALL arguments and issue `op`."
+  [op addr-byte]
+  [0x60 0x00        ; retLen
+   0x60 0x00        ; retOff
+   0x60 0x00        ; argLen
+   0x60 0x00        ; argOff
+   0x60 addr-byte   ; address
+   0x60 0xff        ; gas
+   op 0x00])
+
+(deftest a-call-writes-the-callees-storage-and-a-delegatecall-writes-ours
+  (testing "a proxy IS this distinction. `DELEGATECALL` runs another
+            contract's code against THIS contract's storage and keeps the
+            original caller; getting it backwards means an upgrade writes into
+            the library and leaves the proxy it was meant to change untouched."
+    (let [world {lib-addr {:code writer-code}}
+          ctx {:address me-addr :caller "0x0000000000000000000000000000000000000001" :depth 0}
+          called (evm/run {} world ctx (call-code 0xf1 0xaa) "0x")
+          delegated (evm/run {} world ctx (call-code 0xf4 0xaa) "0x")]
+      (is (= :return (:status called)) (pr-str called))
+      (is (some? (get-in called [:world lib-addr :storage]))
+          "CALL did not write the callee's storage")
+      (is (nil? (get-in called [:world me-addr :storage "0000000000000000000000000000000000000000000000000000000000000003"]))
+          "CALL wrote OUR storage — that is what DELEGATECALL is for")
+      (is (some? (get-in delegated [:world me-addr :storage]))
+          "DELEGATECALL did not write our storage — a proxy that upgrades
+           nothing")
+      (is (nil? (get-in delegated [:world lib-addr :storage]))
+          "DELEGATECALL wrote the library's storage"))))
+
+(deftest calling-an-address-with-no-code-succeeds
+  ;; The EVM's own rule, and it matters: a contract that treated this as a
+  ;; failure would refuse every plain transfer.
+  (let [r (evm/run {} {} {:address me-addr :caller me-addr :depth 0}
+                   (call-code 0xf1 0x99) "0x")]
+    (is (= :return (:status r)))))
+
+(deftest the-precompile-answers-through-call-too
+  ;; Reaching the exchange through CALL rather than STATICCALL must not give a
+  ;; different answer — it is a read either way.
+  (let [ex (ex-with-a-position)
+        cd (bridge/encode-call :position 700 1)
+        code (vec (concat (push32 (str (subs cd 2 10) (apply str (repeat 56 \0))))
+                          [0x60 0x00 0x52]
+                          (push32 (subs cd 10 74)) [0x60 0x04 0x52]
+                          (push32 (subs cd 74 138)) [0x60 0x24 0x52]
+                          [0x60 0x20 0x60 0x80 0x60 0x44 0x60 0x00
+                           0x61 0x08 0x01 0x60 0xff]
+                          [0xf1 0x50]
+                          [0x60 0x20 0x60 0x80 0xf3]))
+        r (evm/run ex {} {:address me-addr :caller me-addr :depth 0} code "0x")]
+    (is (= 4 (hex->n (:data r))) "CALL to the precompile did not read the position")))
+
+(deftest create2-lands-where-every-other-implementation-says
+  ;; The address is the whole point of CREATE2: a deployer whose addresses
+  ;; nobody can predict is a deployer nobody can build on.
+  (let [addr (evm/create-address "0x0000000000000000000000000000000000000000"
+                                 (apply str (repeat 64 \0))
+                                 [])]
+    (is (= "0xe33c0c7f7df4809055c3eba6c09cfe4baf1bd9e0" addr)
+        "CREATE2 of empty initcode from the zero address with a zero salt is a
+         published vector; a different answer means every deployment lands
+         somewhere no tool expects")))

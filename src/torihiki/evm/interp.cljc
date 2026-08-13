@@ -240,167 +240,258 @@
           mem
           (range (quot (count hex) 2))))
 
+(def ^:private zero-address "0x0000000000000000000000000000000000000000")
+
+(defn- addr-of-word
+  "The low 20 bytes of a word, as an address. An address built at full width
+  never equals one written the ordinary way, and the call goes nowhere while
+  looking like it went somewhere."
+  [x]
+  (str "0x" (subs (w->hex64 x) 24)))
+
+(def ^:const max-depth
+  "How deep calls may nest. **64.**
+
+  The EVM allows 1024. This is lower on purpose: each level here is a
+  ClojureScript stack frame as well as an EVM one, and a limit that the host
+  reaches first is a limit that shows up as a crash instead of as a failed
+  call. A contract that needs more than 64 is a contract this interpreter is
+  not for yet."
+  64)
+
+(declare run)
+
+(defn- do-call
+  "`CALL`, `STATICCALL` and `DELEGATECALL`, which differ in two things: whose
+  storage the code runs against, and who the code sees as its caller.
+
+  `DELEGATECALL` runs another contract's CODE against THIS contract's storage
+  and keeps the original caller — that is the whole of what a library or a
+  proxy is, and getting it backwards means an upgrade wipes the storage it was
+  meant to preserve. So the two are one function with two flags rather than
+  two functions that have to agree.
+
+  The exchange precompile answers first, whichever form is used: it is a read
+  either way, and code that reaches it through `CALL` should not get a
+  different answer than code that reaches it through `STATICCALL`."
+  [ex world ctx {:keys [to args delegate?]}]
+  (let [pre (bridge/call ex to args)]
+    (cond
+      pre {:status :return :data (subs pre 2) :world world :logs []}
+
+      (>= (:depth ctx) max-depth)
+      {:status :halt :reason :call-depth-exceeded :world world :logs []}
+
+      :else
+      (let [code (get-in world [to :code])]
+        (if (nil? code)
+          ;; Calling an address with no code succeeds and returns nothing.
+          ;; That is the EVM's rule and it matters: a contract that treats it
+          ;; as a failure would refuse every plain transfer.
+          {:status :return :data "" :world world :logs []}
+          (run ex world
+               (if delegate?
+                 (assoc ctx :depth (inc (:depth ctx)))
+                 {:address to :caller (:address ctx) :depth (inc (:depth ctx))})
+               code args))))))
+
+(defn create-address
+  "Where `CREATE2` puts a contract: the low 20 bytes of
+  `keccak256(0xff ++ sender ++ salt ++ keccak256(initcode))`.
+
+  This is the address every other implementation computes, which is the only
+  property that matters — a deployer that lands the same code somewhere else
+  is a deployer whose addresses nobody can predict, and predicting them is
+  what `CREATE2` is for."
+  [sender salt-hex init-code]
+  (let [inner (keccak/digest-hex init-code)
+        pre (str "ff" (subs sender 2) salt-hex inner)]
+    (str "0x" (subs (keccak/digest-of-hex pre) 24))))
+
 (defn run
   "Execute `code` against the exchange. Returns
-  `{:status :return|:revert|:halt :data hex :gas n}`.
+  `{:status :return|:revert|:halt :data hex :world w :logs ls :gas n}`.
 
-  `code` is a vector of byte values, `calldata` a `0x`-prefixed string. The
-  exchange is read-only from in here: the only way out to it is `STATICCALL`
-  to the precompile, which is a read by construction — there is no opcode in
-  this interpreter that can move a position, and adding one would make a
-  second matching engine with none of the first one's checks."
-  [ex code calldata]
-  (let [cd (if (and (string? calldata) (> (count calldata) 2)) (subs calldata 2) "")]
-    (loop [pc 0 stack [] mem {} sto {} logs [] gas 0 ret nil]
-      (cond
-        (>= gas gas-limit) {:status :halt :reason :out-of-gas :gas gas}
-        ret (assoc ret :storage sto :logs logs)
-        (>= pc (count code)) {:status :return :data "" :gas gas
-                              :storage sto :logs logs}
-        :else
-        (let [op (nth code pc)
-              pop1 (peek stack) s1 (when (seq stack) (pop stack))
-              pop2 (when s1 (peek s1)) s2 (when (seq s1) (pop s1))]
-          (case op
-            0x00 {:status :return :data "" :gas gas}
-            0x01 (recur (inc pc) (conj s2 (w+ pop1 pop2)) mem sto logs (inc gas) nil)
-            0x02 (recur (inc pc) (conj s2 (w* pop1 pop2)) mem sto logs (inc gas) nil)
-            0x03 (recur (inc pc) (conj s2 (w- pop1 pop2)) mem sto logs (inc gas) nil)
-            0x04 (recur (inc pc) (conj s2 (wdiv pop1 pop2)) mem sto logs (inc gas) nil)
-            0x05 (recur (inc pc) (conj s2 (wsdiv pop1 pop2)) mem sto logs (inc gas) nil)
-            0x06 (recur (inc pc) (conj s2 (wmod pop1 pop2)) mem sto logs (inc gas) nil)
-            0x07 (recur (inc pc) (conj s2 (wsmod pop1 pop2)) mem sto logs (inc gas) nil)
-            0x08 (let [m (peek s2) s3 (pop s2)]                           ; ADDMOD
-                   (recur (inc pc) (conj s3 (wmod (w+ pop1 pop2) m))
-                          mem sto logs (inc gas) nil))
-            0x09 (let [m (peek s2) s3 (pop s2)]                           ; MULMOD
-                   (recur (inc pc) (conj s3 (wmod (w* pop1 pop2) m))
-                          mem sto logs (inc gas) nil))
-            0x0a (recur (inc pc) (conj s2 (wexp pop1 pop2)) mem sto logs (inc gas) nil)
-            0x10 (recur (inc pc) (conj s2 (wlt pop1 pop2)) mem sto logs (inc gas) nil)
-            0x11 (recur (inc pc) (conj s2 (wgt pop1 pop2)) mem sto logs (inc gas) nil)
-            0x12 (recur (inc pc) (conj s2 (wslt pop1 pop2)) mem sto logs (inc gas) nil)
-            0x13 (recur (inc pc) (conj s2 (wsgt pop1 pop2)) mem sto logs (inc gas) nil)
-            0x14 (recur (inc pc) (conj s2 (weq pop1 pop2)) mem sto logs (inc gas) nil)
-            0x15 (recur (inc pc) (conj s1 (if (wzero? pop1) one zero)) mem sto logs (inc gas) nil)
-            0x16 (recur (inc pc) (conj s2 (wand pop1 pop2)) mem sto logs (inc gas) nil)
-            0x17 (recur (inc pc) (conj s2 (wor pop1 pop2)) mem sto logs (inc gas) nil)
-            0x18 (recur (inc pc) (conj s2 (wxor pop1 pop2)) mem sto logs (inc gas) nil)
-            0x19 (recur (inc pc) (conj s1 (wnot pop1)) mem sto logs (inc gas) nil)
-            0x1a (recur (inc pc)                                          ; BYTE
-                        (conj s2 (let [i (w->int pop1)]
-                                   (if (>= i 32) zero
-                                       (hex->w (subs (w->hex64 pop2) (* 2 i) (+ 2 (* 2 i)))))))
-                        mem sto logs (inc gas) nil)
-            0x1b (recur (inc pc) (conj s2 (wshl pop1 pop2)) mem sto logs (inc gas) nil)
-            0x1c (recur (inc pc) (conj s2 (wshr pop1 pop2)) mem sto logs (inc gas) nil)
-            ;; KECCAK256. The one opcode this interpreter refused to
-            ;; approximate: Solidity finds a mapping slot by hashing, and a
-            ;; hash that is not keccak puts real storage at addresses no other
-            ;; implementation agrees with.
-            0x20 (recur (inc pc)
-                        (conj s2 (hex->w (keccak/digest-of-hex
-                                          (mem-read mem (w->int pop1) (w->int pop2)))))
-                        mem sto logs (inc gas) nil)
-            0x33 (recur (inc pc) (conj stack zero) mem sto logs (inc gas) nil)   ; CALLER: nobody
-            0x35 (let [off (w->int pop1)                                 ; CALLDATALOAD
-                       hex (subs (str cd (apply str (repeat 64 \0)))
-                                 (* 2 off) (+ (* 2 off) 64))]
-                   (recur (inc pc) (conj s1 (hex->w hex)) mem sto logs (inc gas) nil))
-            0x36 (recur (inc pc) (conj stack (w (quot (count cd) 2))) mem sto logs (inc gas) nil)
-            0x50 (recur (inc pc) s1 mem sto logs (inc gas) nil)                   ; POP
-            0x51 (recur (inc pc)                                          ; MLOAD
-                        (conj s1 (hex->w (mem-read mem (w->int pop1) 32)))
-                        mem sto logs (inc gas) nil)
-            0x52 (recur (inc pc) s2                                       ; MSTORE
-                        (mem-write mem (w->int pop1) (w->hex64 pop2))
-                        sto logs (inc gas) nil)
-            0x53 (recur (inc pc) s2                                       ; MSTORE8
-                        (assoc mem (w->int pop1)
-                               (w->int (wmod pop2 (w 256))))
-                        sto logs (inc gas) nil)
-            ;; Storage. Per-contract and in-memory: this interpreter runs one
-            ;; contract for one call, and what it wrote comes back in the
-            ;; result rather than being committed anywhere. A store that
-            ;; persisted into the exchange would be a second place state
-            ;; lives, and there is no transaction type that would have agreed
-            ;; to it.
-            0x54 (recur (inc pc) (conj s1 (get sto (w->hex64 pop1) zero))
-                        mem sto logs (inc gas) nil)
-            0x55 (recur (inc pc) s2 mem (assoc sto (w->hex64 pop1) pop2)
-                        logs (inc gas) nil)
-            0x56 (recur (w->int pop1) s1 mem sto logs (inc gas) nil)                ; JUMP
-            0x57 (recur (if (wzero? pop2) (inc pc) (w->int pop1))          ; JUMPI
-                        s2 mem sto logs (inc gas) nil)
-            0x58 (recur (inc pc) (conj stack (w pc)) mem sto logs (inc gas) nil)     ; PC
-            0x59 (recur (inc pc)                                          ; MSIZE
-                        (conj stack (w (if (seq mem) (* 32 (inc (quot (apply max (keys mem)) 32))) 0)))
-                        mem sto logs (inc gas) nil)
-            0x5a (recur (inc pc) (conj stack (w (- gas-limit gas)))        ; GAS
-                        mem sto logs (inc gas) nil)
-            0x5b (recur (inc pc) stack mem sto logs (inc gas) nil)                   ; JUMPDEST
-            0xf3 (recur (inc pc) s2 mem sto logs (inc gas)                           ; RETURN
-                        {:status :return
-                         :data (mem-read mem (w->int pop1) (w->int pop2))
-                         :gas gas})
-            0xfd (recur (inc pc) s2 mem sto logs (inc gas)                           ; REVERT
-                        {:status :revert
-                         :data (mem-read mem (w->int pop1) (w->int pop2))
-                         :gas gas})
-            ;; LOG0..LOG4. Recorded, not emitted — there is nowhere to emit
-            ;; to. A contract's events are part of what it did, so they come
-            ;; back with the result and a caller that wants them has them.
-            0xa0 (recur (inc pc) s2 mem sto
-                        (conj logs {:data (mem-read mem (w->int pop1) (w->int pop2))
-                                    :topics []})
-                        (inc gas) nil)
-            0xa1 (let [t1 (peek s2) s3 (pop s2)]
-                   (recur (inc pc) s3 mem sto
-                          (conj logs {:data (mem-read mem (w->int pop1) (w->int pop2))
-                                      :topics [(w->hex64 t1)]})
-                          (inc gas) nil))
-            0xfa ;; STATICCALL(gas, addr, argOff, argLen, retOff, retLen)
-            ;; Bottom-to-top, which is the order `take-last` gives and the
-            ;; REVERSE of the order the opcode is written in. Destructured the
-            ;; other way round it read the gas as the return length and the
-            ;; address as the gas: the call went to address 255, the bridge
-            ;; said nothing, and the contract returned a word of zeroes —
-            ;; indistinguishable from a real position of zero, which is the
-            ;; failure this layer keeps having to be careful about.
-            (let [[rl ro al ao addr g] (take-last 6 stack)
-                  st (vec (drop-last 6 stack))
-                  data (str "0x" (mem-read mem (w->int ao) (w->int al)))
-                  ;; An address is the LOW 20 bytes of the word, which is 40
-                  ;; hex characters and not 64. Built at full width it never
-                  ;; equalled `core-address`, the bridge answered nil, and the
-                  ;; contract got a word of zeroes back — a real-looking
-                  ;; position of zero produced by an address that does not
-                  ;; exist.
-                  out (bridge/call ex (str "0x" (subs (w->hex64 addr) 24)) data)]
-              (if out
-                (recur (inc pc) (conj st one)
-                       (mem-write mem (w->int ro) (subs out 2 (+ 2 (* 2 (min 32 (w->int rl))))))
-                       sto logs (inc gas) nil)
-                ;; A failed static call pushes zero and writes nothing. That is
-                ;; the EVM's own convention and it matters here: the bridge
-                ;; returns nil for a question the exchange did not understand,
-                ;; and turning that into a zero WORD would be a plausible
-                ;; answer rather than a failure the contract can branch on.
-                (recur (inc pc) (conj st zero) mem sto logs (inc gas) nil)))
-            ;; PUSH1..PUSH32
-            (if (and (>= op 0x60) (<= op 0x7f))
-              (let [[v pc'] (push-bytes code pc (- op 0x5f))]
-                (recur pc' (conj stack v) mem sto logs (inc gas) nil))
-              ;; DUP1..DUP16
-              (if (and (>= op 0x80) (<= op 0x8f))
-                (let [n (- op 0x7f)]
-                  (recur (inc pc) (conj stack (nth stack (- (count stack) n))) mem sto logs (inc gas) nil))
-                ;; SWAP1..SWAP16
-                (if (and (>= op 0x90) (<= op 0x9f))
-                  (let [n (- op 0x8f)
-                        i (- (count stack) 1) j (- (count stack) 1 n)]
-                    (recur (inc pc)
-                           (assoc stack i (nth stack j) j (nth stack i))
-                           mem sto logs (inc gas) nil))
-                  {:status :halt :reason :unknown-opcode :opcode op :pc pc
-                   :gas gas})))))))))
+  The state is a map rather than a dozen loop bindings. It began as the
+  bindings and grew to nine, and adding `world` and the return-data buffer
+  would have meant editing thirty-five `recur` forms in their right positions
+  — which is a mechanical change that fails silently by putting the memory
+  where the storage goes.
+
+  `world` is `{address {:code [bytes] :storage {}}}`. `ctx` says which account
+  the code is running AS, who called it, and how deep. The exchange itself is
+  read-only from in here: the only way to it is the precompile, and there is
+  no opcode that writes to it."
+  ([ex code calldata]
+   (run ex {} {:address zero-address :caller zero-address :depth 0} code calldata))
+  ([ex world ctx code calldata]
+   (let [cd (if (and (string? calldata) (> (count calldata) 2)) (subs calldata 2) "")
+         self (:address ctx)]
+     (loop [st {:pc 0 :stack [] :mem {} :logs [] :gas 0 :rdata ""
+                :sto (get-in world [self :storage] {})
+                :world world}]
+       (let [{:keys [pc stack mem sto logs gas world rdata]} st
+             done (fn [m] (merge {:world (assoc-in world [self :storage] sto)
+                                  :logs logs :gas gas :data ""} m))]
+         (cond
+           (>= gas gas-limit) (done {:status :halt :reason :out-of-gas})
+           (>= pc (count code)) (done {:status :return})
+           :else
+           (let [op (nth code pc)
+                 a (peek stack) s1 (when (seq stack) (pop stack))
+                 b (when (seq s1) (peek s1)) s2 (when (seq s1) (pop s1))
+                 c* (when (and s2 (seq s2)) (peek s2)) s3 (when (and s2 (seq s2)) (pop s2))
+                 ;; RETURNS the next state; it does not recur.
+                 ;;
+                 ;; It did, and `recur` inside a `fn` targets the FN, not the
+                 ;; loop — so every opcode called itself with one argument
+                 ;; forever and the test run had to be killed at ten minutes.
+                 ;; The loop below is the only place that recurs, and a branch
+                 ;; is terminal exactly when what it returns carries `:status`.
+                 nxt (fn [m] (merge st (assoc m :gas (inc gas))))
+                 push (fn [stk v] (conj stk v))]
+             (let [r
+                   (case op
+                     0x00 (done {:status :return})
+               0x01 (nxt {:pc (inc pc) :stack (push s2 (w+ a b))})
+               0x02 (nxt {:pc (inc pc) :stack (push s2 (w* a b))})
+               0x03 (nxt {:pc (inc pc) :stack (push s2 (w- a b))})
+               0x04 (nxt {:pc (inc pc) :stack (push s2 (wdiv a b))})
+               0x05 (nxt {:pc (inc pc) :stack (push s2 (wsdiv a b))})
+               0x06 (nxt {:pc (inc pc) :stack (push s2 (wmod a b))})
+               0x07 (nxt {:pc (inc pc) :stack (push s2 (wsmod a b))})
+               0x08 (nxt {:pc (inc pc) :stack (push s3 (wmod (w+ a b) c*))})
+               0x09 (nxt {:pc (inc pc) :stack (push s3 (wmod (w* a b) c*))})
+               0x0a (nxt {:pc (inc pc) :stack (push s2 (wexp a b))})
+               0x10 (nxt {:pc (inc pc) :stack (push s2 (wlt a b))})
+               0x11 (nxt {:pc (inc pc) :stack (push s2 (wgt a b))})
+               0x12 (nxt {:pc (inc pc) :stack (push s2 (wslt a b))})
+               0x13 (nxt {:pc (inc pc) :stack (push s2 (wsgt a b))})
+               0x14 (nxt {:pc (inc pc) :stack (push s2 (weq a b))})
+               0x15 (nxt {:pc (inc pc) :stack (push s1 (if (wzero? a) one zero))})
+               0x16 (nxt {:pc (inc pc) :stack (push s2 (wand a b))})
+               0x17 (nxt {:pc (inc pc) :stack (push s2 (wor a b))})
+               0x18 (nxt {:pc (inc pc) :stack (push s2 (wxor a b))})
+               0x19 (nxt {:pc (inc pc) :stack (push s1 (wnot a))})
+               0x1a (nxt {:pc (inc pc)
+                          :stack (push s2 (let [i (w->int a)]
+                                            (if (>= i 32) zero
+                                                (hex->w (subs (w->hex64 b) (* 2 i) (+ 2 (* 2 i)))))))})
+               0x1b (nxt {:pc (inc pc) :stack (push s2 (wshl a b))})
+               0x1c (nxt {:pc (inc pc) :stack (push s2 (wshr a b))})
+               0x20 (nxt {:pc (inc pc)
+                          :stack (push s2 (hex->w (keccak/digest-of-hex
+                                                   (mem-read mem (w->int a) (w->int b)))))})
+               0x30 (nxt {:pc (inc pc) :stack (push stack (hex->w (subs self 2)))})   ; ADDRESS
+               0x33 (nxt {:pc (inc pc) :stack (push stack (hex->w (subs (:caller ctx) 2)))})
+               0x34 (nxt {:pc (inc pc) :stack (push stack zero)})                     ; CALLVALUE
+               0x35 (nxt {:pc (inc pc)
+                          :stack (push s1 (hex->w (subs (str cd (apply str (repeat 64 \0)))
+                                                        (* 2 (w->int a)) (+ (* 2 (w->int a)) 64))))})
+               0x36 (nxt {:pc (inc pc) :stack (push stack (w (quot (count cd) 2)))})
+               0x38 (nxt {:pc (inc pc) :stack (push stack (w (count code)))})         ; CODESIZE
+               0x3d (nxt {:pc (inc pc) :stack (push stack (w (quot (count rdata) 2)))})
+               0x3e (nxt {:pc (inc pc) :stack s3                                      ; RETURNDATACOPY
+                          :mem (mem-write mem (w->int a)
+                                          (subs rdata (* 2 (w->int b))
+                                                (min (count rdata) (+ (* 2 (w->int b)) (* 2 (w->int c*))))))})
+               0x50 (nxt {:pc (inc pc) :stack s1})
+               0x51 (nxt {:pc (inc pc) :stack (push s1 (hex->w (mem-read mem (w->int a) 32)))})
+               0x52 (nxt {:pc (inc pc) :stack s2 :mem (mem-write mem (w->int a) (w->hex64 b))})
+               0x53 (nxt {:pc (inc pc) :stack s2 :mem (assoc mem (w->int a) (w->int (wmod b (w 256))))})
+               0x54 (nxt {:pc (inc pc) :stack (push s1 (get sto (w->hex64 a) zero))})
+               0x55 (nxt {:pc (inc pc) :stack s2 :sto (assoc sto (w->hex64 a) b)})
+               0x56 (nxt {:pc (w->int a) :stack s1})
+               0x57 (nxt {:pc (if (wzero? b) (inc pc) (w->int a)) :stack s2})
+               0x58 (nxt {:pc (inc pc) :stack (push stack (w pc))})
+               0x59 (nxt {:pc (inc pc)
+                          :stack (push stack (w (if (seq mem)
+                                                  (* 32 (inc (quot (apply max (keys mem)) 32))) 0)))})
+               0x5a (nxt {:pc (inc pc) :stack (push stack (w (- gas-limit gas)))})
+               0x5b (nxt {:pc (inc pc)})
+               0xa0 (nxt {:pc (inc pc) :stack s2
+                          :logs (conj logs {:topics []
+                                            :data (mem-read mem (w->int a) (w->int b))})})
+               0xa1 (nxt {:pc (inc pc) :stack s3
+                          :logs (conj logs {:topics [(w->hex64 c*)]
+                                            :data (mem-read mem (w->int a) (w->int b))})})
+               0xf3 (done {:status :return :data (mem-read mem (w->int a) (w->int b))})
+               0xfd (done {:status :revert :data (mem-read mem (w->int a) (w->int b))})
+
+               (0xf1 0xf2 0xfa)                                     ; CALL, CALLCODE, STATICCALL
+               (let [[rl ro al ao addr _g] (take-last 6 stack)
+                     stk (vec (drop-last 6 stack))
+                     args (str "0x" (mem-read mem (w->int ao) (w->int al)))
+                     r (do-call ex (assoc-in world [self :storage] sto)
+                                ctx {:to (addr-of-word addr) :args args})
+                     ok? (= :return (:status r))
+                     out (or (:data r) "")]
+                 (nxt {:pc (inc pc)
+                       :stack (push stk (if ok? one zero))
+                       :world (:world r)
+                       :logs (into logs (:logs r))
+                       :rdata out
+                       :mem (if (and ok? (pos? (w->int rl)))
+                              (mem-write mem (w->int ro)
+                                         (subs out 0 (min (count out) (* 2 (w->int rl)))))
+                              mem)}))
+
+               0xf4                                                  ; DELEGATECALL
+               (let [[rl ro al ao addr _g] (take-last 6 stack)
+                     stk (vec (drop-last 6 stack))
+                     args (str "0x" (mem-read mem (w->int ao) (w->int al)))
+                     r (do-call ex (assoc-in world [self :storage] sto)
+                                ctx {:to (addr-of-word addr) :args args :delegate? true})
+                     ok? (= :return (:status r))
+                     out (or (:data r) "")]
+                 (nxt {:pc (inc pc)
+                       :stack (push stk (if ok? one zero))
+                       ;; The callee ran as US, so its storage IS ours and has
+                       ;; to come back into `sto`. Taking the world's copy and
+                       ;; leaving `sto` alone would drop everything a library
+                       ;; wrote the moment this frame returned.
+                       :sto (get-in (:world r) [self :storage] sto)
+                       :world (:world r)
+                       :logs (into logs (:logs r))
+                       :rdata out
+                       :mem (if (and ok? (pos? (w->int rl)))
+                              (mem-write mem (w->int ro)
+                                         (subs out 0 (min (count out) (* 2 (w->int rl)))))
+                              mem)}))
+
+               0xf5                                                  ; CREATE2
+               (let [[salt len off _value] (take-last 4 stack)
+                     stk (vec (drop-last 4 stack))
+                     init (mem-read mem (w->int off) (w->int len))
+                     addr (create-address self (w->hex64 salt) (keccak/hex->bytes init))
+                     r (run ex (assoc-in world [self :storage] sto)
+                            {:address addr :caller self :depth (inc (:depth ctx))}
+                            (keccak/hex->bytes init) "0x")]
+                 (if (= :return (:status r))
+                   ;; What the initcode RETURNED is the deployed code. The
+                   ;; initcode itself is not: a constructor that ran and
+                   ;; returned nothing deploys an empty account, which is what
+                   ;; every other implementation does.
+                   (nxt {:pc (inc pc)
+                         :stack (push stk (hex->w (subs addr 2)))
+                         :world (assoc-in (:world r) [addr :code] (keccak/hex->bytes (:data r)))
+                         :logs (into logs (:logs r))})
+                   (nxt {:pc (inc pc) :stack (push stk zero) :world world})))
+
+               (cond
+                 (and (>= op 0x60) (<= op 0x7f))
+                 (let [[v pc'] (push-bytes code pc (- op 0x5f))]
+                   (nxt {:pc pc' :stack (push stack v)}))
+
+                 (and (>= op 0x80) (<= op 0x8f))
+                 (let [n (- op 0x7f)]
+                   (nxt {:pc (inc pc) :stack (push stack (nth stack (- (count stack) n)))}))
+
+                 (and (>= op 0x90) (<= op 0x9f))
+                 (let [n (- op 0x8f)
+                       i (dec (count stack)) j (- (count stack) 1 n)]
+                   (nxt {:pc (inc pc) :stack (assoc stack i (nth stack j) j (nth stack i))}))
+
+                 :else
+                 (done {:status :halt :reason :unknown-opcode :opcode op :pc pc})))]
+               (if (:status r) r (recur r))))))))))
