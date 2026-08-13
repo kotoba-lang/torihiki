@@ -454,6 +454,27 @@
   ;; money never moved, so waiting costs the holder nothing but the ask.
   (update ex :clearing cl/collect-unbonded account (:height ex 0)))
 
+(defmethod apply-tx :create-sub-account
+  [ex {:keys [account sub]}]
+  ;; A second margin pool under the same person. See `cl/create-sub-account`.
+  ;;
+  ;; The sub-account's key binding becomes the OWNER's: the owner signs for it
+  ;; exactly as they sign for themselves, so nothing new authenticates here —
+  ;; the binding is what `torihiki.auth` already checks.
+  (let [owner-key (get-in ex [:account-keys account])
+        ex' (update ex :clearing cl/create-sub-account account sub
+                    (some? (get-in ex [:account-keys sub])))]
+    (if (and owner-key (get-in ex' [:clearing :sub-of sub]))
+      (assoc-in ex' [:account-keys sub] owner-key)
+      ex')))
+
+(defmethod apply-tx :transfer
+  [ex {:keys [account to amount]}]
+  ;; Inside one family only. Paying somebody else is a deposit with a
+  ;; `:credit`, and that is gated on the bridge.
+  (update ex :clearing cl/transfer account to amount
+          (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
+
 (defmethod apply-tx :set-leverage
   [ex {:keys [account market leverage]}]
   ;; A trader asking for a stricter margin requirement than the market
@@ -1339,6 +1360,11 @@
                          ;; margin this account must hold, so a replica that
                          ;; disagreed would liquidate at a different point.
                          (count (get-in clearing [:leverage a] {}))
+                         ;; Whose money this is. A sub-account's owner decides
+                         ;; who may move its collateral, so a replica that
+                         ;; disagreed would allow a transfer another refuses.
+                         (or (get-in clearing [:sub-of a]) 0)
+                         (if (get-in clearing [:sub-of a]) 1 0)
                          (count mkts)]))
             mkts)
         ;; Chosen leverage, then spot holdings. `into` takes two collections,

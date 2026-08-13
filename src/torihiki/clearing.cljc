@@ -311,6 +311,63 @@
               (update-in [:vaults vault :shares acct] - shares)
               (update-in [:vaults vault :total-shares] - shares)))))))
 
+(defn family
+  "The owner an account belongs to: itself, or the account it is a sub-account
+  of."
+  [state acct]
+  (get-in state [:sub-of acct] acct))
+
+(defn same-family?
+  "Whether two accounts share an owner. A transfer between them moves one
+  trader's own money; a transfer outside is a payment, and this engine has one
+  of those already — `deposit` with a `:credit`, gated on the bridge."
+  [state a b]
+  (= (family state a) (family state b)))
+
+(defn create-sub-account
+  "Record `sub` as a sub-account of `owner`.
+
+  ## Why sub-accounts at all
+
+  Margin is pooled across an account's cross positions, so two strategies in
+  one account are one strategy as far as liquidation is concerned: the losing
+  one eats the winning one's collateral before anybody notices. A sub-account
+  is a second margin pool under the same person.
+
+  `sub` must be untouched — no key, no collateral, no positions. An id that
+  already means something to somebody cannot be adopted, or adopting it would
+  be a way to take it.
+
+  One level only. A sub-account cannot have sub-accounts of its own, and an
+  account that is already somebody's sub cannot own one: a tree would make
+  `family` a walk whose depth an attacker chooses."
+  [state owner sub bound-key?]
+  (if (or (= owner sub)
+          bound-key?
+          (contains? (:sub-of state) owner)
+          (contains? (:sub-of state) sub)
+          (pos? (get-in state [:accounts sub :collateral] 0))
+          (seq (get-in state [:accounts sub :positions])))
+    state
+    (assoc-in state [:sub-of sub] owner)))
+
+(defn transfer
+  "Move `amount` of free collateral from `from` to `to` inside one family.
+
+  Free, not total: collateral backing a position is not the trader's to move,
+  and moving it would leave that position under-margined without a trade.
+  Refused rather than clamped, for the reason every other refusal here is."
+  [state from to amount free]
+  (let [amount (long amount)]
+    (if (or (not (pos? amount))
+            (= from to)
+            (not (same-family? state from to))
+            (> amount (long free)))
+      state
+      (-> state
+          (update-in [:accounts from :collateral] - amount)
+          (update-in [:accounts to :collateral] (fnil + 0) amount)))))
+
 (defn set-referrer
   "Bind `acct`'s referrer, once and forever.
 

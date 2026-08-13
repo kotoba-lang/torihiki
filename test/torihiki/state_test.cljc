@@ -1432,3 +1432,81 @@
         b (st/apply-tx a {:tx :set-leverage :account 15 :market 1 :leverage 3})]
     (is (not= (st/state-root a) (st/state-root b))
         "what an account must hold sat outside the root")))
+
+;; ── sub-accounts ────────────────────────────────────────────────────────────
+;;
+;; Margin is pooled across an account's cross positions, so two strategies in
+;; one account are one strategy as far as liquidation is concerned. A
+;; sub-account is a second margin pool under the same person.
+
+(def ^:private owner-pk "OWNER-PUBKEY")
+
+(defn- family-fixture []
+  (-> (fresh)
+      (st/apply-tx {:tx :oracle :market 1 :price 500})
+      (funded [20] 1000000)
+      (assoc-in [:account-keys 20] owner-pk)))
+
+(deftest a-sub-account-is-signed-for-by-its-owner
+  (let [ex (st/apply-tx (family-fixture) {:tx :create-sub-account :account 20 :sub 21})]
+    (is (= 20 (cl/family (:clearing ex) 21)))
+    (is (= owner-pk (get-in ex [:account-keys 21]))
+        "the owner cannot sign for its own sub-account")))
+
+(deftest an-account-that-already-means-something-cannot-be-adopted
+  (let [ex (-> (family-fixture)
+               (funded [22] 500)
+               (st/apply-tx {:tx :create-sub-account :account 20 :sub 22}))]
+    (is (nil? (get-in ex [:clearing :sub-of 22]))
+        "an account with collateral was adopted"))
+  (let [ex (-> (family-fixture)
+               (assoc-in [:account-keys 23] "SOMEBODY-ELSE")
+               (st/apply-tx {:tx :create-sub-account :account 20 :sub 23}))]
+    (is (nil? (get-in ex [:clearing :sub-of 23]))
+        "an account with a bound key was adopted")))
+
+(deftest sub-accounts-do-not-nest
+  (let [ex (-> (family-fixture)
+               (st/apply-tx {:tx :create-sub-account :account 20 :sub 21})
+               (st/apply-tx {:tx :create-sub-account :account 21 :sub 24}))]
+    (is (nil? (get-in ex [:clearing :sub-of 24]))
+        "a sub-account owned a sub-account, so `family` became a walk")))
+
+(deftest collateral-moves-inside-the-family-and-not-outside
+  (let [ex (-> (family-fixture)
+               (st/apply-tx {:tx :create-sub-account :account 20 :sub 21})
+               (st/apply-tx {:tx :transfer :account 20 :to 21 :amount 400000}))]
+    (is (= 600000 (get-in ex [:clearing :accounts 20 :collateral])))
+    (is (= 400000 (get-in ex [:clearing :accounts 21 :collateral])))
+    (let [out (st/apply-tx ex {:tx :transfer :account 20 :to 99 :amount 100000})]
+      (is (= 600000 (get-in out [:clearing :accounts 20 :collateral]))
+          "collateral left the family without going through the bridge"))))
+
+(deftest margin-is-not-pooled-across-sub-accounts
+  ;; The whole point: a position in the sub is margined against the sub's own
+  ;; collateral, not the owner's.
+  (let [ex (-> (family-fixture)
+               (st/apply-tx {:tx :create-sub-account :account 20 :sub 21})
+               (st/apply-tx {:tx :transfer :account 20 :to 21 :amount 500000}))]
+    (is (= 500000 (cl/free-collateral (:clearing ex) 21 (:marks ex) (:markets ex))))
+    (is (= 500000 (cl/free-collateral (:clearing ex) 20 (:marks ex) (:markets ex)))
+        "the two pools are not separate")))
+
+(deftest a-transfer-cannot-move-margin-out-from-under-a-position
+  (let [ex (-> (family-fixture)
+               (funded [25] 1000000000)
+               (st/apply-tx {:tx :create-sub-account :account 20 :sub 21})
+               (st/apply-tx {:tx :order :account 25 :market 1
+                             :side bk/ask :level 500 :qty 100})
+               (st/apply-tx {:tx :order :account 20 :market 1
+                             :side bk/bid :level 500 :qty 100}))
+        before (get-in ex [:clearing :accounts 20 :collateral])
+        after (st/apply-tx ex {:tx :transfer :account 20 :to 21 :amount before})]
+    (is (= before (get-in after [:clearing :accounts 20 :collateral]))
+        "the collateral backing an open position was moved away")))
+
+(deftest the-family-is-in-the-root
+  (let [a (family-fixture)
+        b (st/apply-tx a {:tx :create-sub-account :account 20 :sub 21})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "who may move an account's money sat outside the root")))
