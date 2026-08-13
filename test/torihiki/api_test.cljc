@@ -293,3 +293,21 @@
         "and a negative id must still be refused")
     (is (= :missing-field (api/validate ex {:tx :cancel :account 1 :market 1 :oid "0"}))
         "and a non-integer id must still be refused")))
+
+(deftest the-authority-may-open-an-unpriced-market-once
+  ;; A market listed on a running chain arrives with no price, and nothing can
+  ;; give it one: publishers MOVE a price, and the direct setter is shut when
+  ;; publishers exist. Without this the market could be traded and never
+  ;; margined, at a mark of zero.
+  (let [ex (-> (st/new-exchange {:market mkt :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+               (assoc :oracle-publishers #{5 6 7} :bridge-authority 77))]
+    (is (nil? (api/validate ex {:tx :oracle :account 77 :market 1 :price 500}))
+        "the authority could not open an unpriced market")
+    (is (= :oracle-is-aggregated
+           (api/validate ex {:tx :oracle :account 78 :market 1 :price 500}))
+        "a stranger opened it")
+    ;; and once it has a price the door is shut again, for everybody
+    (let [priced (st/apply-tx ex {:tx :oracle :account 77 :market 1 :price 500})]
+      (is (= :oracle-is-aggregated
+             (api/validate priced {:tx :oracle :account 77 :market 1 :price 9}))
+          "the authority could set the price twice"))))
