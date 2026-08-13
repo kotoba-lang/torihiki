@@ -6,6 +6,7 @@
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.liquidation :as liq]
+            [torihiki.commit :as cm]
             [torihiki.state :as st]))
 
 (def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
@@ -334,3 +335,88 @@
     (is (= s (cl/settle-deficit s 100)))
     (is (= (cl/settle-deficit s 100)
            (cl/settle-deficit (cl/settle-deficit s 100) 100)))))
+
+;; ── the withdrawal exit ─────────────────────────────────────────────────────
+;;
+;; A withdrawal used to decrement the balance and end there. What replaces it
+;; is a claim: an obligation the root commits to, which whoever holds the
+;; escrow can be handed an inclusion proof of and pay against.
+
+(defn- with-collateral [amount]
+  (-> (fresh) (funded [10] amount)))
+
+(deftest a-withdrawal-raises-a-claim
+  (let [e (-> (with-collateral 1000)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))]
+    (is (= 600 (get-in e [:clearing :accounts 10 :collateral])))
+    (is (= 1 (count (:withdrawals e))))
+    (is (= {:account 10 :amount 400 :height 0} (get-in e [:withdrawals 1])))
+    (is (= 1 (:withdraw-seq e)) "claims are numbered, and the number is state")))
+
+(deftest a-withdrawal-does-not-change-what-the-exchange-owes
+  ;; The property the claim leaf exists for. Before, the total fell the moment
+  ;; the balance did — the chain said it owed less while nobody had been paid.
+  (let [before (with-collateral 1000)
+        after (st/apply-tx before {:tx :withdraw :account 10 :amount 400})]
+    (is (= (cm/reserves (st/canonical-leaves before))
+           (cm/reserves (st/canonical-leaves after)))
+        "value moved from an account leaf to a claim leaf; the total is the same")))
+
+(deftest settling-is-the-only-thing-that-lowers-the-total
+  (let [e (-> (with-collateral 1000)
+              (assoc :bridge-authority 77)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))
+        settled (st/apply-tx e {:tx :withdraw-settle :account 77 :claim 1})]
+    (is (empty? (:withdrawals settled)))
+    (is (= (- (cm/reserves (st/canonical-leaves e)) 400)
+           (cm/reserves (st/canonical-leaves settled)))
+        "the money actually left, so the obligation did too")))
+
+(deftest only-the-bridge-may-say-the-money-left
+  (let [e (-> (with-collateral 1000)
+              (assoc :bridge-authority 77)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))]
+    (is (= e (st/apply-tx e {:tx :withdraw-settle :account 10 :claim 1}))
+        "the claimant settled their own claim")
+    (is (= e (st/apply-tx e {:tx :withdraw-settle :account 78 :claim 1}))
+        "a stranger settled somebody else's claim")))
+
+(deftest with-no-bridge-nothing-can-be-settled
+  ;; An unbacked chain has no exit, and this is what that looks like when it
+  ;; is stated rather than hidden.
+  (let [e (-> (with-collateral 1000)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))]
+    (is (nil? (:bridge-authority e)))
+    (is (= e (st/apply-tx e {:tx :withdraw-settle :account 10 :claim 1})))
+    (is (= 1 (count (:withdrawals e))) "the claim stands")))
+
+(deftest a-claim-can-be-handed-back-to-its-owner
+  (let [e (-> (with-collateral 1000)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))
+        cancelled (st/apply-tx e {:tx :withdraw-cancel :account 10 :claim 1})]
+    (is (empty? (:withdrawals cancelled)))
+    (is (= 1000 (get-in cancelled [:clearing :accounts 10 :collateral])))
+    (is (= (cm/reserves (st/canonical-leaves e))
+           (cm/reserves (st/canonical-leaves cancelled)))
+        "a cancellation moves value back, it does not create or destroy it"))
+  (let [e (-> (with-collateral 1000)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))]
+    (is (= e (st/apply-tx e {:tx :withdraw-cancel :account 11 :claim 1}))
+        "somebody else's claim was cancelled into their own balance")))
+
+(deftest a-refused-withdrawal-raises-nothing
+  (let [e (-> (with-collateral 100)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))]
+    (is (empty? (:withdrawals e)))
+    (is (= 0 (:withdraw-seq e)) "a refused withdrawal must not consume a number")
+    (is (= 100 (get-in e [:clearing :accounts 10 :collateral])))))
+
+(deftest a-claim-proves-itself-against-the-root
+  ;; What the escrow operator actually does before paying.
+  (let [e (-> (with-collateral 1000)
+              (st/apply-tx {:tx :withdraw :account 10 :amount 400}))
+        ls (st/canonical-leaves e)
+        p (cm/proof ls "06:01:0000000000000001")]
+    (is (some? p) "no proof for the claim")
+    (is (cm/verify p (st/state-root e)))
+    (is (= 400 (:sum p)) "the proof carries the amount owed")))
