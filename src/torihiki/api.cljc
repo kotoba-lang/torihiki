@@ -180,8 +180,19 @@
       ;; movement that needs no authority beyond the signature, and the
       ;; clearinghouse already refuses to take more than free collateral.
       ;;
-      ;; The stated limit is that this decrements the balance and nothing pays
-      ;; out anywhere — the other half is a bridge that does not exist yet.
+      ;; This no longer ends at the decrement. It raises a claim — a leaf, so
+      ;; whoever holds the escrow can be handed an inclusion proof and pay
+      ;; against it. See `torihiki.state/apply-tx :withdraw-settle`.
+      :else nil)
+
+    (:withdraw-settle :withdraw-cancel)
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      ;; Who may settle and who may cancel is decided in `torihiki.state`,
+      ;; where the claim itself is in hand: settling needs the bridge, and
+      ;; cancelling needs the claim's owner. Neither question is answerable
+      ;; from the transaction's shape, which is all this function judges.
       :else nil)
 
     :unknown-tx))

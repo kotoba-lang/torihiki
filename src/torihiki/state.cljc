@@ -105,6 +105,20 @@
    ;; the mark, which can arm more triggers. That cascade has to terminate.
    :max-trigger-rounds 8
    :liq-params liq/default-params
+   ;; Withdrawals that have left an account and not yet left the exchange.
+   ;;
+   ;; A withdrawal used to decrement the balance and end there, which `api`
+   ;; said plainly: nothing pays out anywhere. That is not a missing feature
+   ;; at the edge, it is a hole in the middle — the collateral stops being
+   ;; anybody's and no obligation replaces it, so the chain's own total says
+   ;; the exchange owes less while nobody has been paid.
+   ;;
+   ;; A claim is that obligation, and it is a leaf, so whoever holds the
+   ;; escrow can be handed an inclusion proof and pay against it instead of
+   ;; against a promise. `:withdraw-seq` names claims; it is committed too,
+   ;; because a replica that numbered the next one differently would fork.
+   :withdrawals {}
+   :withdraw-seq 0
    :height 0
    :ts 0})
 
@@ -128,7 +142,52 @@
 
 (defmethod apply-tx :withdraw
   [ex {:keys [account amount]}]
-  (update ex :clearing cl/withdraw account amount (:marks ex) (:markets ex)))
+  (let [clearing (:clearing ex)
+        clearing' (cl/withdraw clearing account amount (:marks ex) (:markets ex))]
+    ;; `cl/withdraw` returns the state it was GIVEN when free collateral does
+    ;; not cover the amount — that is its documented way of making a refused
+    ;; withdrawal a no-op block entry rather than a halted chain. `identical?`
+    ;; reads that answer without asking the same affordability question twice
+    ;; in two places that would then have to agree forever.
+    (if (identical? clearing clearing')
+      ex
+      (let [id (inc (:withdraw-seq ex 0))]
+        (-> ex
+            (assoc :clearing clearing')
+            (assoc :withdraw-seq id)
+            (assoc-in [:withdrawals id] {:account account :amount amount
+                                         :height (:height ex 0)}))))))
+
+(defmethod apply-tx :withdraw-settle
+  [ex {:keys [account claim]}]
+  ;; The bridge saying the money left. Only the bridge can say it, because it
+  ;; is the only party that can know — the payment happened off this chain,
+  ;; and this transaction is the receipt coming back.
+  ;;
+  ;; With no `:bridge-authority` configured, nobody can settle anything. That
+  ;; is not a gap to paper over: an unbacked chain HAS no exit, and claims
+  ;; piling up unsettled is what that looks like when it is stated instead of
+  ;; hidden. Money quietly disappearing was the old way of saying the same
+  ;; thing.
+  (let [bridge (:bridge-authority ex)]
+    (if (and bridge (= account bridge) (get-in ex [:withdrawals claim]))
+      (update ex :withdrawals dissoc claim)
+      ex)))
+
+(defmethod apply-tx :withdraw-cancel
+  [ex {:keys [account claim]}]
+  ;; A payout that could not be made, handed back. Gated on OWNERSHIP rather
+  ;; than on the bridge, for the reason `api` already gives about withdrawal
+  ;; itself: taking back your own collateral needs no authority beyond the
+  ;; signature. Requiring the bridge here would strand every claim on a chain
+  ;; that has no bridge — which is precisely the chain most likely to need
+  ;; the money back.
+  (let [c (get-in ex [:withdrawals claim])]
+    (if (and c (= account (:account c)))
+      (-> ex
+          (update :withdrawals dissoc claim)
+          (update :clearing cl/deposit (:account c) (:amount c)))
+      ex)))
 
 (defn- reprice!
   "Recompute the derived mark for `market` from the book and the oracle.
@@ -492,6 +551,17 @@
                        (if (get-in ex [:oracle-stale m] false) 1 0)])
             pubs)))
 
+(def ^:const enc-tag-withdrawal 13)
+
+(defn- encode-withdrawal
+  "One pending claim: who is owed, how much, and the height it was raised at.
+
+  The height is in the preimage because it is the only thing that
+  distinguishes two identical withdrawals by the same account, and because a
+  claim's age is what an operator uses to decide whether a payout is late."
+  [id w]
+  (enc-ints [enc-tag-withdrawal id (:account w) (:amount w) (:height w 0)]))
+
 (def ^:const enc-tag-governance 12)
 
 (defn- encode-governance
@@ -708,7 +778,24 @@
           {:id (str "05:" (pad-id m) ":1") :bytes (encode-book (get-in ex [:books m]))}
           {:id (str "05:" (pad-id m) ":2")
            :bytes (encode-triggers (get-in ex [:triggers m] []))}])
-       mkts)))))
+       mkts)
+      ;; Pending withdrawals. The count and the next claim number first, so
+      ;; the section is self-delimiting the way the nonce and clearing
+      ;; sections are.
+      (let [ws (:withdrawals ex {})]
+        (cons
+         {:id "06:00" :bytes (enc-ints [enc-tag-withdrawal (count ws)
+                                        (:withdraw-seq ex 0)])}
+         (for [id (sort (keys ws))]
+           {:id (str "06:01:" (pad-id id))
+            :bytes (encode-withdrawal id (get ws id))
+            ;; A claim carries its amount as its merkle-sum value, so the
+            ;; root's total stays the exchange's whole obligation across a
+            ;; withdrawal: the money moves from an account leaf to a claim
+            ;; leaf and the sum does not change. Settlement is then the only
+            ;; thing that lowers it, which is correct, because settlement is
+            ;; the only thing that actually pays anybody.
+            :sum (:amount (get ws id))})))))))
 
 (defn canonical-bytes
   "The exact byte sequence `flat-root` digests. Exposed because a state root
