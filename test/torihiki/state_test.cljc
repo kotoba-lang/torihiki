@@ -673,3 +673,46 @@
                           :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
     (is (not= (st/state-root a) (st/state-root b))
         "listing a market did not change the root")))
+
+;; ── the market's own parameters ─────────────────────────────────────────────
+;;
+;; They were not in the root: the margin rates decide who is liquidatable and
+;; the fee rates decide what a fill costs, so two replicas configured
+;; differently would liquidate different accounts and charge different fees —
+;; and the root said nothing about the difference until somebody was near
+;; liquidation.
+
+(deftest the-root-commits-to-the-margin-rates
+  (let [a (fresh)
+        b (assoc-in a [:markets 1 :maintenance-margin-rate] 999)]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a different maintenance margin produced the same root")))
+
+(deftest the-root-commits-to-the-fees
+  (let [a (fresh)
+        b (assoc-in a [:markets 1 :taker-fee-rate] 999999)]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a different taker fee produced the same root")))
+
+(deftest the-root-commits-to-the-symbol-and-the-tick
+  (let [a (fresh)]
+    (is (not= (st/state-root a) (st/state-root (assoc-in a [:markets 1 :symbol] "OTHER")))
+        "renaming a market did not change the root")
+    (is (not= (st/state-root a) (st/state-root (assoc-in a [:markets 1 :tick] 7)))
+        "a different tick produced the same root")))
+
+(deftest the-root-commits-to-the-margin-tiers
+  (let [tiered (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1
+                           :margin-tiers [{:max-notional 1000 :max-leverage 20}]})
+        a (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                            :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})
+        b (st/new-exchange {:market tiered
+                            :book-opts {:n-levels 256 :cap 1024 :ev-cap 1024}})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "a market with tiers rooted the same as one without")))
+
+(deftest a-market-has-a-name
+  (is (= "BTC-PERP" (:symbol (cl/market {:id 1 :symbol "BTC-PERP"
+                                         :max-leverage 40 :tick 1 :lot 1}))))
+  (is (= "MKT-7" (:symbol (cl/market {:id 7 :max-leverage 40 :tick 1 :lot 1})))
+      "a market without a name still needs one to be called"))
