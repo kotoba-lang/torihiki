@@ -139,3 +139,91 @@
   one thing to parse, one thing to get wrong."
   [claim]
   (str memo-prefix claim))
+
+;; ── the deposit, read from Ethereum ─────────────────────────────────────────
+;;
+;; THORChain's own hosts are behind Cloudflare and a Worker cannot resolve
+;; them — measured, five of them, four unresolvable and one refusing. But an
+;; ETH deposit is not only a THORChain fact: it is a call to THORChain's
+;; Router **on Ethereum**, and the Router emits
+;;
+;;     Deposit(address indexed to, address indexed asset, uint amount, string memo)
+;;
+;; which carries every field an attestation needs — the vault, the asset, the
+;; amount, and the memo naming the account. An Ethereum RPC answers a Worker
+;; (`ethereum-rpc.publicnode.com`, measured), so the observation can come from
+;; the source chain instead.
+;;
+;; Reading the source chain is also the stronger position. THORChain's own view
+;; of an inbound is a report; the log is the transfer.
+
+(def ^:const deposit-event-signature
+  "The event whose keccak-256 is topic0. Written out so the topic can be
+  derived rather than pasted — a pasted topic is a constant nobody can check."
+  "Deposit(address,address,uint256,string)")
+
+(defn- hex->long [h]
+  #?(:clj (Long/parseLong h 16) :cljs (js/parseInt h 16)))
+
+(defn- topic->address
+  "The low 20 bytes of a 32-byte topic, lower-cased. An indexed address is
+  left-padded, and comparing the padded form against an ordinary address is
+  how a vault check silently never matches."
+  [t]
+  (when (and (string? t) (>= (count t) 40))
+    (str "0x" (str/lower-case (subs t (- (count t) 40))))))
+
+(defn decode-deposit-data
+  "`(amount, memo)` out of the non-indexed half of a Deposit log.
+
+  ABI: a uint256, then an offset to the string, then the string's length, then
+  its bytes padded up to 32. The offset is READ rather than assumed to be
+  0x40 — it is 0x40 for this event today, and a decoder that hard-codes an
+  offset is one ABI change away from reading the length as the amount."
+  [data]
+  (let [h (str/replace (or data "") #"^0x" "")
+        word (fn [i] (subs h (* 64 i) (* 64 (inc i))))]
+    (when (>= (count h) 192)
+      (let [amount (hex->long (word 0))
+            off (hex->long (word 1))
+            base (* 2 off)
+            len (hex->long (subs h base (+ base 64)))
+            body (subs h (+ base 64) (+ base 64 (* 2 len)))
+            memo (apply str (for [i (range len)]
+                              (char (hex->long (subs body (* 2 i) (+ 2 (* 2 i)))))))]
+        {:amount amount :memo memo}))))
+
+(defn deposits-from-logs
+  "`:deposit-attest` transactions from Ethereum logs of THORChain's Router.
+
+  Same refusals as `deposits-in`, for the same reasons: the vault must be one
+  we watch, the memo must name an account exactly, the amount must be
+  positive, and the log must be deep enough that the chain will not take it
+  back. `tip` is the current Ethereum head."
+  [me vaults tip logs]
+  (vec
+   (for [l logs
+         :let [topics (get l :topics (get l "topics"))
+               to (topic->address (second topics))
+               asset (topic->address (nth topics 2 nil))
+               txid (get l :transactionHash (get l "transactionHash"))
+               bn (get l :blockNumber (get l "blockNumber"))
+               height (when (string? bn) (hex->long (str/replace bn #"^0x" "")))
+               {:keys [amount memo]} (decode-deposit-data
+                                      (get l :data (get l "data")))
+               acct (parse-memo memo)]
+         :when (and acct to asset
+                    (string? txid) (seq txid)
+                    (integer? amount) (pos? amount)
+                    (contains? (set (map str/lower-case vaults)) to)
+                    (integer? height) (integer? tip)
+                    (>= (- tip height) min-confirmations))]
+     {:tx :deposit-attest
+      :account me
+      :txid txid
+      :credit acct
+      :amount amount
+      ;; The asset as the chain names it. An ERC-20's address is what
+      ;; distinguishes USDC from USDT here, and dropping it would let a
+      ;; quorum agree about an amount of nothing in particular.
+      :asset (str "ETH." asset)})))

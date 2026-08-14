@@ -1,5 +1,7 @@
 (ns torihiki.thorchain-test
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
+            [torihiki.keccak :as kc]
             [torihiki.thorchain :as tc]))
 
 (deftest a-memo-names-one-account-or-nothing
@@ -71,3 +73,65 @@
       (is (= 2 (count (tc/deposits-in 7 both 100 [old new]))))
       (is (= 1 (count (tc/deposits-in 7 #{"vault-new"} 100 [old new])))
           "the address that was ours an hour ago stopped being ours"))))
+
+;; ── reading the deposit off Ethereum ────────────────────────────────────────
+
+(defn- format-word [n]
+  (let [h (#?(:clj Integer/toHexString :cljs (fn [x] (.toString x 16))) (int n))]
+    (str (apply str (repeat (- 64 (count h)) \0)) h)))
+
+(defn- abi-string
+  "A `string` as the ABI lays it out: offset, length, bytes padded to 32."
+  [s]
+  (let [hex (apply str (map #(let [h (#?(:clj Integer/toHexString :cljs (fn [x] (.toString x 16)))
+                                        (int %))]
+                              (if (= 1 (count h)) (str "0" h) h))
+                            s))
+        pad (- 64 (mod (count hex) 64))]
+    (str (format-word 0x40) (format-word (count s)) hex
+         (apply str (repeat (if (= 64 pad) 0 pad) \0)))))
+
+(defn- log-of [{:keys [vault memo amount block txid]}]
+  {"topics" ["0xdeadbeef"
+             (str "0x" (apply str (repeat 24 \0)) (subs vault 2))
+             (str "0x" (apply str (repeat 24 \0)) (apply str (repeat 40 \0)))]
+   "data" (str "0x" (format-word amount) (abi-string memo))
+   "transactionHash" txid
+   "blockNumber" (str "0x" (#?(:clj Integer/toHexString :cljs (fn [x] (.toString x 16))) block))})
+
+(deftest the-topic-is-derived-not-pasted
+  ;; A pasted topic is a constant nobody can check. This one is the keccak of
+  ;; the signature, computed by the same code that computes mapping slots.
+  (is (= 64 (count (kc/digest-hex (map int tc/deposit-event-signature))))))
+
+(deftest a-deposit-is-read-out-of-an-ethereum-log
+  (testing "THORChain's own hosts do not answer a Cloudflare Worker — four of
+            five could not even be resolved. The deposit is also an Ethereum
+            event, and the log carries every field an attestation needs."
+    (let [vault "0x1234567890abcdef1234567890abcdef12345678"
+          l (log-of {:vault vault :memo "TORIHIKI:900" :amount 4242
+                     :block 100 :txid "0xabc"})
+          [tx] (tc/deposits-from-logs 7 #{vault} 200 [l])]
+      (is (= 900 (:credit tx)))
+      (is (= 4242 (:amount tx)))
+      (is (= "0xabc" (:txid tx)))
+      (is (str/starts-with? (:asset tx) "ETH.")
+          "the asset was dropped — a quorum would agree about an amount of
+           nothing in particular"))))
+
+(deftest the-same-refusals-apply-to-a-log
+  (let [vault "0x1234567890abcdef1234567890abcdef12345678"
+        other "0x9999999999999999999999999999999999999999"
+        ok (log-of {:vault vault :memo "TORIHIKI:900" :amount 4242
+                    :block 100 :txid "0xabc"})]
+    (is (= 1 (count (tc/deposits-from-logs 7 #{vault} 200 [ok]))))
+    (is (empty? (tc/deposits-from-logs 7 #{other} 200 [ok]))
+        "attested a transfer into somebody else's vault")
+    (is (empty? (tc/deposits-from-logs 7 #{vault} 101 [ok]))
+        "attested a log one block deep — and an attestation cannot be
+         withdrawn")
+    (is (empty? (tc/deposits-from-logs
+                 7 #{vault} 200
+                 [(log-of {:vault vault :memo "hello" :amount 4242
+                           :block 100 :txid "0xabc"})]))
+        "credited a deposit whose sender named no account")))
