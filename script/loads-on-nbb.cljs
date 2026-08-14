@@ -23,8 +23,14 @@
 ;; running, so it costs a second and catches the whole class — unresolvable
 ;; symbols, reader damage, and anything a macro expands into on the other side.
 ;;
-;; It does NOT catch behaviour that differs between the runtimes. That is what
-;; `torihiki.parity` is for. This one only insists that both can read the file.
+;; It does NOT catch behaviour that differs between the runtimes — only that
+;; both can READ the file. `script/tests-on-nbb.cljs` runs the whole suite on
+;; ClojureScript and is what catches the rest; run this one first anyway,
+;; because it is a second and it says which namespace is broken rather than
+;; which assertion.
+;;
+;; (This paragraph used to point at `torihiki.parity`, a namespace that has
+;; never existed in this repository. A pointer to nothing reads as coverage.)
 (ns loads-on-nbb
   (:require [torihiki.address]
             [torihiki.api]
