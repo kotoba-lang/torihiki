@@ -933,6 +933,25 @@
 
 ;; One publisher's observation. The aggregate is recomputed from every fresh
 ;; authorised submission; a single publisher never sets the price.
+(defmethod apply-tx :oracle-submit-batch
+  [ex {:keys [account prices]}]
+  ;; One publisher, many markets, ONE nonce.
+  ;;
+  ;; Nonces are strictly sequential per account, so a publisher pricing N
+  ;; markets one transaction at a time must emit N of them per block in the
+  ;; right order, and a single gap wedges every later one — the failure the
+  ;; bridge already measured and wrote up. That makes the cost of a price feed
+  ;; scale with the market count in the one dimension least able to absorb it.
+  ;;
+  ;; Folded through `:oracle-submit` rather than reimplemented beside it, so
+  ;; there is one rule for what a submission does and one place it can be
+  ;; wrong. The batch is only a way to spend one nonce.
+  (reduce (fn [ex [market price]]
+            (apply-tx ex {:tx :oracle-submit :account account
+                          :market market :price price}))
+          ex
+          (sort-by key prices)))
+
 (defmethod apply-tx :oracle-submit
   [ex {:keys [account market price]}]
   (let [ex (assoc-in ex [:oracle-submissions market account]

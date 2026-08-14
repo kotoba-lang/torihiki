@@ -87,6 +87,17 @@
   what a client may charge."
   1000000)
 
+(def ^:const max-batch-prices
+  "How many markets one `:oracle-submit-batch` may carry. **256.**
+
+  A bound, not a target. The transaction is folded entry by entry into the
+  same rule a single submission uses, so an unbounded batch is an unbounded
+  amount of work bought with one signature verification — the cheapest way to
+  make a block expensive. 256 is well past the market count this venue can
+  hold in a Durable Object's memory, so the bound is not the thing that
+  limits listing."
+  256)
+
 (defn validate
   "nil when `tx` may be applied, otherwise a keyword from `reasons`.
 
@@ -382,6 +393,21 @@
       (not (contains? (:markets ex) market)) :unknown-market
       (not (map? (:spec t))) :missing-field
       :else nil)
+
+    :oracle-submit-batch
+    ;; The batch's own shape. Each entry is then checked by the same rule a
+    ;; single `:oracle-submit` is checked by, because the batch is a way to
+    ;; spend one nonce and not a second set of rules.
+    (let [prices (:prices t)]
+      (cond
+        (not (integer? account)) :bad-account
+        (not (and (map? prices) (seq prices))) :missing-field
+        (> (count prices) max-batch-prices) :missing-field
+        :else
+        (some (fn [[market price]]
+                (validate ex {:tx :oracle-submit :account account
+                              :market market :price price}))
+              (sort-by key prices))))
 
     :list-market
     (cond

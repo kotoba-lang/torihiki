@@ -95,6 +95,20 @@
     (keyword? v) (name v)
     :else (str v)))
 
+(defn canonical-prices
+  "A batch of prices as one deterministic string, or nil when there is none.
+
+  `{2 186591766, 1 6253900}` becomes `\"1=6253900,2=186591766\"`. Sorted by
+  market, because a map has no order and two nodes that serialised it in the
+  order they happened to hold it would compute different payloads for the same
+  transaction and each would call the other's signature invalid.
+
+  Public because a client has to be able to compute the same string; a signing
+  rule only one side can evaluate is a rule nobody can check."
+  [prices]
+  (when (seq prices)
+    (str/join "," (for [[m p] (sort-by key prices)] (str m "=" p)))))
+
 (defn- tx-fields
   "Every transaction field that can change what a transaction DOES, in a fixed
   order. Anything omitted here is a field an attacker could alter without
@@ -198,7 +212,17 @@
    ;; Contract code and the salt that places it. Unsigned, an attacker could
    ;; swap the bytecode of a deployment in flight and it would land, signed by
    ;; somebody who never saw it, at the address they were told to expect.
-   (:code tx) (:salt tx)])
+   (:code tx) (:salt tx)
+   ;; APPENDED, after `:salt`, for the reason stated twice above: the payload
+   ;; numbers fields by position and only the end is safe.
+   ;;
+   ;; A batch of prices is a MAP, and every other field here is a scalar. It
+   ;; is folded to one canonical string rather than given a field per market,
+   ;; because a field per market would make the payload's shape depend on how
+   ;; many markets a transaction happens to carry — and a payload whose length
+   ;; varies with its content is one where a signature over a short batch can
+   ;; be replayed against the prefix of a long one.
+   (canonical-prices (:prices tx))])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two

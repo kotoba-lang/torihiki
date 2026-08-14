@@ -5,7 +5,8 @@
             [torihiki.clearing :as cl]
             [torihiki.oracle :as orc]
             [torihiki.api :as api]
-            [torihiki.state :as st]))
+            [torihiki.state :as st]
+            [torihiki.auth :as auth]))
 
 (def params orc/default-params)
 (def pubs #{101 102 103 104 105})
@@ -200,3 +201,45 @@
         params {:quorum 2 :max-age 10}]
     (is (:stale? (orc/aggregate subs pubs 0 params #(get {1 1000} % 0)))
         "one heavily staked publisher was allowed to set the price alone")))
+
+;; ── one publisher, many markets, one nonce ──────────────────────────────────
+
+(deftest a-batch-spends-one-nonce-and-obeys-the-same-rule
+  (testing "Nonces are strictly sequential per account, so a publisher pricing
+            N markets one transaction at a time must emit N per block in the
+            right order, and one gap wedges every later one. The batch is a
+            way to spend ONE nonce — not a second set of rules."
+    (let [spec {:tick 1 :lot 1 :initial-margin-rate 25000000
+                :maintenance-margin-rate 12500000}
+          ex (-> (st/new-exchange {:market (assoc spec :id 1)})
+                 (assoc :oracle-publishers #{7} :ts 0)
+                 (assoc-in [:markets 2] (assoc spec :id 2)))
+          batch {:tx :oracle-submit-batch :account 7 :prices {2 200 1 100}}]
+      (is (nil? (api/validate ex batch)) "a well-formed batch was refused")
+      (let [ex' (st/apply-tx ex batch)]
+        (is (= 100 (get-in ex' [:oracle-submissions 1 7 :price])))
+        (is (= 200 (get-in ex' [:oracle-submissions 2 7 :price]))
+            "the batch recorded one market and dropped the other"))
+      (testing "and every entry is checked by the single-submission rule"
+        (is (some? (api/validate ex (assoc batch :prices {999 100})))
+            "priced a market that does not exist")
+        (is (some? (api/validate ex (assoc batch :prices {})))
+            "an empty batch is a transaction that does nothing")
+        (is (some? (api/validate ex (assoc batch :prices
+                                           (zipmap (range 1000) (repeat 100)))))
+            "an unbounded batch is unbounded work bought with one signature")))))
+
+(deftest a-batch-is-signed-over-a-canonical-string
+  (testing "A map has no order. Two nodes that serialised it in the order they
+            happened to hold it would compute different payloads for the same
+            transaction, and each would call the other's signature invalid."
+    (is (= "1=6253900,2=186591766"
+           (auth/canonical-prices {2 186591766 1 6253900})
+           (auth/canonical-prices (into (sorted-map) {1 6253900 2 186591766}))))
+    (is (nil? (auth/canonical-prices nil)))
+    (is (nil? (auth/canonical-prices {})))
+    (is (not= (auth/signing-payload "c" 7 1 {:tx :oracle-submit-batch
+                                             :prices {1 100}})
+              (auth/signing-payload "c" 7 1 {:tx :oracle-submit-batch
+                                             :prices {1 101}}))
+        "the prices are not covered by the signature")))
