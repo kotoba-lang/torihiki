@@ -43,8 +43,23 @@
 (def default-params
   {;; how many fresh authorised submissions are needed to publish a price
    :quorum 3
-   ;; logical seconds after which a submission stops counting
-   :max-age 60})
+   ;; How long a submission keeps counting, in the SAME unit as `:ts`.
+   ;;
+   ;; `:ts` is not a wall clock. A block's ts is its parent's plus the
+   ;; consensus layer's `:block-interval`, which is 100 — so ts advances 100
+   ;; per block and nothing else moves it. That makes the old value of 60 a
+   ;; window of **0.6 blocks**: a quorum could only ever form from three
+   ;; publishers whose submissions landed in the SAME block, for every market,
+   ;; in every block. Nothing published prices at all while that was true, so
+   ;; it cost nothing and was never noticed; it would have made the first
+   ;; price feed look broken for a reason nowhere near the price feed.
+   ;;
+   ;; 3000 is thirty blocks. Long enough that a publisher whose transaction
+   ;; misses a block still counts, short enough that a publisher that has
+   ;; stopped is dropped well before anybody trades on its last word. The
+   ;; number is a window in blocks; the unit is what matters here, not the
+   ;; exact count.
+   :max-age 3000})
 
 (defn fresh
   "Submissions from authorised publishers that are not stale, as a vector of

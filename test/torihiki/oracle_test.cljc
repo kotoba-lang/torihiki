@@ -34,8 +34,16 @@
                                    pubs 0 params)))))
 
 (deftest stale-submissions-do-not-count
-  (let [now 1000
-        s (subs* [101 100 999] [102 100 990] [103 100 100])]   ; 103 is 900s old
+  ;; Ages are derived from the window rather than written as literals. The
+  ;; window is in `:ts` units, and `:ts` advances by the consensus layer's
+  ;; block-interval (100) per block — so a literal here silently means a
+  ;; different number of blocks whenever that window is corrected, which is
+  ;; exactly what happened when `:max-age` was 60 (0.6 blocks) and this test
+  ;; still passed.
+  (let [age (:max-age params)
+        now (* 10 age)
+        s (subs* [101 100 (- now 1)] [102 100 (- now 10)]
+                 [103 100 (- now age 1)])]   ; 103 is one tick past the window
     (is (= 2 (:n (orc/aggregate s pubs now params))))
     (is (:stale? (orc/aggregate s pubs now params))
         "a quorum of fresh submissions, not of any submissions")))
