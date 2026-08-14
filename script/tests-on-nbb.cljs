@@ -34,6 +34,7 @@
             [torihiki.api-test]
             [torihiki.auth-test]
             [torihiki.book-test]
+            [torihiki.chainlink-test]
             [torihiki.clearing-test]
             [torihiki.commit-test]
             [torihiki.evm-interp-test]
@@ -59,6 +60,7 @@
 (t/run-tests 'torihiki.address-test
              'torihiki.api-test
              'torihiki.auth-test
+             'torihiki.chainlink-test
              'torihiki.book-test
              'torihiki.clearing-test
              'torihiki.commit-test

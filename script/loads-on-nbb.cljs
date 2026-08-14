@@ -36,6 +36,7 @@
             [torihiki.api]
             [torihiki.auth]
             [torihiki.book]
+            [torihiki.chainlink]
             [torihiki.clearing]
             [torihiki.commit]
             [torihiki.evm]
