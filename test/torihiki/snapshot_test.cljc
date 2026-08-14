@@ -178,6 +178,75 @@
     (is (= (:rejected ex) (:rejected (snap/capture ex))))
     (is (= (:rejected ex) (:rejected (snap/restore (snap/capture ex)))))))
 
+;; ── the host's views are not state, and must not ride in the state write ────
+
+(defn- with-views
+  "The same exchange with a host's views folded in beside it, the way
+  `torihiki-node.validator`'s apply-fn does. Big enough that carrying them
+  would be visible in the write, because the failure being tested for is a
+  write that grew until the platform reset the object holding it."
+  [ex]
+  (assoc ex
+         :tape (vec (for [i (range 2000)]
+                      {:m 1 :level (+ 400 (mod i 200)) :qty 3 :side 0
+                       :taker 1 :maker 2 :h i}))
+         :candles {1 (vec (for [i (range 4000)]
+                            {:o 500 :h* 505 :l 495 :c 502 :v 9 :h i}))
+                   2 (vec (for [i (range 4000)]
+                            {:o 20 :h* 21 :l 19 :c 20 :v 4 :h i}))}
+         :refused (vec (repeat 5000 :insufficient-margin))))
+
+(deftest the-views-are-outside-the-root-which-is-why-they-can-be-dropped
+  ;; The premise of dropping them. If any of these were under the root,
+  ;; dropping them would be a divergence rather than a shorter chart.
+  (let [ex (exchange-with-history)
+        v (with-views ex)]
+    (is (= (st/state-root ex) (st/state-root v)))
+    (is (= (vec (st/canonical-bytes ex)) (vec (st/canonical-bytes v))))))
+
+(deftest capture-does-not-carry-the-hosts-views
+  (let [v (with-views (exchange-with-history))
+        c (snap/capture v)]
+    (doseq [k snap/view-keys]
+      (is (not (contains? c k))
+          (str "the state write is still carrying " k)))
+    (testing "and the state it does carry is unchanged"
+      (is (= (st/state-root v) (st/state-root (snap/restore c))))
+      (is (= (vec (st/canonical-bytes v))
+             (vec (st/canonical-bytes (snap/restore c))))))
+    (testing "which is the whole point: the write got smaller"
+      (is (< (count (snap/write-string c))
+             (quot (count (snap/write-string (assoc c :tape (:tape v)
+                                                   :candles (:candles v)
+                                                   :refused (:refused v))))
+                   10))
+          "dropping the views did not shrink the state write by much"))))
+
+(deftest rejected-is-not-refused
+  ;; Two keys one letter apart, and only one of them is state. `:rejected` is
+  ;; under the root and is carried; `:refused` is the host's running tally of
+  ;; reasons and is not. Getting these the wrong way round would drop state.
+  (let [v (with-views (exchange-with-history))
+        c (snap/capture v)]
+    (is (seq (:rejected c)) "the fixture stopped producing a rejection")
+    (is (= (:rejected v) (:rejected c)))
+    (is (not (contains? c :refused)))))
+
+(deftest an-older-snapshot-that-still-has-views-restores
+  ;; Every checkpoint written before this change carries them. Refusing those
+  ;; would make all four replicas replay the log at once, which is the outage
+  ;; a snapshot exists to prevent — so the version did not move and an old
+  ;; shape still loads, views and all.
+  (let [ex (exchange-with-history)
+        old (-> (snap/capture ex)
+                (assoc :tape [{:m 1 :level 500 :qty 1 :h 7}]
+                       :candles {1 [{:o 500 :c 500 :h 7}]}
+                       :refused [:unknown-order]))
+        r (-> old snap/write-string snap/read-string* snap/restore)]
+    (is (= (st/state-root ex) (st/state-root r)))
+    (is (= [{:m 1 :level 500 :qty 1 :h 7}] (:tape r))
+        "an old snapshot's views were dropped on the way back in")))
+
 (deftest an-unknown-format-version-is-refused-not-guessed
   (let [s (assoc (snap/capture (exchange-with-history)) :snapshot/version 999)]
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)

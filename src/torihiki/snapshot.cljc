@@ -58,6 +58,9 @@
   book HOLDS, not what it could hold — the same property `state-root` already
   has for the same reason.
 
+  And the host's views — see `view-keys`. Same principle one level out: a
+  snapshot costs what the STATE holds, not what somebody folded in beside it.
+
   ## The format is EDN, not JSON
 
   Account ids are integers and JSON has no integer keys; `:oracle-publishers`
@@ -72,13 +75,58 @@
 (def ^:const format-version
   "Bumped when the shape changes. A restore that silently accepted an older
   shape would produce a state that is wrong rather than a load that fails,
-  and wrong state is what the state root exists to make impossible to hide."
+  and wrong state is what the state root exists to make impossible to hide.
+
+  **Not bumped when `capture` stopped carrying `view-keys`**, and the reason
+  is the rule above rather than an exception to it. An older snapshot has
+  those keys in it; restoring one produces the same state root it always did,
+  because the root never committed to them. Nothing is silently accepted that
+  is wrong — the extra keys are the host's own views handed back to the host.
+
+  Refusing them would have been the expensive mistake: every checkpoint on
+  disk would fail to load at once, and a fleet that cannot load a checkpoint
+  replays the log, which is the outage this namespace exists to prevent."
   1)
 
+(def view-keys
+  "Keys a HOST folds into the exchange map that are not the exchange.
+
+  `torihiki.state` never writes these; `torihiki-node.validator`'s apply-fn
+  does, beside the state, because the map it folds is the only place it has to
+  put them. A print tape, a candle index per market, and the reasons blocks
+  refused things — all three are views over fills the root already commits to,
+  and `torihiki.state/canonical-leaves` reads none of them.
+
+  ## Why dropping them is the whole point
+
+  A capture becomes ONE Durable Object storage write, and that write is what
+  has to stay small. It already carries the whole exchange; carrying an
+  unbounded history beside it means that past some size the write no longer
+  fits in the platform's storage timeout — and the platform's answer to that
+  is not an error the caller catches. Captured from the deployed chain:
+
+    Durable Object storage operation exceeded timeout which caused object to
+    be reset.
+
+  The reset dropped the venue to three of four replicas. A quorum of three has
+  no margin left at three, so the next replica to fall behind stopped the
+  chain. It happened three times and looked like a consensus stall each time.
+
+  ## What it costs
+
+  History, not state. A host that wants its views back across a restart writes
+  them in a separate, bounded write; a host that does not gets a shorter tape
+  and a shorter chart, which the routes serving them report as their own
+  horizon rather than implying. The failure mode is visible, and it is not a
+  state root that disagrees with the rest of the venue."
+  #{:tape :candles :refused})
+
 (defn capture
-  "Exchange → plain data. Pure."
+  "Exchange → plain data. Pure.
+
+  `view-keys` are dropped: what comes out is what the state root commits to."
   [ex]
-  (-> ex
+  (-> (apply dissoc ex view-keys)
       (assoc :snapshot/version format-version)
       ;; `:rejected` normalised to a vector: it is in the state root, and a
       ;; `nil` and an empty vector encode to the same bytes but are not `=`,
