@@ -276,3 +276,30 @@
         (is (= (:oracle-params ex)
                (:oracle-params (st/apply-tx ex (set-tx 9 3000))))
             "a quorum no set of publishers can reach freezes every price")))))
+
+(deftest a-batch-survives-the-json-round-trip
+  (testing "`clj->js` has no integer keys to give, so a batch that goes out
+            through JSON comes back keyed by strings. Measured: a batch signed
+            with integer keys, submitted, and silently never applied — no
+            refusal counter moved, because `1` and \"1\" are not the same
+            market to anything downstream, and the transaction simply did
+            nothing."
+    (let [spec {:tick 1 :lot 1 :initial-margin-rate 25000000
+                :maintenance-margin-rate 12500000}
+          ex (-> (st/new-exchange {:market (assoc spec :id 1)})
+                 (assoc :oracle-publishers #{7} :ts 0)
+                 (assoc-in [:markets 2] (assoc spec :id 2)))
+          ints {:tx :oracle-submit-batch :account 7 :prices {1 100 2 200}}
+          strs {:tx :oracle-submit-batch :account 7 :prices {"1" 100 "2" 200}}]
+      (testing "the canonical string does not depend on which side is looking"
+        (is (= (auth/canonical-prices (:prices ints))
+               (auth/canonical-prices (:prices strs))
+               "1=100,2=200")))
+      (testing "and neither does validation or application"
+        (is (= (api/validate ex ints) (api/validate ex strs) nil))
+        (is (= 100 (get-in (st/apply-tx ex strs) [:oracle-submissions 1 7 :price])))
+        (is (= 200 (get-in (st/apply-tx ex strs) [:oracle-submissions 2 7 :price]))))
+      (testing "and the numeric order is numeric, not lexicographic"
+        (is (= "2=1,10=2" (auth/canonical-prices {"10" 2 "2" 1}))
+            "sorted as strings, market 10 would come before market 2 and two
+             nodes holding the same batch would sign different payloads")))))

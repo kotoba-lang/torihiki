@@ -416,7 +416,14 @@
         (some (fn [[market price]]
                 (validate ex {:tx :oracle-submit :account account
                               :market market :price price}))
-              (sort-by key prices))))
+              ;; Normalised for the reason `auth/canonical-prices` gives: a
+              ;; market id is an integer in memory and a string after JSON.
+              (sort-by first
+                       (for [[m p] prices]
+                         [(if (string? m)
+                            #?(:clj (Long/parseLong m) :cljs (js/parseInt m 10))
+                            m)
+                          p])))))
 
     :list-market
     (cond

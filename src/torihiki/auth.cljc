@@ -95,6 +95,9 @@
     (keyword? v) (name v)
     :else (str v)))
 
+(defn- js-or-jvm-int [s]
+  #?(:clj (Long/parseLong s) :cljs (js/parseInt s 10)))
+
 (defn canonical-prices
   "A batch of prices as one deterministic string, or nil when there is none.
 
@@ -104,10 +107,20 @@
   transaction and each would call the other's signature invalid.
 
   Public because a client has to be able to compute the same string; a signing
-  rule only one side can evaluate is a rule nobody can check."
+  rule only one side can evaluate is a rule nobody can check.
+
+  A market id arrives as an INTEGER when this map was built in memory and as a
+  STRING when the same transaction came back through JSON — `clj->js` has no
+  integer keys to give. The canonical form must not depend on which side is
+  looking, so keys are normalised to numbers here and sorted numerically.
+  Measured: a batch signed with integer keys, submitted, and silently never
+  applied, because `1` and `\"1\"` are not the same market to anything
+  downstream."
   [prices]
   (when (seq prices)
-    (str/join "," (for [[m p] (sort-by key prices)] (str m "=" p)))))
+    (let [norm (for [[m p] prices]
+                 [(if (string? m) (js-or-jvm-int m) m) p])]
+      (str/join "," (for [[m p] (sort-by first norm)] (str m "=" p))))))
 
 (defn- tx-fields
   "Every transaction field that can change what a transaction DOES, in a fixed

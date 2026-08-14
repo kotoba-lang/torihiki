@@ -961,6 +961,19 @@
       ex
       (assoc ex :oracle-params (assoc p :quorum quorum :max-age max-age)))))
 
+(defn normalise-prices
+  "A batch's `[market price]` pairs with market ids as numbers.
+
+  `clj->js` has no integer keys to give, so a batch that went out through JSON
+  comes back keyed by strings. Public because `torihiki.api` validates the
+  same pairs and has to see the same ones."
+  [prices]
+  (for [[m p] prices]
+    [(if (string? m)
+       #?(:clj (Long/parseLong m) :cljs (js/parseInt m 10))
+       m)
+     p]))
+
 (defmethod apply-tx :oracle-submit-batch
   [ex {:keys [account prices]}]
   ;; One publisher, many markets, ONE nonce.
@@ -974,11 +987,14 @@
   ;; Folded through `:oracle-submit` rather than reimplemented beside it, so
   ;; there is one rule for what a submission does and one place it can be
   ;; wrong. The batch is only a way to spend one nonce.
+  ;; Keys normalised, for the reason `torihiki.auth/canonical-prices` gives:
+  ;; a market id is an integer in memory and a string after a JSON round trip,
+  ;; and `1` is not `"1"` to anything downstream.
   (reduce (fn [ex [market price]]
             (apply-tx ex {:tx :oracle-submit :account account
                           :market market :price price}))
           ex
-          (sort-by key prices)))
+          (sort-by first (normalise-prices prices))))
 
 (defmethod apply-tx :oracle-submit
   [ex {:keys [account market price]}]
