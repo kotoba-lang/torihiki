@@ -28,7 +28,8 @@
   it. `reasons` is the whole list."
   (:require [torihiki.book :as bk]
             [torihiki.clearing :as cl]
-            [torihiki.auth :as auth]))
+            [torihiki.auth :as auth]
+            [torihiki.oracle :as orc]))
 
 (def reasons
   "Every rejection this API can produce. Closed set — see the ns docstring."
@@ -392,6 +393,14 @@
       (not (integer? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (map? (:spec t))) :missing-field
+      :else nil)
+
+    :set-oracle-params
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (integer? (:quorum t)) (>= (:quorum t) 2))) :missing-field
+      (not (and (integer? (:max-age t)) (pos? (:max-age t))
+                (<= (:max-age t) orc/max-age-ceiling))) :missing-field
       :else nil)
 
     :oracle-submit-batch

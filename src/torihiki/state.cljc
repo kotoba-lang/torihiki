@@ -933,6 +933,34 @@
 
 ;; One publisher's observation. The aggregate is recomputed from every fresh
 ;; authorised submission; a single publisher never sets the price.
+(defmethod apply-tx :set-oracle-params
+  [ex {:keys [account quorum max-age]}]
+  ;; The freshness window and the quorum, changeable on a running chain.
+  ;;
+  ;; They were genesis data and nothing else, so a wrong value could only be
+  ;; corrected by destroying the chain and starting again. `:max-age` was
+  ;; wrong — 60, against a `:ts` that advances 100 per block, which is a
+  ;; window of 0.6 blocks — and the deployed venue could not be fixed without
+  ;; being rebuilt. A constant that can only be right at genesis is a constant
+  ;; that will be wrong in production.
+  ;;
+  ;; Bridge authority, like `:list-market`. **Bounded**, because this is the
+  ;; dial that decides how old a price may be and how many publishers have to
+  ;; agree: a `max-age` of a million would make a price from an hour ago count
+  ;; as fresh, and a `quorum` of one would let a single publisher move every
+  ;; market. Neither is expressible here.
+  (let [pubs (count (:oracle-publishers ex))
+        p (:oracle-params ex)
+        ok? (and (= account (:bridge-authority ex))
+                 (some? (:bridge-authority ex))
+                 (integer? quorum) (>= quorum 2)
+                 (or (zero? pubs) (<= quorum pubs))
+                 (integer? max-age) (pos? max-age)
+                 (<= max-age orc/max-age-ceiling))]
+    (if-not ok?
+      ex
+      (assoc ex :oracle-params (assoc p :quorum quorum :max-age max-age)))))
+
 (defmethod apply-tx :oracle-submit-batch
   [ex {:keys [account prices]}]
   ;; One publisher, many markets, ONE nonce.

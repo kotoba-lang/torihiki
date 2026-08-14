@@ -243,3 +243,36 @@
               (auth/signing-payload "c" 7 1 {:tx :oracle-submit-batch
                                              :prices {1 101}}))
         "the prices are not covered by the signature")))
+
+(deftest the-freshness-window-is-changeable-and-bounded
+  (testing "It was genesis data and nothing else, so a wrong value could only
+            be corrected by destroying the chain. :max-age WAS wrong — 60,
+            against a :ts that advances 100 per block — and the deployed venue
+            could not be fixed without being rebuilt. A constant that can only
+            be right at genesis is one that will be wrong in production."
+    (let [ex (-> (st/new-exchange {:market {:id 1 :tick 1 :lot 1
+                                            :initial-margin-rate 25000000
+                                            :maintenance-margin-rate 12500000}})
+                 (assoc :bridge-authority 5 :oracle-publishers #{7 8 9}))
+          set-tx (fn [q a] {:tx :set-oracle-params :account 5 :quorum q :max-age a})]
+      (is (nil? (api/validate ex (set-tx 3 3000))))
+      (is (= 3000 (:max-age (:oracle-params (st/apply-tx ex (set-tx 3 3000))))))
+
+      (testing "and it is a dial with bounds, not a free parameter"
+        (is (some? (api/validate ex (set-tx 1 3000)))
+            "a quorum of one lets a single publisher move every market")
+        (is (some? (api/validate ex (set-tx 3 (inc orc/max-age-ceiling))))
+            "a window past the ceiling makes stale? stop meaning anything —
+             liquidation is gated on it")
+        (is (some? (api/validate ex (set-tx 3 0))) "a zero window"))
+
+      (testing "and only the bridge may turn it"
+        (is (= (:oracle-params ex)
+               (:oracle-params (st/apply-tx ex (assoc (set-tx 3 3000)
+                                                      :account 99))))
+            "a stranger changed how old a price may be"))
+
+      (testing "quorum cannot exceed the publishers who could meet it"
+        (is (= (:oracle-params ex)
+               (:oracle-params (st/apply-tx ex (set-tx 9 3000))))
+            "a quorum no set of publishers can reach freezes every price")))))

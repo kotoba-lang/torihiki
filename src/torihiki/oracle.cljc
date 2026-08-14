@@ -40,6 +40,15 @@
   answering it here."
   (:require [torihiki.fixed :as fx]))
 
+(def ^:const max-age-ceiling
+  "The largest freshness window `:set-oracle-params` will accept. **100000.**
+
+  A thousand blocks at the consensus layer's block-interval of 100. Past that
+  a `stale?` flag stops meaning anything: liquidation is gated on it, so a
+  window nobody can exceed is a window where a publisher that died an hour ago
+  still counts."
+  100000)
+
 (def default-params
   {;; how many fresh authorised submissions are needed to publish a price
    :quorum 3
