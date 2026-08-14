@@ -311,3 +311,33 @@
       (is (= :oracle-is-aggregated
              (api/validate priced {:tx :oracle :account 77 :market 1 :price 9}))
           "the authority could set the price twice"))))
+
+(deftest a-market-without-risk-parameters-is-not-listable
+  ;; Every risk field defaults to zero or one at its read site, so a spec of
+  ;; {:tick 1 :lot 1} used to list a market with an initial margin rate of 0.
+  ;; Measured before this check existed: an account holding 1000 collateral
+  ;; opened a position of 10,000,000 notional — ten thousand times its
+  ;; collateral — with liquidatable? false. That is not a market, it is a mint.
+  ;;
+  ;; The venue's own specs are safe only because `clearing/market` derives
+  ;; these. The transaction path never calls it, and the HTTP door is not
+  ;; behind the admin guard, so the constructor is a convention, not a check.
+  (let [ex (assoc (fresh) :bridge-authority 7)
+        list-tx (fn [spec] {:tx :list-market :account 7 :market 99 :spec spec})
+        ok {:tick 1 :lot 1 :initial-margin-rate 25000000
+            :maintenance-margin-rate 12500000}]
+    (is (nil? (api/validate ex (list-tx ok)))
+        "a fully specified market stopped being listable")
+    (is (= :missing-field (api/validate ex (list-tx {:tick 1 :lot 1})))
+        "listed a market with no risk parameters at all")
+    (is (= :missing-field
+           (api/validate ex (list-tx (dissoc ok :initial-margin-rate))))
+        "listed a market with no initial margin rate")
+    (is (= :missing-field
+           (api/validate ex (list-tx (assoc ok :initial-margin-rate 0))))
+        "a zero initial margin rate is infinite leverage")
+    (is (= :missing-field
+           (api/validate ex (list-tx (assoc ok :maintenance-margin-rate
+                                            (:initial-margin-rate ok)))))
+        "maintenance at or above initial makes a position liquidatable the
+         moment it is opened")))

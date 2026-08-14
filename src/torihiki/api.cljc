@@ -394,6 +394,32 @@
       (not (map? (:spec t))) :missing-field
       (not (and (integer? (:tick (:spec t))) (pos? (:tick (:spec t))))) :missing-field
       (not (and (integer? (:lot (:spec t))) (pos? (:lot (:spec t))))) :missing-field
+      ;; The risk parameters, required.
+      ;;
+      ;; They used to be optional, and every one of them defaults to zero or
+      ;; one at its read site — so a spec of `{:tick 1 :lot 1}` listed a market
+      ;; with an initial margin rate of 0, a maintenance rate of 0, no fees and
+      ;; no open-interest cap. Measured: an account holding 1000 collateral
+      ;; opened a position of 10,000,000 notional on such a market — ten
+      ;; thousand times its collateral — with `liquidatable?` false. That is
+      ;; not a market, it is a mint.
+      ;;
+      ;; The specs this venue actually lists are safe only because they are
+      ;; built by `clearing/market`, which derives these. **The transaction
+      ;; path never calls it**, and `POST /markets` is not behind the admin
+      ;; guard, so the constructor is not a check — it is a convention that
+      ;; nothing enforces. This is the check.
+      (not (and (integer? (:initial-margin-rate (:spec t)))
+                (pos? (:initial-margin-rate (:spec t)))))
+      :missing-field
+      (not (and (integer? (:maintenance-margin-rate (:spec t)))
+                (pos? (:maintenance-margin-rate (:spec t)))))
+      :missing-field
+      ;; Maintenance below initial, or a position is liquidatable the moment
+      ;; it is opened.
+      (not (< (:maintenance-margin-rate (:spec t))
+              (:initial-margin-rate (:spec t))))
+      :missing-field
       :else nil)
 
     (:withdraw-settle :withdraw-cancel)
