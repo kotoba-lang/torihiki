@@ -515,7 +515,36 @@ recorded rather than assumed.
 
 ## Test
 
+Both runtimes, and the counts must agree:
+
 ```bash
-clojure -M:test          # 158 tests, 461 assertions
-clojure -M:bench 3000000 # throughput
+clojure -M:test                                    # the JVM
+KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
+  nbb --classpath "$(nbb script/nbb-classpath.cljs)" \
+      script/tests-on-nbb.cljs                     # ClojureScript, no JVM
+clojure -M:bench 3000000                           # throughput
 ```
+
+Measured 2026-08-31 at `96ac270`, both printing **325 tests / 847
+assertions, 0 failures**.
+
+**The ClojureScript run is the one that matters most, because it is the one
+that ships.** `torihiki-node` compiles this engine to a Worker bundle and a
+validator executes those bytes; the JVM suite is the one nobody deploys.
+Until `script/tests-on-nbb.cljs` existed, the ClojureScript path asserted
+`script/loads-on-nbb.cljs` (every namespace can be *required*) plus
+`torihiki.parity` (two digests) and nothing else.
+
+It found something immediately. `test/torihiki/thorchain_test.cljc` built its
+Ethereum-log fixture with `(int c)` over a character, which is 84 on the JVM
+and **0** in ClojureScript -- so on the runtime that deploys, four assertions
+about reading a deposit out of a log were passing over a memo of nul bytes.
+`decode-deposit-data` itself was correct there all along and is now checked
+by a fixture that encodes real bytes, under a floor that fails first and says
+so. `clojure -M:bench` still needs the JVM; nothing else does.
+
+`script/nbb-classpath.cljs` builds the classpath from the `deps.edn` pins
+rather than from sibling checkouts, which sit at whatever commit `west` last
+moved them to -- on 2026-08-31 all three were at a different commit than the
+pin. It exits 2 naming a dependency it cannot resolve, rather than printing a
+short classpath.

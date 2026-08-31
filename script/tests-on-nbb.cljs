@@ -1,0 +1,102 @@
+;; The whole test suite, on ClojureScript, without a JVM.
+;;
+;;   nbb --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
+;;       script/tests-on-nbb.cljs
+;;
+;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and
+;; calls this, so the pins are what runs rather than whatever is checked out.
+;;
+;; ## Why this exists, and why `loads-on-nbb` is not it
+;;
+;; `loads-on-nbb` requires every namespace and stops. It catches the class it
+;; was written for -- unresolvable symbols, reader damage, macro expansion that
+;; only works on one side -- and its own comment says plainly that it does NOT
+;; catch behaviour that differs between the runtimes.
+;;
+;; That leaves the ClojureScript path asserting almost nothing, and the
+;; ClojureScript path is the one that DEPLOYS: `torihiki-node` compiles this
+;; engine to a Worker bundle, and a validator runs those bytes. The JVM suite
+;; is the one nobody ships.
+;;
+;; The gap was not hypothetical either. `torihiki.parity` exists because a
+;; JVM-side optimisation -- reading a record's fields with direct interop --
+;; returned `undefined` in ClojureScript instead of failing, and surfaced much
+;; later as an array read on nothing. `parity` pins two digests against that.
+;; Two digests are not 845 assertions.
+;;
+;; ## And because the ledger already claimed this file
+;;
+;; ADR-2800004800 section 4 records, under "this period's added instruments",
+;; `script/tests-on-nbb.cljs -- 328 tests / 850 assertions on both runtimes`.
+;; The file was not on `main`. A recorded instrument that does not exist reads
+;; exactly like one that exists and is passing, which is the failure this
+;; workspace names as its own: a check that could not run returning the value
+;; of a check that ran and found nothing.
+;;
+;; So the counts below are printed, not asserted against a remembered number.
+;; The JVM suite prints its own; two numbers that disagree are a finding.
+(ns tests-on-nbb
+  (:require [cljs.test :as ct]
+            [torihiki.address-test]
+            [torihiki.api-test]
+            [torihiki.auth-test]
+            [torihiki.book-test]
+            [torihiki.clearing-test]
+            [torihiki.commit-test]
+            [torihiki.evm-interp-test]
+            [torihiki.evm-test]
+            [torihiki.funding-test]
+            [torihiki.log-test]
+            [torihiki.mark-test]
+            [torihiki.oracle-test]
+            [torihiki.snapshot-test]
+            [torihiki.state-test]
+            [torihiki.thorchain-test]
+            [torihiki.trigger-test]))
+
+;; The floor. A classpath that resolves `cljs.test` but none of the test
+;; namespaces would run zero tests and report zero failures, and this script
+;; would exit 0 -- "could not measure" wearing the face of "measured, clean".
+;; Sixteen namespaces are required above; fewer than sixteen ran means the
+;; run is unanswerable, and it exits 2 rather than 0 or 1.
+(def ^:private expected-namespaces 16)
+(defonce ^:private ns-seen (atom 0))
+
+(defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
+
+(defmethod ct/report [::ct/default :end-run-tests] [m]
+  (let [{:keys [test pass fail error]} m
+        ran-ns @ns-seen]
+    (println (str "namespaces " ran-ns "/" expected-namespaces))
+    (println)
+    (println (str "Ran " test " tests containing " (+ pass fail error) " assertions."))
+    (println (str fail " failures, " error " errors."))
+    (cond
+      (or (zero? test) (< ran-ns expected-namespaces))
+      (do (println (str "REFUSING to report a pass: " ran-ns " of " expected-namespaces
+                        " namespaces ran and " test " tests executed. The classpath did"
+                        " not carry the suite; this run is unanswerable, not clean."))
+          (js/process.exit 2))
+
+      (pos? (+ fail error))
+      (js/process.exit 1)
+
+      :else
+      (println "TESTS-ON-NBB: pass — the runtime that deploys ran the suite"))))
+
+(ct/run-tests 'torihiki.address-test
+              'torihiki.api-test
+              'torihiki.auth-test
+              'torihiki.book-test
+              'torihiki.clearing-test
+              'torihiki.commit-test
+              'torihiki.evm-interp-test
+              'torihiki.evm-test
+              'torihiki.funding-test
+              'torihiki.log-test
+              'torihiki.mark-test
+              'torihiki.oracle-test
+              'torihiki.snapshot-test
+              'torihiki.state-test
+              'torihiki.thorchain-test
+              'torihiki.trigger-test)
