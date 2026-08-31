@@ -1,0 +1,10 @@
+[["in-domain?",0],["in-domain?",9007199254740991],["in-domain?",-9007199254740991],
+ ["i53-max"],["i53-min"],["rate-scale"],
+ ["bps",1],["bps",-3],["pct",5],["pct",-2],
+ ["fdiv",7,2],["fdiv",-7,2],["fdiv",7,-2],["fdiv",-7,-2],["fdiv",6,3],["fdiv",-6,3],["fdiv",0,5],
+ ["fmod",7,2],["fmod",-7,2],["fmod",7,-2],["fmod",-7,-2],["fmod",-6,3],
+ ["abs*",-5],["abs*",5],["abs*",0],
+ ["clamp",5,0,10],["clamp",-5,0,10],["clamp",50,0,10],
+ ["div-round-half-up",5,2],["div-round-half-up",-5,2],["div-round-half-up",5,-2],
+ ["div-round-half-up",-5,-2],["div-round-half-up",1,2],["div-round-half-up",-1,2],
+ ["div-round-half-up",3,2],["div-round-half-up",4,2],["div-round-half-up",7,3],["div-round-half-up",-7,3]]

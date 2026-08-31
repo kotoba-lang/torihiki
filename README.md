@@ -464,6 +464,60 @@ Still not **incremental**: a root costs the whole state, which is right for
 the kilobytes a normal block touches and wrong for a book holding hundreds of
 thousands of resting orders.
 
+## Kotoba
+
+`torihiki.fixed` exists twice: `src/torihiki/fixed.cljc`, and
+`kotoba/torihiki/fixed.kotoba` compiled by `amu` with no JVM anywhere on the
+path.
+
+The whole public surface moved, all fourteen exports, because superproject Q9
+does not accept a decision core as a migration unit -- a predicate lifted out
+of a namespace is compiler research, not a component. What it does accept is
+what this is: a namespace's full public surface and its transitive closure,
+which for this one is nothing.
+
+```bash
+AMU_HOME=<kotoba-lang/amu> KOTOBA_CHECKOUTS=<siblings> \
+  nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/kotoba-parity.cljs
+# fixed: 38 cases, 0 drift
+# fixed/result: 20 cases, 0 drift
+```
+
+It compiles JVM-free to **wasm32 and aarch64-macos**. The wasm is executed --
+through `amu`'s own shipped `browser-host.mjs`, not a host written for the
+test, which would be a stub of the thing under test -- and every export is
+compared against the `.cljc`. **The native artifact compiles and was not
+run**, so nothing here claims it agrees.
+
+### Two differences, both intended
+
+**`check` became `checked` and returns `[:result :i64 :i64]`.** Kotoba forbids
+untracked control effects permanently, so the refusal is a value. The name
+changed with the shape: a caller that missed the change would otherwise get a
+result handle where it expected an integer, and store it.
+
+**The three constants became accessors.** A namespace export list naming a
+`def` is refused, so `i53-max` is now `(i53-max)`. A real shape change for a
+consumer, and the reason the whole surface still has every name it had.
+
+### And one the migration found
+
+`div-round-half-up` did its arithmetic through `Math/abs` on a **double** and
+came back with `long` -- inside a namespace whose own docstring says there is
+no floating point anywhere on the state-transition path, because two
+validators disagreeing on the last bit of an f64 produce different state roots
+and the chain halts. Every value it handles is inside the i53 domain, where
+f64 is exact, so the parity table agrees on all 38 cases and the defect was
+latent rather than live. The guarantee was still written and not kept. The
+Kotoba version is integer throughout.
+
+### The oracle stays
+
+Q9's rollback policy is explicit: `:oracle-retained-until-soak`,
+`:old-source-deletion-forbidden-before-soak`, and cutover is a consumer
+choosing the new source rather than a rename. Nothing in this repository calls
+the Kotoba build yet. `src/torihiki/fixed.cljc` is what the engine runs.
+
 ## Platform
 
 `.cljc` throughout. The JVM path is the one that meets the throughput target;

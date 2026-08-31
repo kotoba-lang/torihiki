@@ -1,0 +1,8 @@
+[["checked-is-ok",0],["checked-is-ok",9007199254740991],["checked-is-ok",9007199254740992],
+ ["checked-is-ok",-9007199254740991],["checked-is-ok",-9007199254740992],
+ ["checked-ok",0],["checked-ok",42],["checked-ok",-42],["checked-ok",9007199254740991],
+ ["mul-rate-is-ok",1000,1000000000],["mul-rate-is-ok",1000,500000000],
+ ["mul-rate-ok",1000,1000000000],["mul-rate-ok",1000,500000000],
+ ["mul-rate-ok",-1000,500000000],["mul-rate-ok",7,333333333],
+ ["notional-is-ok",100,200],["notional-ok",100,200],["notional-ok",-100,200],
+ ["notional-is-ok",3000000000,3000000],["notional-ok",0,0]]

@@ -1,0 +1,38 @@
+(ns torihiki.fixed-parity
+  (:require [torihiki.fixed :as fx])
+  (:export [checked-ok checked-is-ok mul-rate-ok mul-rate-is-ok
+            notional-ok notional-is-ok main]))
+
+;; Three of `torihiki.fixed`'s exports return `[:result :i64 :i64]`, which
+;; crosses the Wasm boundary as an opaque pair handle. A host can hold it and
+;; cannot read it, so the parity table could not compare them against the
+;; `.cljc` oracle at all -- and an export nothing compares is an export nobody
+;; has checked.
+;;
+;; This opens them. It is test scaffolding and not part of the library's
+;; surface: `torihiki.fixed` keeps returning results, because the whole point
+;; of the migration is that a refusal is a value rather than a throw.
+;;
+;; Each pair is deliberate. `-is-ok` says WHICH ARM the result took and `-ok`
+;; says what is in it, because a single function returning a fallback on the
+;; error arm cannot distinguish `the value was 0` from `it refused`.
+
+(defn checked-is-ok [v :i64] :i64
+  (if (result-ok?-of [:result :i64 :i64] (fx/checked v)) 1 0))
+
+(defn checked-ok [v :i64] :i64
+  (result-value-of [:result :i64 :i64] (fx/checked v) 0))
+
+(defn mul-rate-is-ok [amount :i64 rate :i64] :i64
+  (if (result-ok?-of [:result :i64 :i64] (fx/mul-rate amount rate)) 1 0))
+
+(defn mul-rate-ok [amount :i64 rate :i64] :i64
+  (result-value-of [:result :i64 :i64] (fx/mul-rate amount rate) 0))
+
+(defn notional-is-ok [price :i64 size :i64] :i64
+  (if (result-ok?-of [:result :i64 :i64] (fx/notional price size)) 1 0))
+
+(defn notional-ok [price :i64 size :i64] :i64
+  (result-value-of [:result :i64 :i64] (fx/notional price size) 0))
+
+(defn main [] :i64 0)
