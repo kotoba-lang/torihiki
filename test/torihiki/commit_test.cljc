@@ -24,8 +24,32 @@
   ;; than deleted because its job never was to hold one particular digest — it
   ;; is to make an accidental encoding change impossible to land quietly, and
   ;; that job is the same on the far side of a deliberate one.
-  (is (= "905b2af46374b2d128e1ecaab26a159ba21f5c6f257b13201a9c92d742b79892"
+  ;;
+  ;; It moved a second time, for the same kind of reason: `torihiki.principal`
+  ;; put the identity authority into the governance leaf and each account's
+  ;; Stable Principal and pending claim into its auth leaf. The binding is what
+  ;; permits `:principal-rotate` to replace an owner key, so leaving it outside
+  ;; the root would let two replicas disagree about who may take an account
+  ;; over while reporting the same state — the sentence above, about who may
+  ;; mint, applied to who may take an account.
+  (is (= "58c6e7508c817b717abdf02b908258087d8602ed98a2e23fce6a4dd6c7655ee0"
          (st/flat-root (ex)))))
+
+(deftest the-published-parity-digests-are-the-ones-this-code-produces
+  ;; The README tells a reader to run the two parity halves and check that
+  ;; both print two named digests. That instruction was wrong: on `main` at
+  ;; 553f557 the pair printed 905b2af4… / dfff1b58… while the README published
+  ;; 22f75a7f… / 55d6da14…, stale since the governance leaf landed.
+  ;;
+  ;; Nobody noticed because a digest in prose is not a check — following the
+  ;; instruction would have failed, and not following it costs nothing. So the
+  ;; pair is asserted here, where it fails on the far side of an encoding
+  ;; change instead of quietly disagreeing with the file that documents it.
+  ;;
+  ;; `state-root` in particular was pinned nowhere: `flat-root` had the test
+  ;; above and the tree root had only the README.
+  (is (= "0d09061a2b24c421f86ae4ad1be354fc1dfb9c0565c46da28c7edeae3f04d190"
+         (st/state-root (ex)))))
 
 (deftest the-root-carries-the-total-collateral
   ;; Proof of reserves, liability half. The sums were all zero until bad debt

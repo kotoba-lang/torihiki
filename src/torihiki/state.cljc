@@ -32,6 +32,7 @@
             [torihiki.oracle :as orc]
             [torihiki.api :as api]
             [torihiki.auth :as auth]
+            [torihiki.principal :as pr]
             [torihiki.keccak :as kc]
             [kotoba.bytes :as b]
             [kotoba.bytes.sha256 :as sha]
@@ -121,6 +122,12 @@
      ;; backing every position is whatever people asked for. `torihiki.api`
      ;; explains why that makes the clearinghouse exact and meaningless.
      :bridge-authority (:bridge-authority _cfg)
+     ;; The identity plane's account, or nil. `torihiki.principal/configured?`
+     ;; reads nil as CLOSED, not open -- unlike the bridge, where nil is the
+     ;; devnet faucet. An unset mint authority means anyone may mint; an unset
+     ;; identity authority means there is no identity plane, and admitting
+     ;; everyone would let any account rotate any other account's key.
+     :controller-authority (:controller-authority _cfg)
      ;; A fired trigger places an order, which moves the book, which reprices
      ;; the mark, which can arm more triggers. That cascade has to terminate.
      :max-trigger-rounds 8
@@ -599,6 +606,37 @@
   ;; account every block to find the few that have something matured. The
   ;; money never moved, so waiting costs the holder nothing but the ask.
   (update ex :clearing cl/collect-unbonded account (:height ex 0)))
+
+(defmethod apply-tx :principal-claim
+  ;; The owner half of the handshake. `torihiki.auth` has already established
+  ;; that this envelope was signed by the account, so the only questions left
+  ;; are the ones `torihiki.principal` answers -- and a refusal is a no-op
+  ;; rather than a throw, because a claim that cannot be recorded must not stop
+  ;; a block.
+  [ex {:keys [account principal]}]
+  (if (pr/check-claim ex account principal)
+    ex
+    (pr/claim ex account principal)))
+
+(defmethod apply-tx :principal-confirm
+  ;; The controller half. `:subject` is the account being bound; `:account` is
+  ;; the controller signing. Two fields rather than one because the signature
+  ;; that authorises this is the controller's, and conflating the signer with
+  ;; the subject is how an authority ends up able to act only on itself -- or,
+  ;; worse, how a subject ends up able to act as the authority.
+  [ex {:keys [account subject principal]}]
+  (if (pr/check-confirm ex account subject principal)
+    ex
+    (pr/confirm ex subject principal)))
+
+(defmethod apply-tx :principal-rotate
+  ;; Replacing an owner key. Bounded by the binding: `check-rotate` refuses an
+  ;; account that never claimed and confirmed a principal, so this authority
+  ;; reaches only accounts that asked for it with their own signature.
+  [ex {:keys [account subject pubkey]}]
+  (if (pr/check-rotate ex account subject pubkey)
+    ex
+    (pr/rotate ex subject pubkey)))
 
 (defmethod apply-tx :create-sub-account
   [ex {:keys [account sub]}]
@@ -1347,14 +1385,29 @@
         ;; a replica that disagreed about it would compute a different mark
         ;; from the same submissions — and margin reads the mark.
         (into (enc-ints [enc-tag-governance (if stake 1 0) (count (or stake {}))]))
-        (into (enc-ints (mapcat (fn [p] [p (get stake p 0)]) (sort (keys (or stake {})))))))))
+        (into (enc-ints (mapcat (fn [p] [p (get stake p 0)]) (sort (keys (or stake {}))))))
+        ;; The identity authority, beside the mint and the price. It decides
+        ;; whose key may replace an account's owner key, so two replicas
+        ;; disagreeing about it would accept different rotations from the same
+        ;; block -- the same sentence this function already makes about who may
+        ;; mint, applied to who may take an account over.
+        (into (enc-ints [enc-tag-governance
+                         (if (some? (:controller-authority ex)) 1 0)
+                         (or (:controller-authority ex) 0)])))))
 
 (defn- auth-accounts [ex]
   (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))
                           ;; An account can hold agents; leaving it out of this
                           ;; list would leave its authorisations out of the
                           ;; root, which is the whole reason they are encoded.
-                          (keys (:agents ex))))))
+                          (keys (:agents ex))
+                          ;; An account can hold a binding or a pending claim.
+                          ;; Both are authority -- the binding is what makes
+                          ;; the account rotatable at all -- and leaving them
+                          ;; out would put that outside the root. Same lesson
+                          ;; the volume and referrer keys already record.
+                          (keys (:principals ex))
+                          (keys (:principal-claims ex))))))
 
 (def ^:const enc-tag-market-spec 15)
 
@@ -1428,6 +1481,16 @@
             (-> (enc-ints [enc-tag-nonce a (get-in ex [:nonces a] 0)])
                 (into (enc-ints [enc-tag-key a]))
                 (into (enc-string (get-in ex [:account-keys a] "")))
+                ;; The Stable Principal and any pending claim. The binding is
+                ;; what permits `:principal-rotate`, so a replica that
+                ;; disagreed about it would accept a key replacement another
+                ;; refuses -- and the claim is half of the handshake that
+                ;; authorises the binding, so a sequencer able to add one
+                ;; without moving the root could manufacture the owner's
+                ;; consent.
+                (into (enc-ints [enc-tag-key a]))
+                (into (enc-string (get-in ex [:principals a] "")))
+                (into (enc-string (get-in ex [:principal-claims a] "")))
                 (into (enc-ints [enc-tag-agent a (count agents)])))
             agents)))
 
@@ -1453,6 +1516,9 @@
    :not-a-publisher 15
    :oracle-is-aggregated 16
    :builder-fee-too-high 17
+   ;; 18: identity. Appended, never renumbered -- a renumber would silently
+   ;; change every historical root that recorded a rejection.
+   :malformed-principal 18
    ;; APPENDED, and appended is the only safe place — renumbering one would
    ;; silently change every historical root.
    ;;

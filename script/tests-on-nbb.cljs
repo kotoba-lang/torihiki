@@ -49,6 +49,7 @@
             [torihiki.log-test]
             [torihiki.mark-test]
             [torihiki.oracle-test]
+            [torihiki.principal-test]
             [torihiki.snapshot-test]
             [torihiki.state-test]
             [torihiki.thorchain-test]
@@ -59,7 +60,7 @@
 ;; would exit 0 -- "could not measure" wearing the face of "measured, clean".
 ;; Sixteen namespaces are required above; fewer than sixteen ran means the
 ;; run is unanswerable, and it exits 2 rather than 0 or 1.
-(def ^:private expected-namespaces 16)
+(def ^:private expected-namespaces 17)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -96,6 +97,7 @@
               'torihiki.log-test
               'torihiki.mark-test
               'torihiki.oracle-test
+              'torihiki.principal-test
               'torihiki.snapshot-test
               'torihiki.state-test
               'torihiki.thorchain-test
