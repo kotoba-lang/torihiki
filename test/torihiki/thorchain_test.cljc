@@ -76,6 +76,28 @@
 
 ;; ── reading the deposit off Ethereum ────────────────────────────────────────
 
+(defn- char-code
+  "The code point of one character of `s`.
+
+  `(int \\T)` is 84 on the JVM and **0** on ClojureScript, where there is no
+  character type and `int` is `(bit-or x 0)` over a one-character string. It
+  does not throw; it returns a number, so a fixture built with it produces a
+  well-formed ABI blob whose every byte is NUL.
+
+  That is what this file did until the suite was first run on ClojureScript.
+  `decode-deposit-data` was correct there all along -- verified against a
+  fixture built with this function -- but these assertions were exercising it
+  with a memo of nul bytes, so they proved nothing on the runtime that
+  deploys. A fixture that is wrong in the same direction as no fixture at all
+  is the failure this workspace names: a check that could not measure
+  returning the value of a check that measured and found nothing."
+  [c]
+  #?(:clj (int c) :cljs (.charCodeAt (str c) 0)))
+
+(defn- hex-byte [n]
+  (let [h (#?(:clj Integer/toHexString :cljs (fn [x] (.toString x 16))) n)]
+    (if (= 1 (count h)) (str "0" h) h)))
+
 (defn- format-word [n]
   (let [h (#?(:clj Integer/toHexString :cljs (fn [x] (.toString x 16))) (int n))]
     (str (apply str (repeat (- 64 (count h)) \0)) h)))
@@ -83,13 +105,19 @@
 (defn- abi-string
   "A `string` as the ABI lays it out: offset, length, bytes padded to 32."
   [s]
-  (let [hex (apply str (map #(let [h (#?(:clj Integer/toHexString :cljs (fn [x] (.toString x 16)))
-                                        (int %))]
-                              (if (= 1 (count h)) (str "0" h) h))
-                            s))
+  (let [hex (apply str (map (comp hex-byte char-code) s))
         pad (- 64 (mod (count hex) 64))]
     (str (format-word 0x40) (format-word (count s)) hex
          (apply str (repeat (if (= 64 pad) 0 pad) \0)))))
+
+(deftest the-fixture-encodes-real-bytes-on-this-runtime
+  ;; The floor under the three tests below. Without it they pass on a memo of
+  ;; nul bytes, which is how they passed on the JVM while proving nothing on
+  ;; ClojureScript.
+  (is (= 84 (char-code \T)) "char-code returned 0 -- the fixture is nul bytes")
+  (is (= "TORIHIKI:900" (:memo (tc/decode-deposit-data
+                                (str "0x" (format-word 1) (abi-string "TORIHIKI:900")))))
+      "the fixture and the decoder disagree about the memo"))
 
 (defn- log-of [{:keys [vault memo amount block txid]}]
   {"topics" ["0xdeadbeef"
