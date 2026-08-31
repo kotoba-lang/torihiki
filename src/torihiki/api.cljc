@@ -26,7 +26,8 @@
   a string a client parses, which makes every future rewording a breaking
   change — and, worse, tempts an implementation into putting internal state in
   it. `reasons` is the whole list."
-  (:require [torihiki.book :as bk]
+  (:require [torihiki.principal :as pr]
+            [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.auth :as auth]))
 
@@ -48,7 +49,8 @@
     :open-interest-cap
     :not-a-publisher
     :oracle-is-aggregated
-    :not-the-bridge})
+    :not-the-bridge
+    :malformed-principal})
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
@@ -404,6 +406,26 @@
       ;; where the claim itself is in hand: settling needs the bridge, and
       ;; cancelling needs the claim's owner. Neither question is answerable
       ;; from the transaction's shape, which is all this function judges.
+      :else nil)
+
+    ;; Identity. The shape only: whether this account may claim, whether the
+    ;; sender is the controller, and whether a binding already exists are
+    ;; decided in `torihiki.state` with `torihiki.principal`, for the same
+    ;; reason `:withdraw-settle` decides its authority there — none of it is
+    ;; answerable from the transaction's shape, which is all this judges.
+    (:principal-claim :principal-confirm)
+    (cond
+      (not (integer? account)) :bad-account
+      (not (pr/well-formed-principal? (:principal t))) :malformed-principal
+      (and (= (:tx t) :principal-confirm)
+           (not (integer? (:subject t)))) :bad-account
+      :else nil)
+
+    :principal-rotate
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:subject t))) :bad-account
+      (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
 
     :unknown-tx))

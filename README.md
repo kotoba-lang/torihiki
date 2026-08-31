@@ -479,8 +479,8 @@ clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
     -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   FLAT ROOT   22f75a7ff4777d1c5ae397f47aa2b62b08aba8f2ba131aa6ae506b156cd9c87e
-#   STATE ROOT  55d6da147732ade686f8e3824f0629c1ed6c6f05add8142c17387f6cb0f74449
+#   FLAT ROOT   58c6e7508c817b717abdf02b908258087d8602ed98a2e23fce6a4dd6c7655ee0
+#   STATE ROOT  0d09061a2b24c421f86ae4ad1be354fc1dfb9c0565c46da28c7edeae3f04d190
 #   PROOF a 10 verifies  true
 ```
 
