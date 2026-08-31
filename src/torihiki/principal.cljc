@@ -67,7 +67,10 @@
     :no-claim
     :claim-mismatch
     :not-bound
-    :already-that-key})
+    :already-that-key
+    :rotation-pending
+    :no-rotation
+    :not-the-holder})
 
 (def ^:const max-principal-length
   "Matches `app-kotoba-cloud`'s own `identity-value`. The controller will not
@@ -142,8 +145,43 @@
     :principal-taken
     :else nil))
 
+(defn rotation-delay
+  "Blocks between a rotation being proposed and taking effect.
+
+  Genesis configuration, committed to the state root like every other
+  authority. Zero is a legal value and it means the veto window does not
+  exist — a chain may choose that, and `/head` can then say so, but it must be
+  a choice somebody made rather than the default nobody noticed."
+  [ex]
+  (or (:rotation-delay-blocks ex) 0))
+
 (defn check-rotate
-  "nil when `by` may replace `account`'s owner key with `pubkey`.
+  "nil when `by` may PROPOSE replacing `account`'s owner key with `pubkey`.
+
+  Proposing, not doing. `rotate-propose` records it and `mature-rotations`
+  applies it `rotation-delay` blocks later, and in between the account's own
+  key can cancel.
+
+  ## Why a controller that can take an account instantly is not trustworthy
+
+  The two-step bind already bounds this authority to accounts that opted in
+  with their own signature, which is what stops the controller enrolling
+  people. It does nothing about the account that DID opt in: `auth.kotoba.cloud`
+  compromised, or coerced, or simply wrong, could hand somebody's positions to
+  a key of its choosing between one block and the next, and the holder would
+  find out afterwards.
+
+  A delay does not remove that authority — nothing here can, because key
+  recovery IS the authority to replace a key. It makes the authority
+  ANSWERABLE: the holder sees the proposal, and while they still hold the key
+  they are replacing, they can refuse.
+
+  **The tension is real and is not hidden.** Whoever holds the current key can
+  cancel, and if that key was stolen the thief can cancel a legitimate
+  recovery. The delay protects against a rogue controller and not against a
+  stolen key; those are different attacks and this answers one of them. A
+  chain that wants the other answer sets `rotation-delay-blocks` to 0 and says
+  so.
 
   The account must already be BOUND — a pending claim is not enough. A claim
   is one signature from a key that may itself be the one being replaced, and
@@ -156,6 +194,22 @@
     (nil? (get-in ex [:principals account])) :not-bound
     (not (and (string? pubkey) (seq pubkey))) :malformed-principal
     (= pubkey (get-in ex [:account-keys account])) :already-that-key
+    ;; One at a time. Two live proposals would let the controller queue a
+    ;; second the holder has not seen while they are busy cancelling the
+    ;; first, which turns the veto into a race the holder loses.
+    (some? (get-in ex [:rotations account])) :rotation-pending
+    :else nil))
+
+(defn check-rotate-cancel
+  "nil when `by` may cancel `account`'s pending rotation.
+
+  Only the account itself. `torihiki.auth` has already established that this
+  envelope carries the account's CURRENT owner key — which is exactly the key
+  the rotation would replace, and the only party whose refusal means anything."
+  [ex by account]
+  (cond
+    (nil? (get-in ex [:rotations account])) :no-rotation
+    (not= by account) :not-the-holder
     :else nil))
 
 (defn claim
@@ -173,7 +227,23 @@
       (assoc-in [:principal-accounts principal] account)
       (update :principal-claims dissoc account)))
 
-(defn rotate
+(defn rotate-propose
+  "Record the pending rotation and the height it may take effect at.
+
+  The height is stored rather than the delay, so a later change to
+  `rotation-delay-blocks` cannot move a proposal that is already in flight —
+  a holder who read `effective` and decided they had time would otherwise be
+  wrong about a number they were shown."
+  [ex account pubkey height]
+  (assoc-in ex [:rotations account]
+            {:pubkey pubkey :effective (+ height (rotation-delay ex))}))
+
+(defn rotate-cancel
+  "Drop a pending rotation."
+  [ex account]
+  (update ex :rotations dissoc account))
+
+(defn- rotate!
   "Replace the owner key.
 
   Agents are dropped. They were authorised by the key that is being replaced,
@@ -184,6 +254,31 @@
   (-> ex
       (assoc-in [:account-keys account] pubkey)
       (update :agents dissoc account)))
+
+(defn mature-rotations
+  "Apply every rotation whose height has arrived, in account order.
+
+  Driven by the BLOCK rather than by a transaction, for the same reason
+  liquidation is: a rotation that needed somebody to send a transaction would
+  be a recovery that depends on whoever is awake, and the holder's veto window
+  would end whenever a keeper felt like ending it.
+
+  Sorted by account id because two replicas applying the same set in a
+  different order would produce different roots. There is no other ordering
+  available and no reason to want one — the rotations are independent."
+  [ex height]
+  (reduce (fn [e [account {:keys [pubkey effective]}]]
+            (if (>= height effective)
+              (-> e (rotate! account pubkey) (rotate-cancel account))
+              e))
+          ex
+          (sort-by key (:rotations ex {}))))
+
+(defn pending-rotation
+  "What is queued against `account`, or nil. The read a holder needs to know
+  whether they are being replaced and by when."
+  [ex account]
+  (get-in ex [:rotations account]))
 
 (defn principal-of [ex account] (get-in ex [:principals account]))
 (defn account-of [ex principal] (get-in ex [:principal-accounts principal]))

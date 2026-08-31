@@ -128,6 +128,9 @@
      ;; identity authority means there is no identity plane, and admitting
      ;; everyone would let any account rotate any other account's key.
      :controller-authority (:controller-authority _cfg)
+     ;; Blocks between a key rotation being proposed and taking effect. The
+     ;; holder's veto window. Zero is legal and means there is none.
+     :rotation-delay-blocks (or (:rotation-delay-blocks _cfg) 0)
      ;; A fired trigger places an order, which moves the book, which reprices
      ;; the mark, which can arm more triggers. That cascade has to terminate.
      :max-trigger-rounds 8
@@ -630,13 +633,24 @@
     (pr/confirm ex subject principal)))
 
 (defmethod apply-tx :principal-rotate
-  ;; Replacing an owner key. Bounded by the binding: `check-rotate` refuses an
-  ;; account that never claimed and confirmed a principal, so this authority
-  ;; reaches only accounts that asked for it with their own signature.
+  ;; PROPOSING to replace an owner key. Bounded twice: `check-rotate` refuses
+  ;; an account that never claimed and confirmed a principal, so this reaches
+  ;; only accounts that asked for it with their own signature -- and then the
+  ;; account's own key has `rotation-delay-blocks` to refuse.
   [ex {:keys [account subject pubkey]}]
   (if (pr/check-rotate ex account subject pubkey)
     ex
-    (pr/rotate ex subject pubkey)))
+    (pr/rotate-propose ex subject pubkey (:height ex 0))))
+
+(defmethod apply-tx :principal-rotate-cancel
+  ;; The veto. `torihiki.auth` has already established that this envelope
+  ;; carries the account's current owner key, which is the key the rotation
+  ;; would replace -- so `:subject` would be wrong here: the signer IS the
+  ;; party whose refusal counts.
+  [ex {:keys [account]}]
+  (if (pr/check-rotate-cancel ex account account)
+    ex
+    (pr/rotate-cancel ex account)))
 
 (defmethod apply-tx :create-sub-account
   [ex {:keys [account sub]}]
@@ -1162,8 +1176,18 @@
      ;; TWAP slices fire before the sweep: a slice can move the mark, and an
      ;; account made liquidatable by its own slice should be found by the
      ;; sweep in the block that made it so, not the next one.
+     ;; Key rotations mature on the BLOCK, after the transactions, for the same
+     ;; reason liquidation does: one that needed somebody to send a transaction
+     ;; would be a recovery depending on whoever is awake, and the holder's
+     ;; veto window would end whenever a keeper felt like ending it.
+     ;;
+     ;; After the transactions and not before, so a cancel arriving in the very
+     ;; block the rotation matures still wins. That is the direction to be
+     ;; wrong in: refusing a recovery costs a round trip, and applying one the
+     ;; holder refused costs the account.
      (-> (reduce fire-twaps applied (sort (keys (:books applied))))
-         (as-> ex' (reduce sweep-liquidations ex' (sort (keys (:books ex')))))))))
+         (as-> ex' (reduce sweep-liquidations ex' (sort (keys (:books ex')))))
+         (pr/mature-rotations height)))))
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
@@ -1393,7 +1417,14 @@
         ;; mint, applied to who may take an account over.
         (into (enc-ints [enc-tag-governance
                          (if (some? (:controller-authority ex)) 1 0)
-                         (or (:controller-authority ex) 0)])))))
+                         (or (:controller-authority ex) 0)
+                         ;; The veto window. Two replicas disagreeing about it
+                         ;; would mature the same rotation at different
+                         ;; heights, which is two different owners for one
+                         ;; account -- the divergence the root exists to catch,
+                         ;; about the one field that decides who the account
+                         ;; belongs to.
+                         (:rotation-delay-blocks ex 0)])))))
 
 (defn- auth-accounts [ex]
   (sort (distinct (concat (keys (:nonces ex)) (keys (:account-keys ex))
@@ -1407,7 +1438,10 @@
                           ;; out would put that outside the root. Same lesson
                           ;; the volume and referrer keys already record.
                           (keys (:principals ex))
-                          (keys (:principal-claims ex))))))
+                          (keys (:principal-claims ex))
+                          ;; An account with a rotation queued against it is an
+                          ;; account whose ownership is about to change.
+                          (keys (:rotations ex))))))
 
 (def ^:const enc-tag-market-spec 15)
 
@@ -1491,6 +1525,13 @@
                 (into (enc-ints [enc-tag-key a]))
                 (into (enc-string (get-in ex [:principals a] "")))
                 (into (enc-string (get-in ex [:principal-claims a] "")))
+                ;; The queued replacement, if any. A rotation outside the root
+                ;; is a change of ownership two replicas could disagree about
+                ;; while reporting the same state -- and the holder reads
+                ;; `effective` off this to know how long they have.
+                (into (enc-ints [enc-tag-key a
+                                 (or (:effective (get-in ex [:rotations a])) 0)]))
+                (into (enc-string (or (:pubkey (get-in ex [:rotations a])) "")))
                 (into (enc-ints [enc-tag-agent a (count agents)])))
             agents)))
 

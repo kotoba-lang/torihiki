@@ -32,7 +32,12 @@
   ;; the root would let two replicas disagree about who may take an account
   ;; over while reporting the same state — the sentence above, about who may
   ;; mint, applied to who may take an account.
-  (is (= "58c6e7508c817b717abdf02b908258087d8602ed98a2e23fce6a4dd6c7655ee0"
+  ;; And a third time, for the third reason of the same kind: the veto window
+  ;; (`rotation-delay-blocks`) joined the governance leaf and each account's
+  ;; queued key replacement joined its auth leaf. Two replicas disagreeing
+  ;; about the window mature the same rotation at different heights, which is
+  ;; two different owners for one account.
+  (is (= "b4322bedd406112e6c2c7339e93d646eb7852959def143901961b3be4f43445a"
          (st/flat-root (ex)))))
 
 (deftest the-published-parity-digests-are-the-ones-this-code-produces
@@ -48,7 +53,7 @@
   ;;
   ;; `state-root` in particular was pinned nowhere: `flat-root` had the test
   ;; above and the tree root had only the README.
-  (is (= "0d09061a2b24c421f86ae4ad1be354fc1dfb9c0565c46da28c7edeae3f04d190"
+  (is (= "d1ebb9d30cd51516c14bc9e3c0007d806b423e33cd3bd64200362c7e7e3aed7f"
          (st/state-root (ex)))))
 
 (deftest the-root-carries-the-total-collateral
