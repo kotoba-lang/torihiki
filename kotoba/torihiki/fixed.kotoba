@@ -1,0 +1,114 @@
+(ns torihiki.fixed
+  (:export [i53-max i53-min in-domain? checked
+            rate-scale bps pct
+            fdiv fmod mul-rate div-round-half-up
+            notional abs* clamp main]))
+
+;; The three constants are ACCESSORS here. Kotoba exports functions, and a
+;; namespace export list that named a `def` is refused -- so the public
+;; surface keeps every name the `.cljc` had, at the cost of a call. Stated
+;; because it is a real shape change for a consumer: `i53-max` was a value
+;; and is now `(i53-max)`.
+
+;; Fixed-point integer arithmetic for the torihiki state machine, in Kotoba.
+;;
+;; The `.cljc` of the same name is the ORACLE and stays: superproject Q9
+;; forbids deleting the old source before soak, and `:cutover` is a consumer
+;; choosing this one explicitly rather than a rename.
+;;
+;; Two things are deliberately different, and neither is a translation
+;; artefact:
+;;
+;; 1. `check` threw. Kotoba forbids untracked control effects permanently
+;;    (`surface-status.edn` `:invariants :explicit-errors`), so the refusal is
+;;    a value the caller must destructure. It is `checked` rather than `check`
+;;    because a name that returns a different SHAPE should not be the same
+;;    name -- a caller that missed the change would otherwise get a result
+;;    handle where it expected an integer and store it.
+;;
+;; 2. `div-round-half-up` did its arithmetic through `Math/abs` on a DOUBLE
+;;    and came back with `long`. In a namespace whose own docstring says
+;;    "There is no floating point anywhere on the state-transition path,
+;;    because two validators that disagree on the last bit of a f64 produce
+;;    different state roots and the chain halts." Every value it handles is
+;;    inside the i53 domain, so f64 happened to be exact and the bug was
+;;    latent rather than live -- but the guarantee was written and not kept.
+;;    This version is integer throughout.
+
+(def i53-max-v 9007199254740991)
+(def i53-min-v -9007199254740991)
+
+(defn i53-max [] :i64 i53-max-v)
+(defn i53-min [] :i64 i53-min-v)
+
+(defn in-domain? [v :i64] :bool
+  (if (and (<= i53-min-v v) (<= v i53-max-v)) true false))
+
+;; The i53 refusal, as a value.
+;;
+;; The error payload is the offending value rather than a reason code: there
+;; is exactly one way to fail here, and the number is the only thing a caller
+;; or a log could not reconstruct.
+(defn checked [v :i64] [:result :i64 :i64]
+  (if (in-domain? v)
+    (result-ok-of [:result :i64 :i64] v)
+    (result-err-of [:result :i64 :i64] v)))
+
+(def rate-scale-v 1000000000)
+
+(defn rate-scale [] :i64 rate-scale-v)
+
+(defn bps [n :i64] :i64 (* n 100000))
+(defn pct [n :i64] :i64 (* n 10000000))
+
+;; Floor division: rounds toward negative infinity, which `quot` does not.
+;; Truncation toward zero rounds a losing position's PnL in the trader's
+;; favour and a winning one's against them, so the direction is a consensus
+;; rule rather than a preference.
+;;
+;; Kotoba admits `quot`, which truncates like the machine instruction underneath
+;; it, so the floor is built rather than assumed: when the signs differ and the
+;; division was not exact, the truncated quotient is one too high.
+(defn fdiv [a :i64 b :i64] :i64
+  (let [q (quot a b)
+        r (- a (* q b))]
+    (if (and (not (= r 0))
+             (if (< a 0) (> b 0) (< b 0)))
+      (- q 1)
+      q)))
+
+(defn fmod [a :i64 b :i64] :i64
+  (- a (* b (fdiv a b))))
+
+(defn mul-rate [amount :i64 rate :i64] [:result :i64 :i64]
+  (checked (fdiv (* amount rate) rate-scale-v)))
+
+(defn abs* [v :i64] :i64
+  (if (< v 0) (- 0 v) v))
+
+;; a/b with halves away from zero, integer throughout.
+;;
+;; `(|a| + |b|/2) / |b|` floored, then signed. The floor of a quotient of two
+;; non-negative integers is the truncation, so `fdiv` and `/` agree here and
+;; the sign is applied once at the end -- which is what keeps `-1/2` at -1
+;; rather than 0.
+(defn div-round-half-up [a :i64 b :i64] :i64
+  (let [na (abs* a)
+        nb (abs* b)
+        q (fdiv (+ na (fdiv nb 2)) nb)]
+    (if (if (< a 0) (>= b 0) (< b 0))
+      (- 0 q)
+      q)))
+
+(defn notional [price :i64 size :i64] [:result :i64 :i64]
+  (checked (* price size)))
+
+(defn clamp [v :i64 lo :i64 hi :i64] :i64
+  (if (< v lo) lo (if (> v hi) hi v)))
+
+;; The host this is verified through admits only modules that export `main`
+;; (`browser-host.mjs`, `validateModule`). This module is a library and has no
+;; entry point, so `main` is a constant -- present so the module is loadable by
+;; the shipped runtime rather than by a host written for this test, which would
+;; be a stub of the thing under test.
+(defn main [] :i64 0)
