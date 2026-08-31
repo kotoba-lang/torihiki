@@ -101,14 +101,21 @@
   (let [e (-> (ex) (pr/claim alice pid) (pr/confirm alice pid))]
     (is (= :not-the-controller (pr/check-rotate e bob alice "new-key")))))
 
-(deftest rotation-replaces-the-key-and-drops-the-agents
+(deftest a-proposal-alone-changes-nothing
+  ;; `rotate` used to be public and to replace the key. It is private now and
+  ;; called only by `mature-rotations`, because a controller that can replace a
+  ;; key by calling one function is a controller nobody can answer. The
+  ;; block-driven path is asserted further down.
   (let [e (-> (ex) (pr/claim alice pid) (pr/confirm alice pid)
               (assoc-in [:agents alice "agent-key"] {:expires nil}))]
     (is (nil? (pr/check-rotate e ctrl alice "new-key")))
-    (let [e (pr/rotate e alice "new-key")]
-      (is (= "new-key" (get-in e [:account-keys alice])))
-      (is (nil? (get-in e [:agents alice]))
-          "a delegation the replaced key granted outlived it"))))
+    (let [e (pr/rotate-propose e alice "new-key" 100)]
+      (is (= "alice-key" (get-in e [:account-keys alice]))
+          "proposing replaced the key")
+      (is (some? (get-in e [:agents alice]))
+          "proposing dropped the agents before the holder could refuse")
+      (is (= {:pubkey "new-key" :effective 100} (pr/pending-rotation e alice))
+          "with no configured delay a proposal is effective immediately"))))
 
 (deftest rotating-to-the-key-already-there-is-refused
   (let [e (-> (ex) (pr/claim alice pid) (pr/confirm alice pid))]
@@ -136,8 +143,8 @@
               (st/state-root base))
         "configuring the controller did not move the root")
     (is (not= (st/state-root bound)
-              (st/state-root (pr/rotate bound alice "new-key")))
-        "rotating the owner key did not move the root")))
+              (st/state-root (pr/rotate-propose bound alice "new-key" 7)))
+        "queueing a replacement did not move the root")))
 
 (deftest a-pending-claim-is-in-the-state-root
   ;; Half the handshake. A sequencer able to add a claim without moving the
@@ -200,3 +207,142 @@
            (api/validate e {:tx :principal-rotate :account ctrl :subject alice})))
     (is (nil? (api/validate e {:tx :principal-rotate :account ctrl
                                :subject alice :pubkey "k"})))))
+
+;; ── the controller proposes; the holder refuses ─────────────────────────────
+
+(def ^:private m {:id 1 :tick 10 :lot 1 :n-levels 64})
+
+(defn- bound-chain
+  "A chain where alice holds a key and her principal is bound.
+
+  The key is seeded rather than bound by a signature: `auth/accept` writes
+  `:account-keys` only when `apply-block` is given the auth options, and these
+  tests are about what happens AFTER an account has a key, not about how it
+  got one. Without the seed every assertion below reads `nil` and passes or
+  fails for a reason that has nothing to do with rotation."
+  [delay]
+  (-> (st/new-exchange {:market m :controller-authority ctrl
+                        :rotation-delay-blocks delay})
+      (assoc-in [:account-keys alice] "alice-key")
+      (st/apply-block {:height 1 :ts 1000
+                       :txs [{:tx :principal-claim :account alice :principal pid}]})
+      (st/apply-block {:height 2 :ts 2000
+                       :txs [{:tx :principal-confirm :account ctrl
+                              :subject alice :principal pid}]})))
+
+(deftest a-rotation-does-not-take-effect-in-the-block-it-is-proposed
+  ;; The whole point. A controller that can replace an owner key between one
+  ;; block and the next is a controller the holder cannot answer.
+  (let [e (bound-chain 10)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})]
+    (is (= "alice-key" (get-in e [:account-keys alice]))
+        "the key changed in the block the rotation was proposed")
+    (is (= {:pubkey "new-key" :effective 13} (pr/pending-rotation e alice)))))
+
+(deftest a-rotation-matures-on-the-block-and-not-on-a-transaction
+  ;; Driven by the block, like liquidation. A recovery that needed a keeper to
+  ;; send something would end the veto window whenever the keeper felt like it.
+  (let [e (bound-chain 2)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})
+        at-4 (st/apply-block e {:height 4 :ts 4000 :txs []})
+        at-5 (st/apply-block at-4 {:height 5 :ts 5000 :txs []})]
+    (is (= "alice-key" (get-in at-4 [:account-keys alice])) "matured early")
+    (is (= "new-key" (get-in at-5 [:account-keys alice])) "never matured")
+    (is (nil? (pr/pending-rotation at-5 alice))
+        "the proposal outlived the rotation it caused")))
+
+(deftest the-holder-can-refuse
+  (let [e (bound-chain 10)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})
+        e (st/apply-block e {:height 4 :ts 4000
+                             :txs [{:tx :principal-rotate-cancel :account alice}]})
+        later (st/apply-block e {:height 99 :ts 99000 :txs []})]
+    (is (nil? (pr/pending-rotation e alice)))
+    (is (= "alice-key" (get-in later [:account-keys alice]))
+        "a cancelled rotation matured anyway")))
+
+(deftest a-cancel-in-the-maturing-block-still-wins
+  ;; Transactions run before maturation, deliberately: refusing a recovery
+  ;; costs a round trip, applying one the holder refused costs the account.
+  (let [e (bound-chain 1)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})
+        e (st/apply-block e {:height 4 :ts 4000
+                             :txs [{:tx :principal-rotate-cancel :account alice}]})]
+    (is (= "alice-key" (get-in e [:account-keys alice])
+           ) "the rotation matured in the same block the holder refused it")))
+
+(deftest nobody-else-can-refuse-for-the-holder
+  (let [e (bound-chain 10)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})]
+    (is (= :not-the-holder (pr/check-rotate-cancel e bob alice)))
+    (is (= :not-the-holder (pr/check-rotate-cancel e ctrl alice))
+        "the controller cancelled a rotation on the holder's behalf")))
+
+(deftest the-controller-cannot-queue-a-second-proposal
+  ;; Two live proposals would make the veto a race the holder loses: they
+  ;; cancel the one they saw while another they did not see is maturing.
+  (let [e (bound-chain 10)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})]
+    (is (= :rotation-pending (pr/check-rotate e ctrl alice "other-key")))))
+
+(deftest a-zero-delay-is-legal-and-immediate
+  ;; A chain may choose no veto window. It must be a choice, which is why the
+  ;; delay is genesis config and under the root rather than a default.
+  (let [e (bound-chain 0)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})]
+    (is (= "new-key" (get-in e [:account-keys alice])))))
+
+(deftest the-delay-and-the-pending-rotation-are-in-the-state-root
+  ;; Two replicas disagreeing about the window would mature the same rotation
+  ;; at different heights, which is two different owners for one account.
+  (let [a (st/new-exchange {:market m :controller-authority ctrl :rotation-delay-blocks 10})
+        b (st/new-exchange {:market m :controller-authority ctrl :rotation-delay-blocks 20})]
+    (is (not= (st/state-root a) (st/state-root b))
+        "the veto window is not under the root"))
+  (let [e (bound-chain 10)
+        proposed (st/apply-block e {:height 3 :ts 3000
+                                    :txs [{:tx :principal-rotate :account ctrl
+                                           :subject alice :pubkey "new-key"}]})]
+    (is (not= (st/state-root e) (st/state-root proposed))
+        "a queued replacement is not under the root")))
+
+(deftest a-rotation-that-matures-drops-the-agents
+  (let [e (bound-chain 1)
+        e (assoc-in e [:agents alice "agent-key"] {:expires nil})
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})
+        e (st/apply-block e {:height 4 :ts 4000 :txs []})]
+    (is (= "new-key" (get-in e [:account-keys alice])))
+    (is (nil? (get-in e [:agents alice]))
+        "a delegation the replaced key granted outlived it")))
+
+(deftest the-holder-can-see-what-they-would-be-refusing
+  ;; A veto nobody can see is not a veto. Without this the holder learns their
+  ;; key was replaced by being refused `:wrong-key` on their own account,
+  ;; which reads as a permissions problem rather than as a takeover.
+  (let [e (bound-chain 10)
+        before (api/account-state e alice)
+        e (st/apply-block e {:height 3 :ts 3000
+                             :txs [{:tx :principal-rotate :account ctrl
+                                    :subject alice :pubkey "new-key"}]})
+        after (api/account-state e alice)]
+    (is (nil? (:pending-rotation before)))
+    (is (= pid (:principal before)))
+    (is (= 10 (:rotation-delay-blocks before)))
+    (is (= {:pubkey "new-key" :effective 13} (:pending-rotation after))
+        "the account could not see the replacement queued against it")))

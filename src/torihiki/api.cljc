@@ -428,6 +428,13 @@
       (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
 
+    ;; The veto carries no subject: the signer is the party refusing, and a
+    ;; `:subject` field would invite a client to cancel somebody else's.
+    :principal-rotate-cancel
+    (cond
+      (not (integer? account)) :bad-account
+      :else nil)
+
     :unknown-tx))
 
 ;; ── read models ─────────────────────────────────────────────────────────────
@@ -483,6 +490,18 @@
      ;; and would discover the difference as a :wrong-key rejection after
      ;; signing.
      :bound-key (get-in ex [:account-keys account])
+     ;; The Stable Principal this id belongs to, and any queued replacement of
+     ;; its owner key.
+     ;;
+     ;; `:pending-rotation` is here because a veto nobody can see is not a
+     ;; veto. `torihiki.principal` gives the holder a window to refuse a
+     ;; controller-proposed key replacement, and a holder who cannot read
+     ;; `{:pubkey ... :effective <height>}` off their own account has no way to
+     ;; know there is anything to refuse or how long they have. nil means
+     ;; nothing is queued.
+     :principal (pr/principal-of ex account)
+     :pending-rotation (pr/pending-rotation ex account)
+     :rotation-delay-blocks (pr/rotation-delay ex)
      :collateral (get-in c [:accounts account :collateral] 0)
      :equity (cl/equity c account marks)
      :initial-margin (cl/initial-margin c account marks markets)

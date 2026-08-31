@@ -464,6 +464,52 @@ Still not **incremental**: a root costs the whole state, which is right for
 the kilobytes a normal block touches and wrong for a book holding hundreds of
 thousands of resting orders.
 
+## Identity, and the authority it costs
+
+An account id is a function of its key (`torihiki.address/derive`), which is
+what stops a proposer front-running a registration and also means a rotated
+key is a different account with none of the positions. `torihiki.principal`
+is the recovery path, and it is the one place in this engine where somebody
+other than the holder can move an account, so it is worth reading as a trust
+question rather than a feature.
+
+Three bounds, and each of them is a refusal somewhere in the code:
+
+**Opting in takes the account's own signature.** `:principal-claim` is the
+holder naming a principal; `:principal-confirm` is the controller naming the
+same account and the same principal. Neither party can do it alone, so
+squatting somebody else's principal buys nothing and the controller cannot
+enrol accounts that never asked. **An account that never claimed and confirmed
+can never be rotated, whatever the controller does.**
+
+**The controller proposes; it does not take.** `:principal-rotate` queues
+`{:pubkey ... :effective <height>}` and `rotation-delay-blocks` later the
+block applies it. In between the account's own key can send
+`:principal-rotate-cancel`. Only that account — the controller cannot cancel
+on the holder's behalf, and neither can anyone else.
+
+**The window is visible.** `/account` reports `:principal`,
+`:pending-rotation` and `:rotation-delay-blocks`. A veto nobody can see is not
+a veto: without it a holder learns their key was replaced by being refused
+`:wrong-key` on their own account, which reads as a permissions problem rather
+than as a takeover.
+
+### What this does not defend against
+
+The delay answers a rogue or compromised controller. It does not answer a
+stolen key: whoever holds the current key can cancel, so a thief can refuse a
+legitimate recovery. Those are different attacks and this closes one of them.
+A chain that wants the other answer sets `rotation-delay-blocks` to 0, and
+then `/account` says `0` rather than leaving it to be inferred.
+
+Nothing here removes the authority — key recovery IS the authority to replace
+a key. What the delay buys is that the authority is answerable, on-chain,
+before the fact.
+
+The delay and every queued replacement are under the state root. Two replicas
+disagreeing about the window would mature the same rotation at different
+heights, which is two different owners for one account.
+
 ## Kotoba
 
 `torihiki.fixed` exists twice: `src/torihiki/fixed.cljc`, and
@@ -533,8 +579,8 @@ clojure -M:parity
 nbb --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
     -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
-#   FLAT ROOT   58c6e7508c817b717abdf02b908258087d8602ed98a2e23fce6a4dd6c7655ee0
-#   STATE ROOT  0d09061a2b24c421f86ae4ad1be354fc1dfb9c0565c46da28c7edeae3f04d190
+#   FLAT ROOT   b4322bedd406112e6c2c7339e93d646eb7852959def143901961b3be4f43445a
+#   STATE ROOT  d1ebb9d30cd51516c14bc9e3c0007d806b423e33cd3bd64200362c7e7e3aed7f
 #   PROOF a 10 verifies  true
 ```
 
