@@ -1,0 +1,206 @@
+(ns torihiki.book-hot
+  (:export [main run run-4 run-bits capacity fields-needed]))
+
+;; The order book's HOT INNER REPRESENTATION, in Kotoba: a struct of arrays
+;; over price levels, allocated once and written in place through
+;; `vector-assoc!` in the threaded style.
+;;
+;; This is not the whole matching engine. It is the part whose cost the
+;; REPRESENTATION decides -- the arrays `torihiki.book/place!` touches on every
+;; order -- and it exists to be MEASURED rather than argued about. Superproject
+;; ADR-2608311800 recorded that `torihiki.book` is blocked by representation
+;; rather than by safety, and read the block as an item count. Compiling and
+;; running this module says the item count is not what blocks it.
+;;
+;; ## The measurement, in one line
+;;
+;; `torihiki.parity/fresh` (src/torihiki/parity.cljc:27) is the smallest book
+;; torihiki itself runs: n-levels 1024, cap 4096, ev-cap 4096. Computed with
+;; `new-book`'s own formulas that is 26 arrays, 59,601 items, largest field
+;; 4,096 -- a QUARTER of today's per-vector bound and under half the host's
+;; total budget. **It already fits, and it still cannot be written**, because
+;; 26 arrays have to be live at once and a Kotoba loop can carry four.
+;;
+;; The production defaults (book.cljc:93 -- n-levels 65536, cap 1048576,
+;; ev-cap 65536) are 26 arrays, 8,164,524 items, largest field 1,048,576:
+;; 64x the per-vector bound and 62x the total. Those are the numbers a raise
+;; has to reach. They are the FOURTH wall, not the first.
+;;
+;; ## The four walls, each measured against amu 76fbee42 on 2026-09-01
+;;
+;; 1. A FUNCTION TAKES AT MOST FIVE PARAMETERS (kotoba-sema
+;;    frontend.cljc:496, `max-parameters 5`). Five is admitted, six is
+;;    refused as `:kotoba.error/max-parameters`, "function parameters exceed
+;;    ABI-supported arity". `place!` writes seven arrays in ONE pass; a loop
+;;    threading seven handles plus an index and a bound needs nine slots.
+;;    `book-4` below sits exactly on the ceiling: four handles and an index,
+;;    with the bound as a literal because a bound would cost the fifth slot.
+;;
+;; 2. A HANDLE GETS EXACTLY ONE VECTOR OPERATION PER PATH, and may appear
+;;    nowhere else (kotoba-sema affine.cljc: `linear?` = `sym-uses <= 1` and
+;;    `position-ok?`). Three consequences the book runs straight into:
+;;
+;;      - `lvl-qty[k] += qty` -- what `place!` does through `slab/add!` at
+;;        book.cljc:521 and :538 -- is a read and a write of one handle on one
+;;        path. Refused. Every accumulation here is carried in a SCALAR and
+;;        stored once, which is why the fill rests one order per level: a
+;;        deeper FIFO would have to read the level's running quantity back.
+;;      - `ladder-set!` and `ladder-clear!` (book.cljc:290-341) are
+;;        read-modify-write on the same bitmap word. `book-bits` below gets
+;;        the same bitmap by accumulating the word in a scalar and storing it
+;;        when the group of 32 levels closes -- which works only because the
+;;        fill visits levels in order. The book's incremental version, which
+;;        sets one bit per order at an arbitrary level, does not have that.
+;;      - A written handle can be neither RETURNED nor PASSED ON: a bare
+;;        occurrence is an escape. So an array cannot be filled by a helper
+;;        and handed back, and it can never be fully read back -- the terminal
+;;        branch gets ONE `vector-at`. The checksums below are a running
+;;        scalar plus one stored element, because that is the most evidence
+;;        the rule permits.
+;;
+;; 3. RECURSION IS NOT TAIL-CALL-ELIMINATED. The threaded loop becomes real
+;;    calls, and the fill overflows the stack at 8,896 levels on node's
+;;    default stack ("Maximum call stack size exceeded"); 16,383 needs
+;;    `node --stack-size=8000`. A 1,048,576-slot field is a million frames
+;;    deep. This one is the host's stack rather than the language's rule, but
+;;    it binds before the item count too.
+;;
+;; 4. ITEMS: 16384 per vector (`kotoba.kir.value/vector-item-limit` and the
+;;    browser host's `VECTOR_ITEM_BUDGET`), 131072 per instance LIFETIME
+;;    (`VECTOR_TOTAL_ITEM_BUDGET`, 8x). Measured refusals, with controls:
+;;    a literal `(vector-alloc 16385)` fails to COMPILE with
+;;    `:kotoba/lowering-failed` / "vector-alloc-out-of-range" from
+;;    kotoba-kir kir.cljc:2764, while 16384 compiles and runs; a length that
+;;    arrives at runtime is refused by the HOST with "vector-i64 item budget
+;;    exceeded"; and the ninth 16384-item field on one instance is refused
+;;    with "typed vector total item budget exceeded".
+;;
+;; And NO SHIFTS, NO `rem`, NO `min`: `bit-shift-left`, `bit-shift-right`,
+;; `rem` and `min` are each `operation has no admitted lowering`. `bit-and`,
+;; `bit-or`, `bit-not` and `quot` are admitted, so `x >> 5` is `(quot x 32)`,
+;; `x % d` is `(m x d)` and `1 << k` is `(p2 k)` by bounded doubling.
+;;
+;; This module does not argue with any of the four. It records which of them
+;; binds first, so that a raise argues for the right number.
+
+;; ── arithmetic the subset does not provide ──────────────────────────────────
+
+(defn m [x :i64 d :i64] :i64
+  (- x (* (quot x d) d)))
+
+(defn p2go [k :i64 acc :i64] :i64
+  (if (= k 0) acc (p2go (- k 1) (* acc 2))))
+
+;; 1 << k, for k in [0, 31].
+(defn p2 [k :i64] :i64
+  (p2go k 1))
+
+;; A deterministic quantity for level k: the same k always gets the same qty,
+;; so two runs measure the same work and the checksum is reproducible without
+;; carrying a generator state through a parameter slot there is no room for.
+;; k <= 16383 keeps `k * 2654435761` at 4.35e13, well inside i64.
+(defn qty-at [k :i64] :i64
+  (+ 1 (m (quot (* k 2654435761) 64) 100)))
+
+;; ── the bounds this module was shrunk to fit ────────────────────────────────
+;;
+;; 16384 is `kotoba.kir.value/vector-item-limit` and the browser host's
+;; `VECTOR_ITEM_BUDGET`. The host also holds a `VECTOR_TOTAL_ITEM_BUDGET` of
+;; 8x that -- 131072 items for the LIFETIME of one instance, not the live set.
+;; Four fields at the per-vector ceiling is 65536, so `book-4` fits with room;
+;; a book's 26 fields would not, and neither would two calls to `build` on one
+;; instance.
+
+(defn capacity [] :i64 16384)
+
+;; Arrays `torihiki.book/new-book` allocates at its defaults. Reported so the
+;; TOTAL budget can be argued and not only the per-vector one.
+(defn fields-needed [] :i64 26)
+
+;; ── one field, filled in place ──────────────────────────────────────────────
+;;
+;; The timing subject. `acc` sums every value the loop stores, and the terminal
+;; branch reads back the FIRST element written -- after n stores have gone past
+;; it. A lowering that copied would still answer correctly; one that lost,
+;; doubled or displaced a store would not.
+;;
+;; Rewrite `(vector-assoc! v k q)` to read `v` beside its own write and this
+;; function stops compiling. That refusal is what the bang claims.
+
+(defn build [v :vector-i64 k :i64 n :i64 acc :i64] :i64
+  (if (> k n)
+    (+ acc (vector-at v 1))
+    (build (vector-assoc! v k (qty-at k)) (+ k 1) n (+ acc (qty-at k)))))
+
+;; ── four fields at the ABI ceiling ──────────────────────────────────────────
+;;
+;; The widest struct of arrays one Kotoba loop can carry today: four handles
+;; and an index. These are four of the seven `place!` touches --
+;;
+;;   lq  lvl-qty    resting quantity at (side, level)
+;;   lh  lvl-head   head order slot of that level's FIFO
+;;   oq  o-qty      order quantity, by slot
+;;   on  o-next     intrusive FIFO link, by slot
+;;
+;; -- and `lvl-tail`, `o-owner` and the bitmap are the three that did not fit.
+;; One order per level, so the slot number is the level number and every FIFO
+;; has depth 1; `on` is therefore the end sentinel everywhere.
+
+(defn book-4 [lq :vector-i64 lh :vector-i64 oq :vector-i64 on :vector-i64
+              k :i64] :i64
+  (if (> k 16383)
+    (+ (+ (vector-at lq 1) (vector-at lh 16383))
+       (+ (vector-at oq 1) (vector-at on 16383)))
+    (book-4 (vector-assoc! lq k (qty-at k))
+            (vector-assoc! lh k k)
+            (vector-assoc! oq k (qty-at k))
+            (vector-assoc! on k 0)
+            (+ k 1))))
+
+;; ── the occupancy bitmap, without read-modify-write ─────────────────────────
+;;
+;; `bm0` in the book: one 32-bit word per 32 price levels, so `best` costs a
+;; bounded number of word reads no matter how sparse the book is. `word`
+;; accumulates the current group and is stored when the group closes; when it
+;; is not closing, the store is aimed at index 0, a SCRATCH cell, so the loop
+;; performs the same store on every path. Word wi lives at index wi+1.
+
+(defn book-bits [lq :vector-i64 lh :vector-i64 b0 :vector-i64
+                 k :i64 word :i64] :i64
+  (if (> k 16383)
+    (+ (+ (vector-at lq 1) (vector-at lh 1)) (vector-at b0 512))
+    (let [wi    (quot k 32)
+          bit   (m k 32)
+          word1 (bit-or word (p2 bit))
+          close (= bit 31)]
+      (book-bits (vector-assoc! lq k (qty-at k))
+                 (vector-assoc! lh k k)
+                 (vector-assoc! b0 (if close (+ wi 1) 0) word1)
+                 (+ k 1)
+                 (if close 0 word1)))))
+
+;; ── entry points the host can call ──────────────────────────────────────────
+;;
+;; The loops above take handles, which a host cannot hand in; these allocate
+;; and enter. `run` takes the level count so the fill can be timed at several
+;; sizes; `run-4` and `run-bits` carry their bound as a literal because the
+;; fifth parameter slot is already spent on a handle.
+
+(defn run [n :i64] :i64
+  (build (vector-alloc 16384) 1 n 0))
+
+(defn run-4 [] :i64
+  (book-4 (vector-alloc 16384) (vector-alloc 16384)
+          (vector-alloc 16384) (vector-alloc 16384) 1))
+
+(defn run-bits [] :i64
+  (book-bits (vector-alloc 16384) (vector-alloc 16384) (vector-alloc 513) 1 0))
+
+;; 64 levels, not 16383. `main` takes no arguments, so the compiler CONSTANT
+;; FOLDS it, and the fold runs the whole loop at compile time on a budget that
+;; `--fuel` does not raise: at 16383 the compile fails with
+;; `:kotoba/lowering-failed` / "fuel-exhausted" while the same program runs
+;; fine at that size when the host calls `run`. So `main` is a smoke entry and
+;; `run` is the measurement.
+(defn main [] :i64
+  (run 64))
