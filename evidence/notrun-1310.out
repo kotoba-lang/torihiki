@@ -1,0 +1,3 @@
+not-run: host load > 20 () at 2026-09-04 13:10:06
+planned: 1 falsify iteration per status/maturity.md NEXT (no new hypothesis selected this cycle)
+action: measurement skipped per load rule; no evidence produced

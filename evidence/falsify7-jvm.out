@@ -1,0 +1,8 @@
+#'falsify7-halt-paths/header
+falsify-7: does the validate-passing chain halt need an out-of-domain input?
+probe withdraw-2^53 seeded=false validate nil -> applied collateral=0 changed=false claims={} state-root=428788a9871f9254fa43e6c0dfeca93b684b695887d4b64d8dd0e3abc64fb176
+probe withdraw-2^53 seeded=true validate nil -> applied collateral=9007199254740991 changed=false claims={} state-root=34ffa8dff9a30efb2b744c68ba7d7005402c196f112c5d0b39f83ed0cf9fb87e
+probe order-qty-2^53 flags=0 validate nil -> threw msg=torihiki.fixed: value escaped the i53 domain where=:place-qty value=9007199254740992
+probe order-qty-2^53 flags=4 validate nil -> applied state-root=428788a9871f9254fa43e6c0dfeca93b684b695887d4b64d8dd0e3abc64fb176
+probe in-domain-cross halt validate-rest nil validate-take nil block2 applied state-root=90bf4c7f29be03b28139071d717a1c1e51de5a2a5e9a71d072cd4b3878e1e7c0 -> threw msg=torihiki.fixed: value escaped the i53 domain where=:notional value=18014398509481982
+done

@@ -1,0 +1,5 @@
+Execution error (ExceptionInfo) at torihiki.fixed/check (fixed.cljc:60).
+torihiki.fixed: value escaped the i53 domain
+
+Full report at:
+/var/folders/31/st4xq0g12v3cn1b9yg5zcrsm0000gn/T/clojure-7023798855667388336.edn

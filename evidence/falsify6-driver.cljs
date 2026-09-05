@@ -1,0 +1,9 @@
+(require '["fs" :as fs])
+(require '[torihiki.state :as st] '[torihiki.api :as api] '[torihiki.fixed :as fx])
+(load-string (fs/readFileSync "evidence/falsify6-i53.cljc" "utf8"))
+(println (falsify6-i53/header))
+(doseq [a falsify6-i53/amounts]
+  (println (try
+             (falsify6-i53/line (falsify6-i53/probe (first a) (second a)))
+             (catch :default e (falsify6-i53/line-threw a e)))))
+(println "done")

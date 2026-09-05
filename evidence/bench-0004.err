@@ -1,0 +1,37 @@
+{:clojure.main/message
+ "Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).\nWrong number of args (2) passed to: torihiki.book/cancel!\n",
+ :clojure.main/triage
+ {:clojure.error/class clojure.lang.ArityException,
+  :clojure.error/line 112,
+  :clojure.error/cause
+  "Wrong number of args (2) passed to: torihiki.book/cancel!",
+  :clojure.error/symbol torihiki.bench/run-tape,
+  :clojure.error/source "bench.clj",
+  :clojure.error/phase :execution},
+ :clojure.main/trace
+ {:via
+  [{:type clojure.lang.ArityException,
+    :message
+    "Wrong number of args (2) passed to: torihiki.book/cancel!",
+    :at [clojure.lang.AFn throwArity "AFn.java" 429]}],
+  :trace
+  [[clojure.lang.AFn throwArity "AFn.java" 429]
+   [clojure.lang.AFn invoke "AFn.java" 36]
+   [torihiki.bench$run_tape invokeStatic "bench.clj" 112]
+   [torihiki.bench$run_tape invoke "bench.clj" 82]
+   [torihiki.bench$_main invokeStatic "bench.clj" 125]
+   [torihiki.bench$_main doInvoke "bench.clj" 120]
+   [clojure.lang.RestFn invoke "RestFn.java" 400]
+   [clojure.lang.AFn applyToHelper "AFn.java" 152]
+   [clojure.lang.RestFn applyTo "RestFn.java" 135]
+   [clojure.lang.Var applyTo "Var.java" 707]
+   [clojure.core$apply invokeStatic "core.clj" 667]
+   [clojure.main$main_opt invokeStatic "main.clj" 515]
+   [clojure.main$main_opt invoke "main.clj" 511]
+   [clojure.main$main invokeStatic "main.clj" 665]
+   [clojure.main$main doInvoke "main.clj" 617]
+   [clojure.lang.RestFn applyTo "RestFn.java" 140]
+   [clojure.lang.Var applyTo "Var.java" 707]
+   [clojure.main main "main.java" 40]],
+  :cause "Wrong number of args (2) passed to: torihiki.book/cancel!"}}
+

@@ -1,0 +1,4 @@
+# bench iteration 2026-09-04 14:20 — NOT RUN
+load: 14:20  up 11 days,  6:09, 9 users, load averages: 41.28 49.35 51.08
+host load averages all > 20 (1min 39.52) → per policy, tests/bench skipped, not-run evidence only.
+last green run remains: test-1113.out / test-nbb-1113.out (357 tests / 915 assertions, 32nd dual-runtime confirmation)

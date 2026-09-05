@@ -1,0 +1,5 @@
+falsify6-i53: deposit amounts at the i53 boundary through validate+apply-block
+amount i53-max value 9007199254740991 in-domain true validate nil -> applied collateral=9007199254740991 state-root=ef6adbda5a0f6e9aa43eab16b9ae346b298d98036742dd10152fa73e2c70f931 rejected=[]
+amount 2^53 value 9007199254740992 in-domain false validate nil -> threw msg=torihiki.fixed: value escaped the i53 domain where=:deposit value=9007199254740992
+amount 2^53+1 value 9007199254740992 in-domain false validate nil -> threw msg=torihiki.fixed: value escaped the i53 domain where=:deposit value=9007199254740992
+done
