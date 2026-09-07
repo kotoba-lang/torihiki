@@ -1,0 +1,4 @@
+falsify-10: does the sum-unchecked funding accumulation (:funding-residue, funding.cljc:138) cross 2^53 unchecked?
+probe payment-identity notional 720000000120000 product 9000000001500000000 prod-lt-2-63 true boundary-dist 500000256 p 9000000001 p-expected 9000000001
+probe residue-seeded-crossing (R0 = 2^53+1-2p) settle1 residue 9007190254740992 coll 9007190254740990 rate 12500 root 0fdc4adb66ebdfce72810e2fc511a03c1783b1afdac22c078a5ad7567eb6df63 | settle2 residue 9007199254740992 coll 9007181254740989 rate 12500 root 549280fb227ee9c0a979b638bd0ad38455fc0d6976a4c2f9e27c3ee866d572f7 | settle3 residue 9007208254740992 coll 9007172254740988 rate 12500 root 20e2f97a2ae99ecf12429728462dd223dfdcc7fba409e16bf59a15b07c59b19a | settle4 residue 9007217254740992 coll 9007163254740987 rate 12500 root 040450bd0538c0ae646fe14d21e35fa206d6aa0ebc691ede3b8f2588ed049d27
+done
