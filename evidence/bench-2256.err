@@ -1,0 +1,5 @@
+Execution error (FileNotFoundException) at clojure.main/main (main.java:40).
+Could not locate torihiki/bench__init.class, torihiki/bench.clj or torihiki/bench.cljc on classpath.
+
+Full report at:
+/var/folders/31/st4xq0g12v3cn1b9yg5zcrsm0000gn/T/clojure-11570250492283106252.edn

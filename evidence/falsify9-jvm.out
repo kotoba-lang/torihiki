@@ -1,0 +1,6 @@
+#'falsify9-accum-paths/header
+falsify-9: do the delta-checked / sum-unchecked accumulators (:deficit clearing.cljc:711) cross 2^53 unchecked?
+probe deficit-walk settle-deficit x4 (delta i53-max) settle1 deficit 9007199254740991 coll 0 root 4f8a8b528539dd9179767f98d25292887e79866e61853d2252c5c3669b92dd37 | settle2 deficit 18014398509481982 coll 0 root 82e06c6ec5a9927290b52678c7bf8259ee11812b9f4af16967459286e4355620 | settle3 deficit 27021597764222973 coll 0 root af4c278d448847f5daa25d8fad8fbe5561a266f4b4b14c7baec2f274170f8d35 | settle4 deficit 36028797018963964 coll 0 root 664c03dc71fe9070bae2008b44101b2e41fdaaf9971859f8d1618e4c5ae45f10
+probe deficit-3x then deposit 1 deficit3 27021597764222973 deficit-after 27021597764222972 coll-after 0 root 58b49391ded91afff1130b1ef99961486a422929b39715d0993b7566408b477c
+probe mul-rate-limit -> threw msg=long overflow where=nil value=nil
+done

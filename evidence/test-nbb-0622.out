@@ -1,0 +1,10 @@
+Fri Sep  4 06:23:11 JST 2026
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+namespaces 17/17
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+exit=0

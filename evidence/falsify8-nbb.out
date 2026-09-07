@@ -1,0 +1,8 @@
+falsify-8: does cumulative IN-DOMAIN deposit state escape i53 (fix (a) insufficient)?
+probe deposit-i53max x3 per-block coll1 9007199254740991 coll2 18014398509481982 coll3 27021597764222972 root3 24eca56cdebe98712ec659b4b48698ca338885a5f7fc6fd35994bd136ab54739
+probe validate-2nd-deposit-i53max validate nil
+probe 4th deposit onto 3xi53max coll3 27021597764222972 coll4 36028797018963964 root4 f862cb52178dd15b00a70989f46e67ed56d61d8dcff19453f4cade43b0943a9b
+probe post-2dep order rest qty=1 validate nil -> applied state-root=20425bb7710b31ee1a660e351189653361de8b17b2163fed54a516dfd12725f0
+probe post-2dep cross fill validate nil -> applied state-root=a1da6c4be4d7233607c924d235e2482c2f4ae280e631d449f6d3fcf144918873
+probe post-2dep withdraw 1 validate nil -> applied collateral=18014398509481980 state-root=5603d419f172c0ca513b9ffe9e0b6a0428d9239418a6e91bffc78cf3522d5aed
+done
