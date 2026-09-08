@@ -4,7 +4,7 @@
             [torihiki.state :as st]
             [torihiki.commit :as cm]
             [torihiki.parity :as par]
-            [clojure.string]))
+            [kotoba.lang.text]))
 
 (defn- ex [] (st/apply-block (par/fresh) par/scenario))
 
@@ -71,7 +71,7 @@
   ;; money. If any of them carried a sum, the root's total would be a number
   ;; with no unit — and it would still verify, which is the dangerous part.
   (is (= #{0} (set (map #(:sum % 0)
-                        (remove #(clojure.string/starts-with? (:id %) "04:01:")
+                        (remove #(kotoba.lang.text/starts-with? (:id %) "04:01:")
                                 (st/canonical-leaves (ex))))))))
 
 (deftest a-leaf-sum-cannot-be-moved-without-moving-the-root
@@ -198,7 +198,7 @@
     (is (= ids (vec (sort ids)))
         "leaf ids are not in sorted order — the tree and the flat encoding disagree")
     ;; and the leaf order still matches the numeric account order
-    (let [acct-ids (filterv #(clojure.string/starts-with? % "04:01:") ids)]
+    (let [acct-ids (filterv #(kotoba.lang.text/starts-with? % "04:01:") ids)]
       (is (= acct-ids
              (mapv #(cm/account-leaf-id %)
                    (sort (keys (get-in e [:clearing :accounts])))))))

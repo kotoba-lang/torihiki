@@ -26,7 +26,7 @@
   complement over 256 bits, which is what `int256` means in the ABI and what
   every Solidity caller will decode. Returning a magnitude and a sign flag
   would be a second convention for something the ABI already has one for."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [torihiki.clearing :as cl]))
 
 (def ^:const word-bits 256)
@@ -103,7 +103,7 @@
 
 (defn- selector-of [calldata]
   (when (and (string? calldata) (>= (count calldata) 10))
-    (get selectors (str/lower-case (subs calldata 0 10)))))
+    (get selectors (str/lower (subs calldata 0 10)))))
 
 (defn call
   "Answer an `eth_call` to the exchange precompile.
@@ -121,7 +121,7 @@
   move."
   [ex address calldata]
   (when (and (string? address)
-             (= (str/lower-case address) core-address))
+             (= (str/lower address) core-address))
     (when-let [sel (selector-of calldata)]
       (let [c (:clearing ex)]
         (case sel

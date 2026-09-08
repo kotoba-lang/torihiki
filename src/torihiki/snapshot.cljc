@@ -65,7 +65,7 @@
   as something subtly different — string keys, an array — and the difference
   would surface as a state root that does not match, at restore time, on a
   node that is already in trouble. EDN carries them as themselves."
-  (:require [clojure.string]
+  (:require [kotoba.lang.text]
             [torihiki.book :as bk]
             #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])))
 

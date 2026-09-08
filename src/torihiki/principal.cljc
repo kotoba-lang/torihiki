@@ -53,7 +53,7 @@
 
   Pure: no crypto, no clock, no I/O. `torihiki.auth` has already established
   who signed by the time anything here is called."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [torihiki.address :as addr]))
 
 (def reasons
