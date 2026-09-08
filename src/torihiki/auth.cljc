@@ -66,7 +66,7 @@
   signature is good. Nothing here imports crypto, for the same reason
   `torihiki.log` does not: `kotoba-lang/ed25519` is JVM-only, and a browser
   that cannot re-verify a block is not a verifier."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def reasons
   #{:unsigned :bad-signature :bad-nonce :wrong-key :missing-account

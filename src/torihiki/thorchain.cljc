@@ -21,7 +21,7 @@
   strictly: the exact prefix, then digits, and nothing else. A memo that does
   not parse is not a deposit for anybody — crediting a best guess would mean
   crediting an account the sender did not name."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def ^:const memo-prefix
   "What a deposit memo must start with. Namespaced, because a THORChain vault
@@ -171,7 +171,7 @@
   how a vault check silently never matches."
   [t]
   (when (and (string? t) (>= (count t) 40))
-    (str "0x" (str/lower-case (subs t (- (count t) 40))))))
+    (str "0x" (str/lower (subs t (- (count t) 40))))))
 
 (defn decode-deposit-data
   "`(amount, memo)` out of the non-indexed half of a Deposit log.
@@ -215,7 +215,7 @@
          :when (and acct to asset
                     (string? txid) (seq txid)
                     (integer? amount) (pos? amount)
-                    (contains? (set (map str/lower-case vaults)) to)
+                    (contains? (set (map str/lower vaults)) to)
                     (integer? height) (integer? tip)
                     (>= (- tip height) min-confirmations))]
      {:tx :deposit-attest

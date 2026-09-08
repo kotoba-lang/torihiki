@@ -10,7 +10,7 @@
             [torihiki.clearing :as cl]
             [torihiki.state :as st]
             [torihiki.auth :as auth]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (def chain "falsify-1")
 (def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))

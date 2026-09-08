@@ -40,7 +40,7 @@
   passed to `map` or bound as a local, which is why `torihiki.book/best` is
   written as an explicit branch instead of selecting an accessor."
   (:refer-clojure :exclude [get set!])
-  (:require [clojure.string])
+  (:require [kotoba.lang.text])
   #?(:cljs (:require-macros [torihiki.slab :refer [get set! add! field]])))
 
 (defn- cljs-env?
@@ -86,7 +86,7 @@
   [x fname]
   (let [n (name fname)
         kw (keyword n)
-        sym (symbol (str "-" (clojure.string/replace n "-" "_")))]
+        sym (symbol (str "-" (kotoba.lang.text/replace n "-" "_")))]
     #?(:clj  (if (cljs-env? &env) `(~kw ~x) `(. ~x ~sym))
        :cljs `(~kw ~x))))
 

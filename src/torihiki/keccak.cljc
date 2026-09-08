@@ -23,7 +23,7 @@
 
   Not the sponge in general and not SHA3: Keccak-256 with the original
   padding, which is what Ethereum uses and what `keccak256` in Solidity means."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def ^:private ^:const m32 0xFFFFFFFF)
 

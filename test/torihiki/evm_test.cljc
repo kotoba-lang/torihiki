@@ -1,5 +1,5 @@
 (ns torihiki.evm-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.lang.text] [clojure.test :refer [deftest is testing]]
             [torihiki.evm :as evm]
             [torihiki.clearing :as cl]
             [torihiki.state :as st]))
@@ -74,7 +74,7 @@
   ;; Solidity checksums addresses by case. A bridge that only matched lower
   ;; case would refuse every caller that pasted a checksummed address.
   (let [ex (ex-with-a-position)]
-    (is (some? (evm/call ex (str "0x" (clojure.string/upper-case
+    (is (some? (evm/call ex (str "0x" (kotoba.lang.text/upper
                                     (subs evm/core-address 2)))
                          (evm/encode-call :collateral 700)))
         "a checksummed address was refused")))
