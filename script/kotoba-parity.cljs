@@ -28,7 +28,7 @@
 ;; result handles, which a host holding an opaque pair cannot do -- without it
 ;; three of the fourteen exports would be compared against nothing.
 (ns kotoba-parity
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [torihiki.fixed :as fx]
             [nbb.core :refer [*file*]]
             ["fs" :as fs]
