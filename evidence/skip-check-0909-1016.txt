@@ -1,0 +1,26 @@
+2026-09-09 1016 frame 383 load-gate skip — citation check
+load 10:16: 1-min 132.87 / 5-min 128.62 / 15-min 114.75 (all >=20 -> high load, not-run)
+pre-run 10:11: 121.36 / 126.65 / 109.11 (torihiki_state.sh)
+HEAD 175a6ee (frame 382 =1016-0958 skip commit; unchanged, no lock, no tangle)
+src diff HEAD -- src/ script/ deps.edn = 0 lines (no code changes)
+
+Canonical latest full-gate = frame-286 (e81a243, 09-08 12:06), suite 130 (as re-established at frames 381/382;
+frame-381's "287/suite-131" citation was a phantom defect already flagged).
+verified files still present in git e81a243:
+  evidence/test-286-jvm.log  357/915 0F/0E 17/17 ns JVM_EXIT=0 (green)
+  evidence/test-286-nbb.log  357/915 0F/0E 17/17 ns NBB_EXIT=0 (green)
+  evidence/parity-286.log    fixed 38 + fixed/result 20, 0 drift KOTOBA_PARITY_EXIT=0
+  evidence/bench-286.log     ArityException bench.clj:112 cancel! 2-arg BENCH_EXIT=1 (known red)
+suite count = 130 (next fresh measure = suite 131)
+
+OPEN-red citations re-verified against current src (all still live at cited lines):
+  api.cljc:202       :deposit amount — integer?/pos? only, NO i53 cap  (falsify-6/7/8)
+  api.cljc:68        :order qty — integer?/pos? only, NO i53/notional cap (falsify-7)
+  clearing.cljc:711  settle-deficit sum (fnil + 0) unchecked            (falsify-9,12)
+  clearing.cljc:726  deposit collateral sum (fnil + 0) unchecked        (falsify-8)
+  funding.cljc:138   :funding-residue (fnil + 0) unchecked              (falsify-10)
+  bench/torihiki/bench.clj:112  (bk/cancel! b oid) 2-arg — still red    (bench-tape-cancel-arity)
+All confirmed present unaffected by today's kotoba.lang.text refactor.
+
+scores unchanged 3/3/3/3/2/1/1. NEXT unchanged (fix package + bench 3 fix + fuzz 常設化).
+PASS.
