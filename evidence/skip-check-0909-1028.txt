@@ -1,0 +1,17 @@
+## frame 384 citation check 2026-09-09 10:28
+9f8d9b979dbce7ce28537b691f1df004e1b211df
+9f8d9b9 maturity: ledger line + evidence for frame 383 (load-gate skip 1016; canonical = frame-286 suite-130; OPEN-red citations re-verified valid post kotoba.lang.text refactor 6 sites; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+10:29  up 4 days,  3:12, 8 users, load averages: 83.42 87.70 97.66
+-- bench.clj:112:
+              (let [q (bk/cancel! b oid)]
+-- api.cljc:202:
+      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+-- api.cljc:68:
+    (not (and (integer? qty) (pos? qty))) :bad-quantity
+-- clearing.cljc:711/726:
+          (update-in [:accounts acct :deficit] (fnil + 0) (fx/check :deficit (- c))))
+      true (update-in [:accounts acct :collateral] (fnil + 0) (- amount repaid)))))
+-- funding.cljc:138:
+                 (update :funding-residue (fnil + 0) p))))))
+-- srcdiff:
+       0
