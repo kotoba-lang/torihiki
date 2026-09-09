@@ -1,0 +1,5 @@
+Wed Sep  9 12:44:45 JST 2026
+12:44  up 4 days,  5:27, 7 users, load averages: 13.78 21.61 31.81
+rc=0
+rc=0
+bench_rc=1
