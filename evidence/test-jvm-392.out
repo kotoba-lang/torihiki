@@ -1,0 +1,42 @@
+Wed Sep  9 11:45:11 JST 2026
+11:45  up 4 days,  4:28, 8 users, load averages: 9.38 23.02 34.03
+
+Running tests in #{"test"}
+
+Testing torihiki.address-test
+
+Testing torihiki.api-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.state-test
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+EXIT=0
