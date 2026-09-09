@@ -1,0 +1,36 @@
+;; falsify-13 nbb driver — all probes (2-event crossing).
+(require '["fs" :as fs])
+(require '[torihiki.state :as st] '[torihiki.clearing :as cl] '[torihiki.liquidation :as liq] '[torihiki.fixed :as fx])
+(load-string (fs/readFileSync "evidence/falsify13-insurance-accum.cljc" "utf8"))
+
+(println (falsify13-insurance-accum/header))
+
+(defn- fmt-pi [r]
+  (str "probe " (:probe r)
+       " fee " (:fee r) " odd " (:fee-odd r) " in-domain " (:fee-in-domain r)
+       " seed " (:seed r) " seed-in-domain " (:seed-in-domain r)
+       " two-fee-sum " (:two-fee-sum r)
+       " sum-lands-on-two53+1 " (:sum-lands-on-two53+1 r)))
+
+(defn- fmt-hc [r]
+  (str "probe " (:probe r)
+       " N-cap " (:N-cap r) " fee-cap " (:fee-cap r)
+       " events-to-cross " (:events-to-cross r)))
+
+(defn- fmt-sc [r]
+  (str "probe " (:probe r)
+       (if (:aborted r) (str " ABORTED " (:aborted r))
+           (str " stage1 " (:stage1 r) " stage2 " (:stage2 r)
+                " fund0 " (:fund0 r)
+                " fund1 " (:fund1 r) " root1 " (:root1 r)
+                " fund2 " (:fund2 r) " root2 " (:root2 r)))))
+
+(doseq [[label f fmt] [["payment-identity" #(falsify13-insurance-accum/probe-payment-identity) fmt-pi]
+                       ["honest-ceiling" #(falsify13-insurance-accum/probe-honest-ceiling) fmt-hc]
+                       ["seeded-crossing" #(falsify13-insurance-accum/probe-seeded-crossing) fmt-sc]]]
+  (println
+   (try (fmt (f))
+     (catch js/Error e
+       (falsify13-insurance-accum/line-threw label e)))))
+
+(println "done")
