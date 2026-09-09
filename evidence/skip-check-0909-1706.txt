@@ -1,0 +1,3 @@
+2026-09-09 17:06 JST load: 1-min 23.40 / 5-min 32.09 / 15-min 36.29 — all >=20, gate FAILED, not-run
+HEAD 285f26a (frame 402 skip commit), src/ script/ deps.edn diff = 0 bytes, untracked = diag scripts + evidence working files only
+canonical citation: frame-401 (1964c59) suite 134 / fuzz 32nd / bench red 30th — unchanged
