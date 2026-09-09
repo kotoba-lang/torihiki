@@ -1,0 +1,7 @@
+2026-09-09 11:09 frame 390 load gate skip
+uptime (pre-run script直測): 1-min 36.55 / 5-min 49.70 / 15-min 65.96 — all >=20 -> not-run
+terminal backend empty-output fault (3 attempts, exit 0 stdout empty) — HEAD not directly verified;
+code invariance cited from frame-389 (HEAD 33602ff, src/script/deps.edn diff 0)
+canonical ref: frame-286 (e81a243) suite 130
+scores unchanged 3/3/3/3/2/1/1; falsify 36 / findings 30; NEXT unmeasured list 0
+evidence/2026-09-09-1109-maturity-remeasure-skip.md; next frame 391
