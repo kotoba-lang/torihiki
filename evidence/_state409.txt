@@ -1,0 +1,28 @@
+20:13  up 5 days, 12:56, 6 users, load averages: 16.54 17.39 26.82
+d8fb6beac7da161a856e5e7b8cf9d08cee79de45
+---PORCELAIN---
+ M status/maturity.md
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _ins344.py
+?? _ins345.py
+?? _mat_279.sh
+?? _mbench_run.sh
+?? _verify279.py
+?? evidence/2026-09-09-1045-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1049-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1125-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1141-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1228-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1241-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1255-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1305-maturity-remeasure.md
+?? evidence/2026-09-09-1315-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1319-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1322-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1326-maturity-remeasure-skip.md
