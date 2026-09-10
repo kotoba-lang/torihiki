@@ -1,0 +1,2 @@
+junction before 302: '1422-maturity-remeasure-skip.md + 引用検収 evidence/skip-check-0908-1422.txt 與 本次 **'
+head ok: '與 本次 **300 度目枠** 2026-09-'

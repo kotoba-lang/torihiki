@@ -1,0 +1,10 @@
+62a87e5 maturity: ledger line + evidence for frame 283 (load-gate skip 1118; cite 279 suite-129; fold parallel 1113/1114; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+c910859 maturity: ledger line + evidence for frame 282 (load-gate skip 1114; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+9b7ce68 maturity: ledger line + evidence for frame 282 (load-gate skip 1113; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+9d9de61 maturity: ledger line + evidence for frame 281 (load-gate skip 1102; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d05cf4e maturity: ledger line + evidence for frame 280 (load-gate skip 1044; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+95f593d maturity: evidence for frame 279 (full-gate 1029; suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+evidence/2026-09-08-1113-maturity-remeasure-skip.md
+evidence/2026-09-08-1114-maturity-remeasure-skip.md
+evidence/skip-check-0908-1113.txt
+evidence/skip-check-0908-1114.txt

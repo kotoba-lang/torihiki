@@ -1,0 +1,18 @@
+=== HEAD ===
+aa66120 maturity: ledger line + evidence for frame 367 (load-gate skip 0414; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+7481872 maturity: ledger line + evidence for frames  ‏365+366 (load-gate skip, fold tangle 0350/0355; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5e98c86 maturity: ledger line + evidence for frame 364 (load-gate skip 0344; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== 367 in ledger ===
+1
+=== evidence tracked ===
+evidence/2026-09-05-0414-cron-test-run.md
+evidence/2026-09-07-0414-maturity-remeasure-skip.md
+evidence/2026-09-09-0414-maturity-remeasure-skip.md
+evidence/_edit_0414_maturity.out
+evidence/_edit_0414_maturity.py
+evidence/_frm-commit-0414.txt
+evidence/_frm-verify-0414.txt
+evidence/_frm-verifystat-0414.txt
+evidence/skip-check-0907-0414.txt
+evidence/skip-check-0909-0414.txt
+evidence/test-cron-0414.log

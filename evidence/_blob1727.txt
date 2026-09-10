@@ -1,0 +1,14 @@
+=== HEAD blob contains '本次 **316 度目枠**'? ===
+1
+=== worktree blob contains? ===
+1
+=== worktree vs HEAD diff for maturity.md (byte count) ===
+       0
+=== git log -5 (short) ===
+094bcb9a83464c307ddd6e5a16b3405c6facd797 maturity: ledger line + evidence for frame 316 (load-gate skip 1709; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+47425235065bda240aebf68b909a43d3d20630e4 maturity: ledger line + evidence for frame 315 (load-gate skip 1653; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+917de7db54a45d0e10e9af041054fa788a24eb87 maturity: ledger line + evidence for frame 314 (load-gate skip 1637; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+4f859d89ef6cb6b9ce7682f4057e2053d1a5caf5 maturity: ledger line + evidence for frame 313 (load-gate skip 1600; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ccccf0fb15f30d8a312aefbc06a2fdfb3e626d74 maturity: ledger line + evidence for frame 312 (load-gate skip 1550; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== git log -1 --format=%ci ===
+2026-09-08 17:30:24 +0900 094bcb9a83464c307ddd6e5a16b3405c6facd797 maturity: ledger line + evidence for frame 316 (load-gate skip 1709; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

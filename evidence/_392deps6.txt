@@ -1,0 +1,9 @@
+2:;; pins without starting a JVM.
+14:;; ## Why the pins and not the checkouts
+20:;; is not running against, and the two runs would then disagree for a reason
+29:;; classpath would make `tests-on-nbb` fail to require a namespace, which
+32:(ns nbb-classpath
+33:  (:require [clojure.edn :as edn]
+===
+===
+TXTOK=0

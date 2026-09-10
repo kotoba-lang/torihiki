@@ -1,0 +1,7 @@
+Boxed math warning, torihiki/bench.clj:105:17 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Boxed math warning, torihiki/bench.clj:114:45 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+Wrong number of args (2) passed to: torihiki.book/cancel!
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-7155259554399332087.edn

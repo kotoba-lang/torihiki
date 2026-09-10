@@ -1,0 +1,17 @@
+===LS 287 EVIDENCE===
+-rw-r--r--@ 1 junkawasaki  staff  1941 Sep  8 12:29 evidence/2026-09-08-1220-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff   552 Sep  8 12:13 evidence/bench-287.log
+-rw-r--r--@ 1 junkawasaki  staff   149 Sep  8 12:11 evidence/parity-287.log
+-rw-r--r--@ 1 junkawasaki  staff   832 Sep  8 12:29 evidence/skip-check-0908-1220.txt
+-rw-r--r--@ 1 junkawasaki  staff   614 Sep  8 12:11 evidence/test-287-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff   218 Sep  8 12:12 evidence/test-287-nbb.log
+-rw-r--r--@ 1 junkawasaki  staff   218 Sep  8 12:13 evidence/test-287b-nbb.log
+===RUN SCRIPTS===
+-rw-r--r--@ 1 junkawasaki  staff  576 Sep  8 12:10 evidence/_cp287.txt
+-rw-r--r--@ 1 junkawasaki  staff   56 Sep  8 12:15 evidence/_g287.txt
+-rw-r--r--@ 1 junkawasaki  staff  319 Sep  8 12:14 evidence/_meta287.sh
+-rw-r--r--@ 1 junkawasaki  staff  138 Sep  8 12:14 evidence/_meta287.txt
+-rw-r--r--@ 1 junkawasaki  staff  174 Sep  8 12:09 evidence/_run287_bench.sh
+-rw-r--r--@ 1 junkawasaki  staff  478 Sep  8 12:09 evidence/_run287_jvm.sh
+-rw-r--r--@ 1 junkawasaki  staff  336 Sep  8 12:09 evidence/_run287_nbb.sh
+-rw-r--r--@ 1 junkawasaki  staff  436 Sep  8 12:09 evidence/_run287_parity.sh

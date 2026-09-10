@@ -1,0 +1,2 @@
+b48bf0e torihiki: kotoba.lang.text instead of clojure.string
+===

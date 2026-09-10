@@ -1,0 +1,4 @@
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0

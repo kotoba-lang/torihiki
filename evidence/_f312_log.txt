@@ -1,0 +1,6 @@
+e21561e maturity: ledger line + evidence for frame 311 (load-gate skip月球1546; cite 287 suite-131; src unchanged; scores unchanged)
+dccff9e maturity: ledger line + evidence for frame 310 (load-gate skip 1531; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+14d8276 maturity: ledger line + evidence for frame 309 (load-gate skip 1514; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+f4d4d28 maturity: ledger line + evidence for frame 308 (load-gate skip 1508; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+edc0516 maturity: ledger line + evidence for frame 307 (load-gate skip 1458; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+28f2986 maturity: ledger line + evidence for frame 306 (load-gate skip 1450; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 305 tangle 1445)

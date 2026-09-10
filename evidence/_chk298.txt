@@ -1,0 +1,35 @@
+evidence/skip-check-0908-1349.txt
+evidence/skip-check-0908-1351.txt
+evidence/skip-check-0908-1356.txt
+---1349 content---
+# torihiki maturity remeasure — frame 298 (SKIP, load gate)
+
+- 枠: **298 度目枠** 2026-09-08 13:49 cron
+- 判定: **load gate skip枠** — 高負荷のため実測せず (not-run evidence only)
+- 負荷: 13:49 uptime 1-min **16.57** / 5-min **30.81** / 15-min **53.73**
+- ゲート: 5-min・15-min ≥20 で全 <20 不成立のため高負荷続行 (skip)
+
+## HEAD 確認
+- HEAD: `61468ab` (frame 297 = 1330 skip commitの ledger+evidence commit)
+- HEAD は ledger/evidence 追記のみ、src/ 変更なし: `git diff HEAD -- src/ script/ = 0 bytes` (正本引用確認済)
+
+## 引用先 (最新実測 = frame 287, full-gate)
+引用先 **287 実測** (suite **131 度目実測**, HEAD e81a243) を実検収:
+- evidence/test-287-jvm.log  [357/915 全緑 0 failures 0 errors JVM_EXIT=0]
+- evidence/test-287-nbb.log  [357/915 全緑 17/17 ns TESTS-ON-NBB pass NBB_EXIT=0]
+- evidence/parity-287.log   [38+20 cases 0 drift KOTOBA_PARITY_EXIT=0]
+- evidence/bench-287.log    [同一 ArityException bench.clj:112 BENCH_EXIT=1 既知赤]
+
+本枠記録: evidence/2026-09-08-1349-maturity-remeasure-skip.md
+引用検収: evidence/skip-check-0908-1349.txt---1349 skip-check---
+frame 298: 2026-09-08 13:49 load-gate skip
+HEAD 61468ab (frame 297 skip) ; src/ script/ diff = 0 bytes
+load 16.57/30.81/53.73 (1/5/15) -> 5-min/15-min >=20 -> all<20 fails -> NOT RUN
+cite frame 287 suite-131 (HEAD e81a243):
+  test-287-jvm.log 357/915 all green JVM_EXIT=0
+  test-287-nbb.log 357/915 all green 17/17 ns NBB_EXIT=0
+  parity-287.log 38+20 cases 0 drift KOTOBA_PARITY_EXIT=0
+  bench-287.log ArityException bench.clj:112 BENCH_EXIT=1 (known red)
+recorded: 2026-09-08-1349-maturity-remeasure-skip.md---working 1349 md exists---
+-rw-r--r--@ 1 junkawasaki  staff  1150 Sep  8 13:52 evidence/2026-09-08-1349-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff   509 Sep  8 13:52 evidence/skip-check-0908-1349.txt

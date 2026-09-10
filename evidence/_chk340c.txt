@@ -1,0 +1,11 @@
+=== HEAD log ===
+2c1dca2 maturity: ledger line + evidence for frame 341 (load-gate skip 2257; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+c356f1c maturity: ledger line + evidence for frame 340 (load-gate skip 2246/2257/2312; fold 3 parallel frame-340 evidence sets; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d6e5621 maturity: ledger line + evidence for frame 339 (load-gate skip 2226; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== HEAD commit msg ===
+maturity: ledger line + evidence for frame 341 (load-gate skip 2257; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== maturity.md worktree == committed? ===
+=== 340 in committed HEAD maturity? ===
+       1
+=== my 2246 evidence committed? ===
+4

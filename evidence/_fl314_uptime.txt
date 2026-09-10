@@ -1,0 +1,2 @@
+16:46  up 3 days,  9:29, 9 users, load averages: 78.04 59.38 47.75
+UP_EXIT=0

@@ -1,0 +1,3 @@
+# torihiki 成熟度 (正本)
+
+現在段階: L1 (execution layer + verifiable sequencer log 実装済み, consensus 未接続)

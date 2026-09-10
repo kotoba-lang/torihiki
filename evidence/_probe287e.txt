@@ -1,0 +1,25 @@
+===SHOW 963a559 (frame 285 skip commit)===
+commit 963a55987e1356c9d9092110324e407675ca06ba
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Tue Sep 8 11:37:18 2026 +0900
+
+    maturity: ledger line + evidence for frame 284 (load-gate skip 1132; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-08-1132-maturity-remeasure-skip.md | 11 +++++++++++
+ evidence/skip-check-0908-1132.txt                   | 11 +++++++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 23 insertions(+), 1 deletion(-)
+===SHOW e81a243 (frame 286 commit)===
+commit e81a243c9ddb30278ae32902cd4983686c7bf713
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Tue Sep 8 12:06:04 2026 +0900
+
+    maturity: ledger line + evidence for frame 286 (full-gate 1155; suite 130; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-08-1155-maturity-remeasure.md | 17 +++++++++++
+ evidence/bench-286.log                         | 10 +++++++
+ evidence/parity-286.log                        |  4 +++
+ evidence/test-286-jvm.log                      | 40 ++++++++++++++++++++++++++
+ evidence/test-286-nbb.log                      |  9 ++++++
+ status/maturity.md                             |  2 +-
+ 6 files changed, 81 insertions(+), 1 deletion(-)

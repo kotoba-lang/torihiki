@@ -1,0 +1,6 @@
+date: 2026-09-09 13:26
+uptime: 13:26  up 4 days,  6:09, 7 users, load averages: 30.14 31.87 29.96
+gate: 1-min 30.14 / 5-min 31.87 / 15-min 29.96 — all >=20 -> skip (not-run)
+HEAD: 915f832 (frame 398 commit, 2026-09-09 12:50; same as frame 399)
+src/script/deps.edn diff vs HEAD: 0 bytes
+verdict: load gate skip, frame 400

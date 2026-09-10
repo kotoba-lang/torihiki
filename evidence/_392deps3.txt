@@ -1,0 +1,36 @@
+bounded_regex.kotoba
+bounded_text.kotoba
+text.cljc
+(ns kotoba.lang.text
+  "String / regex / unicode helpers for the kotoba foundational stdlib. The gap
+  every other lib re-rolls (json/lint/time hand-roll string ops). Pure string
+  ops are portable; regex uses the host's #\"...\". `format` is a pure printf
+  impl with flags/width/precision (no String/format — WASM-safe), varargs like
+  clojure.core/format, which is JVM-only. Runs on JVM/SCI/CLJS/GraalVM/kotoba-WASM.
+
+  Zero third-party runtime deps; .cljc."
+  (:refer-clojure :exclude [format split join replace re-find re-matches re-seq
+                            reverse]))
+
+;; ---------------------------------------------------------------------------
+;; Self-hosted. This namespace does NOT require clojure.string.
+;; ---------------------------------------------------------------------------
+;;
+;; It used to. Delegating was the honest first move -- it made the surface
+;; complete without claiming semantics nobody had written down. But it meant
+;; that "migrate the workspace to kotoba.*" bought a rename and nothing else:
+;; the host dependency was still there, one layer down, in the one place every
+;; caller reached through.
+===
+bytes
+chain
+fixed-parity.wasm
+fixed-parity.wasm.provenance.edn
+fixed-parity.wasm.publication.edn
+fixed.wasm
+fixed.wasm.provenance.edn
+fixed.wasm.publication.edn
+io-ipld
+io-multiformats
+merkle-sum
+org-ietf-cbor

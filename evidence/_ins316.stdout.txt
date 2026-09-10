@@ -1,0 +1,4 @@
+anchor count: 1
+inserted. new len: 296231, old len: 295193
+316 entries: 1
+315 entries: 1

@@ -1,0 +1,12 @@
+=== bytes ===
+  407942 status/maturity.md
+=== lines ===
+     494 status/maturity.md
+=== top line snippet ===
+| テスト ||3 ||與 本次 **339 度目枠** 2026-09-08 2226 cron - load gate skip枠 (負荷 22:26 uptime 1-min **14.55** / 5-m
+=== git diff stat ===
+ status/maturity.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+=== untracked evidence ===
+?? evidence/2026-09-08-2226-maturity-remeasure-skip.md
+?? evidence/skip-check-0908-2226.txt

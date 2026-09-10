@@ -1,0 +1,1 @@
+2026-09-10T17:20JST skip: load 65.29 85.81 81.98 > 20; falsify-14 (multi-account deficit aggregation) hypothesis queued, not run. No measurement, no code changes.

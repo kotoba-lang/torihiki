@@ -1,0 +1,25 @@
+11:15  up 4 days,  3:58, 8 users, load averages: 20.65 34.18 53.38
+95057a2 frame 390: load gate skip (11:09, 1m 36.55 all>=20, not-run evidence)
+57d8be7 frame 389 load gate skip (1100): load 94/82/94 all >=20, not-run evidence-only
+ee88713 maturity: ledger line + evidence for frame 386 (load-gate skip 1037; canonical = frame-286 suite-130; duplicate frame-384 numbering in 9657965/33602ff flagged [1028 = frame 385 misnumbered]; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _ins344.py
+?? _ins345.py
+?? _mat_279.sh
+?? _mbench_run.sh
+?? _verify279.py
+?? evidence/2026-09-09-1045-maturity-remeasure-skip.md
+?? evidence/2026-09-09-1049-maturity-remeasure-skip.md
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_add333err.txt
+?? evidence/_add334.out
+1115

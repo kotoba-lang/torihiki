@@ -1,0 +1,6 @@
+2026-09-09 12:41 枠 (frame 397) skip-check
+uptime (12:40): load averages: 16.79 28.69 37.07
+decision: not-run (5-min/15-min >= 20; 1-min 16.79 初の <20 下振れだが高負荷 window 継続)
+canonical 引用: frame-395 実測 (suite 132, test-jvm/test-nbb-395)
+evidence: evidence/2026-09-09-1241-maturity-remeasure-skip.md
+次枠番号: 398

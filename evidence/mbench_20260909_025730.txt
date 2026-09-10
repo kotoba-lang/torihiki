@@ -1,0 +1,48 @@
+=== DATE ===
+2026-09-09 02:57:30 JST
+=== UPTIME ===
+ 2:57  up 3 days, 19:40, 6 users, load averages: 21.79 37.05 39.16
+=== LOADAVG ===
+{ 21.79 37.05 39.16 }
+=== HEAD ===
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== STATUS ===
+ M evidence/_c3.txt
+ M evidence/_frame_check.txt
+ M evidence/_frame_log.txt
+ M evidence/_head.txt
+ M evidence/_load.txt
+ M evidence/_ls.txt
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _ins344.py
+?? _ins345.py
+?? _mat_279.sh
+?? _mbench_run.sh
+?? _verify279.py
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_add333err.txt
+?? evidence/_add334.out
+?? evidence/_add345.out
+?? evidence/_amu287.txt
+?? evidence/_anch316.txt
+?? evidence/_anch345.txt
+?? evidence/_b287.txt
+?? evidence/_bench286.out
+=== DECISION ===
+loadavg1={
+awk: syntax error at source line 1
+ context is
+	BEGIN{exit >>>  !({ <<< 
+awk: illegal statement at source line 1
+awk: illegal statement at source line 1
+	missing }
+STATUS: RUN-ALLOWED (host load { <= 20)

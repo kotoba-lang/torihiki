@@ -1,0 +1,1 @@
+��  load gate skip**): 負荷 1-min **27.73** / 5-min 16.27 / 15-min 13.06 (00:16 JST 直測 uptime; torihiki_state.sh timed out at 400s [既知 fault], uptime + git 直接実測)  閾値 1-min >20 継続高負荷のため test/parity/bench/falsify 新規実測は **not-run** (evidence/2026-09-08-0

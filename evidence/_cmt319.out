@@ -1,0 +1,7 @@
+[detached HEAD c2b2c7e] maturity: ledger line + evidence for frame  ị319 (load-gate skip 1753; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 3 files changed, 29 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-08-1753-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0908-1753.txt
+=== COMMIT RESULT ===
+c2b2c7e1f957d3e9c9239b3a7d3d9d24b8dbd9c0
+c2b2c7e maturity: ledger line + evidence for frame  ị319 (load-gate skip 1753; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

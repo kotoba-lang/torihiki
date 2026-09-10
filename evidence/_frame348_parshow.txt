@@ -1,0 +1,6 @@
+9cf7f6b038d415fb46cec711c94c106eea8050c2
+
+ .../2026-09-09-0046-maturity-remeasure-skip.md     | 25 ++++++++++++++++++++++
+ evidence/skip-check-0909-0046.txt                  | 12 +++++++++++
+ status/maturity.md                                 |  2 +-
+ 3 files changed, 38 insertions(+), 1 deletion(-)

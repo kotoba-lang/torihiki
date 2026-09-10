@@ -1,0 +1,9 @@
+MATURITY_BENCH_NOTRUN
+date: $(date '+%Y-%m-%d %H:%M:%S %Z')
+host_load_1m: 49.90
+host_load_5m: 50.40
+host_load_15m: 44.49
+uptime: 3:05 up 3 days, 19:48, 6 users
+threshold: load_1m > 20
+status: NOT_RUN (host load exceeds threshold)
+reason: Host load 49.90 exceeds 20.0 → bench/execution skipped, no code changes.

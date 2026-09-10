@@ -1,0 +1,34 @@
+--- git log grep frame 359 / slot  ﾖ03 --
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+4f7e2b0 maturity: ledger line + evidence for frame 357 (load-gate skip 0220; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+03b379b maturity: ledger line + evidence for frame 356 (load-gate skip 0208; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d73c1b8 maturity: ledger line + evidence for frame 355 (load-gate skip 0200; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+785684b maturity: ledger line + evidence for frame 354 (load-gate skip 0158; fold 並行 frame-353 0148 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4e9837 maturity: ledger line + evidence for frame 352 (load-gate skip 0143; fold 並行 0142 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ecd2764 maturity: ledger line + evidence for frame 351 (load-gate skip 0120; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e3c3c51 maturity: ledger line + evidence for frame 350 (load-gate skip 0114; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+32c0260 maturity: ledger line + evidence for frame 342 (load-gate skip 2338; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+--- ls evidence dated 0909-03xx ---
+--- ls evidence latest-named skip ---
+evidence/2026-09-09-0240-maturity-remeasure-skip.md
+evidence/2026-09-09-0220-maturity-remeasure-skip.md
+evidence/2026-09-09-0208-maturity-remeasure-skip.md
+evidence/2026-09-09-0200-maturity-remeasure-skip.md
+evidence/2026-09-09-0158-maturity-remeasure-skip.md
+evidence/2026-09-09-0148-maturity-remeasure-skip.md
+evidence/2026-09-09-0142-maturity-remeasure-skip.md
+evidence/2026-09-09-0143-maturity-remeasure-skip.md
+evidence/2026-09-09-0120-maturity-remeasure-skip.md
+evidence/2026-09-09-0114-maturity-remeasure-skip.md
+evidence/2026-09-09-0100-maturity-remeasure-skip.md
+evidence/2026-09-09-0046-maturity-remeasure-skip.md
+evidence/2026-09-09-0028-maturity-remeasure-skip.md
+evidence/2026-09-09-0022-maturity-remeasure-skip.md
+evidence/2026-09-09-0015-maturity-remeasure-skip.md
+--- last commits ---
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+4f7e2b0 maturity: ledger line + evidence for frame 357 (load-gate skip 0220; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+03b379b maturity: ledger line + evidence for frame 356 (load-gate skip 0208; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d73c1b8 maturity: ledger line + evidence for frame 355 (load-gate skip 0200; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+785684b maturity: ledger line + evidence for frame 354 (load-gate skip 0158; fold 並行 frame-353 0148 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4e9837 maturity: ledger line + evidence for frame 352 (load-gate skip 0143; fold 並行 0142 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

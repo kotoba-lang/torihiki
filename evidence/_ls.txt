@@ -1,0 +1,4 @@
+total 40
+drwxr-xr-x@  3 junkawasaki  staff     96 Sep  9 09:47 .
+drwxr-xr-x@ 32 junkawasaki  staff   1024 Sep  9 09:47 ..
+-rw-r--r--@  1 junkawasaki  staff  18213 Sep  9 09:47 maturity.md

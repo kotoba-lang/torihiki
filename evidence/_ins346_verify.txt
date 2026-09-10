@@ -1,0 +1,14 @@
+=== top of テスト row (line 11) ===
+| テスト | 3 | 與 本次 **346 度目枠** 2026-09-09 0022 cron - load gate skip枠 (負荷 00:22 uptime 1-min **39.73** / 5-min **56.15** / 15-min **63.72** 全 window ≥20 で全 <20 不成立の為 高負荷続行 [直接 load/git + リダイレクト回収; 並行 tangle 観測: 無し (HEAD は 
+
+=== src/script diff ===
+       0
+=== files to add ===
+ M status/maturity.md
+?? evidence/2026-09-09-0022-maturity-remeasure-skip.md
+?? evidence/2026-09-09-0028-maturity-remeasure-skip.md
+?? evidence/_frame346_recheck.txt
+?? evidence/_ins346.txt
+?? evidence/_ins346_verify.txt
+?? evidence/_maturitylines.txt
+?? evidence/skip-check-0909-0022.txt

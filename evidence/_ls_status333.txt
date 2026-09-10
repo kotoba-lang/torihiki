@@ -1,0 +1,11 @@
+ev-names-0906.txt
+final-wc-0906.txt
+grep-42-0906.txt
+grep-count-0906.txt
+line11-check-0906.txt
+ls-evidence-0906.txt
+maturity.md
+maturity.md.bak-0402
+state-0906-raw.txt
+wc-0906.txt
+wc-check.txt

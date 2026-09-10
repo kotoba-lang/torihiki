@@ -1,0 +1,2 @@
+COMMIT_EXIT=0
+3d107f70252952da92dc3447c733ef98a90c7874 frame 395: genuine run (12:03 1m 12.11 <20) — JVM+nbb 357/915 0F/0E both green (35th same-count, suite 132), fuzz digest 31st byte-identical, bench red bench-tape-cancel-arity 28th (bench.clj:112); falsify-13 CONFIRMED: :insurance-fund accumulation (liquidation.cljc:195) sum-unchecked, 2-event seed crossing fund=2^53+1 JVM vs rounded nbb, roots diverge ac753f50/15df2574 vs 23ca2e32/0b4f0277, zero throws — OPEN red #7, accum class 6th site, scores unchanged 3/3/3/3/2/1/1

@@ -1,0 +1,7 @@
+# torihiki 成熟度 (正本)
+
+現在段階: L1 (execution layer + verifiable sequencer log 実装済み, consensus 未接続)
+
+## 7 軸スコア (ADR-2608052000 準拠, 0-5)
+
+| 軸 | score | 根拠 |

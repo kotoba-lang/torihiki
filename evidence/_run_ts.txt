@@ -1,0 +1,3 @@
+91e86ed maturity: ledger line + evidence for frame 380 (load-gate skip 0937; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+08bf284 maturity: ledger line + evidence for frame 379 (load-gate skip 0927; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+fc77245 maturity: ledger line + evidence for frame 378 (load-gate skip 0919; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

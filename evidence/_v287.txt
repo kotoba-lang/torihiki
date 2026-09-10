@@ -1,0 +1,24 @@
+test-287-jvm.log: 1
+test-287-nbb.log: 2
+parity-287.log: 0
+bench-287.log: 0
+---JVM tail---
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+JVM_EXIT=0
+---NBB tail---
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0
+---PARITY tail---
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+KOTOBA_PARITY_EXIT=0
+---BENCH tail---
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-15381279093131514061.edn
+BENCH_EXIT=1

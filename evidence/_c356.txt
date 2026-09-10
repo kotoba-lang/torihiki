@@ -1,0 +1,73 @@
+2026-09-09 03:04:00 JST
+ 3:04  up 3 days, 19:47, 6 users, load averages: 66.20 51.26 43.81
+---GIT LOG---
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+4f7e2b0 maturity: ledger line + evidence for frame 357 (load-gate skip 0220; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+03b379b maturity: ledger line + evidence for frame 356 (load-gate skip 0208; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d73c1b8 maturity: ledger line + evidence for frame 355 (load-gate skip 0200; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+785684b maturity: ledger line + evidence for frame 354 (load-gate skip 0158; fold 並行 frame-353 0148 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4e9837 maturity: ledger line + evidence for frame 352 (load-gate skip 0143; fold 並行 0142 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+---STATUS---
+ M evidence/_c3.txt
+ M evidence/_frame_check.txt
+ M evidence/_frame_log.txt
+ M evidence/_head.txt
+ M evidence/_load.txt
+ M evidence/_ls.txt
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _ins344.py
+?? _ins345.py
+?? _mat_279.sh
+?? _mbench_run.sh
+?? _verify279.py
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_add333err.txt
+?? evidence/_add334.out
+?? evidence/_add345.out
+?? evidence/_amu287.txt
+?? evidence/_anch316.txt
+?? evidence/_anch345.txt
+?? evidence/_b287.txt
+?? evidence/_bench286.out
+?? evidence/_blob1727.sh
+?? evidence/_blob1727.txt
+?? evidence/_br277.txt
+?? evidence/_bra.txt
+?? evidence/_branches.txt
+?? evidence/_c.txt
+?? evidence/_c1422.txt
+?? evidence/_c306.txt
+?? evidence/_c311.out
+?? evidence/_c311.rc
+?? evidence/_c356.txt
+?? evidence/_c356stat.txt
+?? evidence/_c3_run.txt
+?? evidence/_cached.txt
+?? evidence/_cfin303.txt
+?? evidence/_ch329.txt
+?? evidence/_check.out
+?? evidence/_check.py
+?? evidence/_check283.txt
+?? evidence/_chk287.txt
+---DIFF SRC/SCRIPT (bytes)---
+       0
+---HEAD STAT---
+commit 78dd942d756971e46d7f5fba75fe7b49a71a3edb
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Wed Sep 9 02:52:41 2026 +0900
+
+    maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-09-0240-maturity-remeasure-skip.md | 15 +++++++++++++++
+ evidence/skip-check-0909-0240.txt                   |  7 +++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 23 insertions(+), 1 deletion(-)

@@ -1,0 +1,33 @@
+;; The classpath `script/tests-on-nbb.cljs` needs, built from the deps.edn
+;; pins without starting a JVM.
+;;
+;;   node -e ''                       # nothing to install
+;;   nbb script/nbb-classpath.cljs    # prints one classpath on stdout
+;;   nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs
+;;
+;; ## Why not `clojure -Spath`
+;;
+;; Because that is the JVM, and the point of the nbb suite is to run where no
+;; JVM does. `clojure -Spath` also resolves Maven coordinates this classpath
+;; has no use for.
+;;
+;; ## Why the pins and not the checkouts
+;;
+;; A sibling checkout sits at whatever commit `west` last moved it to, which
+;; is not necessarily the `:git/sha` in deps.edn. Measured on 2026-08-31 all
+;; three direct dependencies were at a different commit than the pin. Building
+;; the classpath from checkouts would run the suite against code the JVM suite
+;; is not running against, and the two runs would then disagree for a reason
+;; that is not a runtime difference at all.
+;;
+;; So each pin is extracted with `git archive <sha>` into `.nbb-deps/<name>/`.
+;; The checkout is used only as an object store.
+;;
+;; ## It refuses rather than returning a short classpath
+;;
+;; An unresolvable pin exits 2 with the name and sha on stderr. A short
+;; classpath would make `tests-on-nbb` fail to require a namespace, which
+;; reads like a code error rather than a missing dependency -- and if it were
+===
+ls: script/run-nbb-tests.cljs: No such file or directory
+script/tests-on-nbb.cljs:6:;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and

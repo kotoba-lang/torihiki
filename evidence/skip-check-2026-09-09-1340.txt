@@ -1,0 +1,1 @@
+2026-09-09 13:40 JST — skip: host load 76.82 67.10 47.86 (>20), no runs performed. Canonical 実測 remains falsify-13 (2026-09-09 12:06–13:10, insurance-fund accum overflow, both runtimes). Next candidate when load drops: multi-account deficit aggregation path (falsify-14).

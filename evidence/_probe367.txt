@@ -1,0 +1,62 @@
+=== STATUS DIR ===
+total 1208
+drwxr-xr-x@ 13 junkawasaki  staff     416 Sep  9 04:05 .
+drwxr-xr-x@ 99 junkawasaki  staff    3168 Sep  9 02:57 ..
+-rw-r--r--@  1 junkawasaki  staff    5927 Sep  5 06:50 ev-names-0906.txt
+-rw-r--r--@  1 junkawasaki  staff     174 Sep  5 06:50 final-wc-0906.txt
+-rw-r--r--@  1 junkawasaki  staff    4878 Sep  5 06:52 grep-42-0906.txt
+-rw-r--r--@  1 junkawasaki  staff      41 Sep  5 06:52 grep-count-0906.txt
+-rw-r--r--@  1 junkawasaki  staff    1741 Sep  5 06:55 line11-check-0906.txt
+-rw-r--r--@  1 junkawasaki  staff    1372 Sep  5 06:49 ls-evidence-0906.txt
+-rw-r--r--@  1 junkawasaki  staff  451137 Sep  9 04:05 maturity.md
+-rw-r--r--@  1 junkawasaki  staff   93087 Sep  6 04:10 maturity.md.bak-0402
+-rw-r--r--@  1 junkawasaki  staff   14923 Sep  5 06:49 state-0906-raw.txt
+-rw-r--r--@  1 junkawasaki  staff      35 Sep  5 06:49 wc-0906.txt
+-rw-r--r--@  1 junkawasaki  staff   15021 Sep  5 06:08 wc-check.txt
+=== MATURITY LOC ===
+./status/maturity.md
+=== NEWEST EVIDENCE 0909 ===
+skip-check-0909-0355.txt
+2026-09-09-0355-maturity-remeasure-skip.md
+skip-check-0909-0350.txt
+2026-09-09-0350-maturity-remeasure-skip.md
+skip-check-0909-0344.txt
+2026-09-09-0344-maturity-remeasure-skip.md
+2026-09-09-0340-maturity-remeasure-skip.md
+skip-check-0909-0340.txt
+skip-check-0909-0325.txt
+2026-09-09-0325-maturity-remeasure-skip.md
+2026-09-09-0328-maturity-remeasure-skip.md
+skip-check-0909-0328.txt
+skip-check-0909-0314.txt
+2026-09-09-0314-maturity-remeasure-skip.md
+2026-09-09-0304-maturity-remeasure-skip.md
+skip-check-0909-0304.txt
+skip-check-0909-0300.txt
+2026-09-09-0300-maturity-remeasure-skip.md
+2026-09-09-0240-maturity-remeasure-skip.md
+skip-check-0909-0240.txt
+2026-09-09-0220-maturity-remeasure-skip.md
+skip-check-0909-0220.txt
+2026-09-09-0208-maturity-remeasure-skip.md
+skip-check-0909-0208.txt
+2026-09-09-0200-maturity-remeasure-skip.md
+=== GIT LOG 18 ===
+7481872 maturity: ledger line + evidence for frames  ‏365+366 (load-gate skip, fold tangle 0350/0355; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5e98c86 maturity: ledger line + evidence for frame 364 (load-gate skip 0344; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+517ff68 maturity: ledger line + evidence for frame 363 (load-gate skip 0340; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+affdf62 maturity: ledger line + evidence for frame 362 (load-gate skip 0325; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5cd98c4 maturity: ledger line + evidence for frame 361 (load-gate skip 0328; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+46f1a36 maturity: ledger line + evidence for frame 360 (load-gate skip 0314; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4fc6e4 maturity: ledger line + evidence for frame 359 (load-gate skip 0300; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e60d57e maturity: ledger line + evidence for frame 359 (load-gate skip 0304; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+4f7e2b0 maturity: ledger line + evidence for frame 357 (load-gate skip 0220; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+03b379b maturity: ledger line + evidence for frame 356 (load-gate skip 0208; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d73c1b8 maturity: ledger line + evidence for frame 355 (load-gate skip 0200; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+785684b maturity: ledger line + evidence for frame 354 (load-gate skip 0158; fold 並行 frame-353 0148 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4e9837 maturity: ledger line + evidence for frame 352 (load-gate skip 0143; fold 並行 0142 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ecd2764 maturity: ledger line + evidence for frame 351 (load-gate skip 0120; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e3c3c51 maturity: ledger line + evidence for frame 350 (load-gate skip 0114; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+aae9b23 maturity: ledger line + evidence for frame 349 (load-gate skip 0100; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+9cf7f6b maturity: ledger line + evidence for frame 348 (load-gate skip 0046; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

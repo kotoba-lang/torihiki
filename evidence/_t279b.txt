@@ -1,0 +1,18 @@
+95f593d maturity: evidence for frame 279 (full-gate 1029; suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+42d8707 maturity: ledger line for frame 278 (load-gate skip 1015; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+37f442f maturity: evidence for frame 278 (load-gate skip 1010; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+773f1e8 maturity: evidence for frame 277 (load-gate skip 0956; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+8c22f48 maturity: ledger line for frame 277 (load-gate skip 0954; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+0938961 maturity: ledger line for frame 276 (load-gate skip 0945; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+2ea864c maturity: evidence for frame 276 (load-gate skip 0947; cite 0601 suite-128; src unchanged; origin slot 0936 superseded by parallel 275; ledger reconcile deferred to next frame)
+adbca28 maturity: ledger line for frame 275 (load-gate skip 0936; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+ evidence/2026-09-08-1030-maturity-remeasure.md | 17 +++++++++++
+ evidence/bench-279.log                         | 10 +++++++
+ evidence/cp-279.txt                            |  2 ++
+ evidence/parity-279.log                        |  4 +++
+ evidence/test-279-jvm.log                      | 40 ++++++++++++++++++++++++++
+ evidence/test-279-nbb.log                      |  9 ++++++
+ status/maturity.md                             |  2 +-
+ 7 files changed, 83 insertions(+), 1 deletion(-)
+=== diff src vs 3f1f903 ===
+       0

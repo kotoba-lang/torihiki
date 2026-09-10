@@ -1,0 +1,9 @@
+-rw-r--r--@ 1 junkawasaki  staff  551 Sep  8 06:01 evidence/bench-263.log
+-rw-r--r--@ 1 junkawasaki  staff  142 Sep  8 06:01 evidence/parity-263.log
+-rw-r--r--@ 1 junkawasaki  staff  614 Sep  8 06:00 evidence/test-263-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 06:01 evidence/test-263-nbb.log
+===
+
+Running tests in #{"test"}
+
+OK

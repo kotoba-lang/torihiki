@@ -1,0 +1,1 @@
+f4d4d28 2026-09-08 15:13:57 +0900 maturity: ledger line + evidence for frame 308 (load-gate skip 1508; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

@@ -1,0 +1,27 @@
+0862e71 torihiki: kotoba.lang.text instead of clojure.string (.cljs)
+68e374b test: run the whole suite on the runtime that deploys, without a JVM
+commit 0862e714e64e7b839e14c2fed455b7443b3ce670
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Wed Sep 9 07:45:59 2026 +0900
+
+    torihiki: kotoba.lang.text instead of clojure.string (.cljs)
+    
+    2 file(s), rewritten by scripts/migrate-clojure-string-to-kotoba-text.cljs.
+    
+    kotoba.lang.text adopts the JVM's answer in the three places clojure.string's
+    two host implementations disagree (trim's whitespace class; split with a
+    capturing group; replace's $0 and \$), so a .clj file cannot change behaviour
+    and a .cljc file's two halves stop disagreeing. .cljs is deliberately NOT
+    touched -- there the answer would move from goog.string's class to Java's,
+    which is a decision about data rather than source.
+    
+    VERIFIED BY INVARIANT, NOT BY THIS REPO'S SUITE. Every written file was read
+    back and the inverse substitution applied; the result equals the original, so
+    nothing but the substitutions moved. The tool refuses a repo outright if any
+    call site uses one of the three host-divergent forms. Running 3,245 suites is
+    not possible, and calling an unrun suite a pass is worse than saying which
+===
+0862e71 torihiki: kotoba.lang.text instead of clojure.string (.cljs)
+9b0b760 Merge jv/kotoba-text: clojure.string retired for kotoba.lang.text
+b48bf0e torihiki: kotoba.lang.text instead of clojure.string
+===

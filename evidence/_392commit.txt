@@ -1,0 +1,9 @@
+[detached HEAD 8dc1630] frame 394: genuine run (11:44 1m 9.98 <20) — JVM+nbb 357/915 0F/0E both green (34th same-count, suite 131), bench red bench-tape-cancel-arity 27th (bench.clj:112); src diverged from e81a243 via kotoba.lang.text merge → citation base moves to this frame; NEW finding: nbb-classpath.cljs bootstrap self-dependency (bare nbb fails kotoba.lang.text; needs --classpath ../text/src); scores unchanged 3/3/3/3/2/1/1
+ 6 files changed, 105 insertions(+)
+ create mode 100644 evidence/2026-09-09-1156-maturity-remeasure-frame392.md
+ create mode 100644 evidence/bench-392.err
+ create mode 100644 evidence/bench-392.out
+ create mode 100644 evidence/test-jvm-392.out
+ create mode 100644 evidence/test-nbb-392.out
+RC=0
+8dc1630 frame 394: genuine run (11:44 1m 9.98 <20) — JVM+nbb 357/915 0F/0E both green (34th same-count, suite 131), bench red bench-tape-cancel-arity 27th (bench.clj:112); src diverged from e81a243 via kotoba.lang.text merge → citation base moves to this frame; NEW finding: nbb-classpath.cljs bootstrap self-dependency (bare nbb fails kotoba.lang.text; needs --classpath ../text/src); scores unchanged 3/3/3/3/2/1/1

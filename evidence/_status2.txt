@@ -1,0 +1,28 @@
+ D evidence/_gc.txt
+ D evidence/_load.txt
+ M evidence/_st.txt
+?? evidence/_diffstat_0954.txt
+?? evidence/_gitlog2.txt
+?? evidence/_gitlog_0954.txt
+?? evidence/_state_0954.txt
+?? evidence/_status2.txt
+?? evidence/_status_0954.txt
+?? evidence/_v.txt
+?? evidence/rank-0908-0834-commit.out
+?? evidence/rank-0908-0834-final.out
+?? evidence/rank-0908-0834-final.sh
+?? evidence/rank-0908-0834-inject.out
+?? evidence/rank-0908-0834-inject.py
+?? evidence/rank-0908-0834-post.out
+?? evidence/rank-0908-0834-post.sh
+?? evidence/rank-0908-0834-verify.out
+?? evidence/rank-0908-0834-verify.sh
+?? evidence/rank-0908-0912-insert.py
+?? evidence/rank-0908-12.out
+?? evidence/rank-0908-12a.out
+?? evidence/rank-0908-12b.out
+?? evidence/rank-0908-12c.out
+?? evidence/rank-0908-12d.out
+?? evidence/rank-0908-12e.out
+?? evidence/rank-0908-12f.out
+?? evidence/rank-0908-12g.out

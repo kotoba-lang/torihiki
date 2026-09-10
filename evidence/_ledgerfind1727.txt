@@ -1,0 +1,50 @@
+=== grep 315 度目枠 in repo (files) ===
+status/maturity.md
+evidence/_ledgerfind1727.txt
+evidence/_anch316.txt
+evidence/_mat316.txt
+evidence/_ledgerfind1727.sh
+evidence/_chk316c.txt
+=== grep 313 度目枠 ===
+status/maturity.md
+evidence/2026-09-08-1637-maturity-remeasure-skip.md
+evidence/_ledgerfind1727.txt
+evidence/_mat316.txt
+evidence/_fl314_ins.py
+evidence/_ledgerfind1727.sh
+evidence/_fl314_entry.txt
+=== ls status ===
+ev-names-0906.txt
+final-wc-0906.txt
+grep-42-0906.txt
+grep-count-0906.txt
+line11-check-0906.txt
+ls-evidence-0906.txt
+maturity.md
+maturity.md.bak-0402
+state-0906-raw.txt
+wc-0906.txt
+wc-check.txt
+=== find ledger files ===
+./evidence/_ledgerfind1727.txt
+./evidence/_ledger219_verify.txt
+./evidence/_ledger1644_edit.py
+./evidence/_ledger236.py
+./evidence/_ledger236_out.txt
+./evidence/_ledger283.out
+./evidence/_ledger238_verify.txt
+./evidence/_b1044_ledger.txt
+./evidence/_ledger2158.sh
+./evidence/_ledger282.out
+./evidence/_ledger1644_out.txt
+./evidence/_ledger_fix_0656.log
+./evidence/_ledger290.txt
+./evidence/_fix_0656_ledger.py
+./evidence/_ledgerfind1727.sh
+./evidence/_ledger284.out
+./evidence/_ledgerpos.txt
+./evidence/_ledger277_add.txt
+./evidence/_ledger284.sh
+./evidence/_ledger238_relabel.py
+=== tail -3 data/* ===
+-- data/*ledger*

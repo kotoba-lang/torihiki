@@ -1,0 +1,9 @@
+=== HEAD ===
+d6e5621 maturity: ledger line + evidence for frame 339 (load-gate skip 2226; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== src/script diff (bytes) ===
+       0
+=== 339 files tracked ===
+evidence/2026-09-08-2226-maturity-remeasure-skip.md
+evidence/skip-check-0908-2226.txt
+=== ledger line present in HEAD ===
+| テスト ||3 ||與 本次 **339 度目枠** 2026-09-08 22

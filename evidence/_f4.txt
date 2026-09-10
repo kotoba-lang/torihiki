@@ -1,0 +1,9 @@
+M	script/kotoba-parity.cljs
+M	script/nbb-classpath.cljs
+M	src/torihiki/auth.cljc
+M	src/torihiki/evm.cljc
+M	src/torihiki/keccak.cljc
+M	src/torihiki/principal.cljc
+M	src/torihiki/slab.cljc
+M	src/torihiki/snapshot.cljc
+M	src/torihiki/thorchain.cljc

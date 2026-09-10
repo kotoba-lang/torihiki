@@ -1,0 +1,15 @@
+=== frame markers ===
+   1 270 度目枠
+   2 271 度目枠
+   1 272 度目枠
+=== 0834/0819/0814 ===
+   2 0814 cron
+   1 0819 cron
+   1 0834 cron
+=== inject refs ===
+   1 2026-09-08-0819-maturity
+   1 2026-09-08-0834-maturity
+   1 skip-check-0908-0819
+   1 skip-check-0908-0834
+=== tail intact (269 should remain) ===
+2

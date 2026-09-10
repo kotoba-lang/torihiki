@@ -1,0 +1,1 @@
+- 2026-09-09 1141 frame 393 load gate skip (no code changes, cron): 負荷 11:41 直測 2 回 (25.34/38.87/41.78, 26.73/38.70/41.69) 全 window ≥20 で「全 <20」不成立のため test/parity/bench/falsify 新規実測は not-run (evidence/2026-09-09-1141-maturity-remeasure-skip.md + skip-check-0909-1141.txt)。HEAD **323248b** (frame 392 = 1125 skip runner と同一) src/ 変更なし (git d

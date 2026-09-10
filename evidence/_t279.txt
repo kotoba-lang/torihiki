@@ -1,0 +1,77 @@
+2026-09-08 10:44 JST
+10:44  up 3 days,  3:27, 8 users, load averages: 30.97 20.52 17.19
+42d8707 maturity: ledger line for frame 278 (load-gate skip 1015; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+37f442f maturity: evidence for frame 278 (load-gate skip 1010; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ D evidence/_gc.txt
+ D evidence/_load.txt
+ M evidence/_ls.txt
+ M evidence/_st.txt
+ M status/maturity.md
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/2026-09-08-1030-maturity-remeasure.md
+?? evidence/_add277.txt
+?? evidence/_br277.txt
+?? evidence/_branches.txt
+?? evidence/_commit277.txt
+?? evidence/_commit278.txt
+?? evidence/_cron-now.txt
+?? evidence/_d1.txt
+?? evidence/_d2.txt
+?? evidence/_d3.txt
+?? evidence/_diffs2.txt
+?? evidence/_diffstat_0954.txt
+?? evidence/_f276.txt
+?? evidence/_f276b.txt
+?? evidence/_final277.txt
+?? evidence/_frame277_probe.txt
+?? evidence/_frame278a.txt
+?? evidence/_gitlog2.txt
+?? evidence/_gitlog_0954.txt
+?? evidence/_grep276.txt
+?? evidence/_hdr277.txt
+?? evidence/_hdr277b.txt
+?? evidence/_head277.txt
+?? evidence/_head277b.txt
+?? evidence/_ins277.py
+?? evidence/_ledger277_add.txt
+?? evidence/_ls262.txt
+?? evidence/_s276.txt
+?? evidence/_s276d.txt
+?? evidence/_staged277.txt
+?? evidence/_state_0954.txt
+?? evidence/_status2.txt
+?? evidence/_status_0954.txt
+?? evidence/_t279.txt
+?? evidence/_v.txt
+?? evidence/_verify277.txt
+?? evidence/_verifyfinal277.txt
+?? evidence/bench-279.log
+?? evidence/cp-279.txt
+?? evidence/parity-279.log
+?? evidence/rank-0908-0834-commit.out
+?? evidence/rank-0908-0834-final.out
+?? evidence/rank-0908-0834-final.sh
+?? evidence/rank-0908-0834-inject.out
+?? evidence/rank-0908-0834-inject.py
+?? evidence/rank-0908-0834-post.out
+?? evidence/rank-0908-0834-post.sh
+?? evidence/rank-0908-0834-verify.out
+?? evidence/rank-0908-0834-verify.sh
+?? evidence/rank-0908-0912-insert.py
+?? evidence/rank-0908-12.out
+?? evidence/rank-0908-12a.out
+?? evidence/rank-0908-12b.out
+?? evidence/rank-0908-12c.out
+?? evidence/rank-0908-12d.out
+?? evidence/rank-0908-12e.out
+?? evidence/rank-0908-12f.out
+?? evidence/rank-0908-12g.out
+?? evidence/test-279-jvm.log
+?? evidence/test-279-nbb.log

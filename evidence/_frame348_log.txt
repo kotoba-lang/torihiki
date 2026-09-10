@@ -1,0 +1,3 @@
+028a34439ec4e4706bd4f511b948f5c035cc901a 9cf7f6b038d415fb46cec711c94c106eea8050c2 maturity: ledger line and evidence for frame 348 skip
+9cf7f6b038d415fb46cec711c94c106eea8050c2 f695641e848588f6b136a2a60afd6eeb7ac54450 maturity: ledger line + evidence for frame 348 (load-gate skip 0046; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+f695641e848588f6b136a2a60afd6eeb7ac54450 2bad56a08cc8867f6d16b0b78107046dc23695cf maturity: ledger line and evidence for frame 347 skip

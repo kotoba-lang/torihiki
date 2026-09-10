@@ -1,0 +1,29 @@
+=== HEAD ===
+6fcbf0f51dc494853f6d98466018bb298b2e9f85 maturity: ledger line + evidence for frame 320 (load-gate skip 1755; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== DIFF SRC ===
+       0
+=== STATUS ===
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_amu287.txt
+?? evidence/_anch316.txt
+?? evidence/_b287.txt
+?? evidence/_bench286.out
+?? evidence/_blob1727.sh
+?? evidence/_blob1727.txt
+?? evidence/_br277.txt
+?? evidence/_bra.txt
+=== UPTIME ===
+18:18  up 3 days, 11:01, 10 users, load averages: 129.87 88.81 61.87
+=== DATE ===
+2026-09-08 18:18 JST

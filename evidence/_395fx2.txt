@@ -1,0 +1,27 @@
+src/torihiki/clearing.cljc:54:  by the insurance fund or by ADL.
+src/torihiki/clearing.cljc:686:  a negative number. The insurance fund adds back what it can cover; anything
+src/torihiki/clearing.cljc:702:  Bad debt does NOT reduce equity. It was already absorbed — by the insurance
+src/torihiki/commit.cljc:32:  liquidation the insurance fund could not fully cover left the hole sitting
+src/torihiki/liquidation.cljc:2:  "Liquidation, the backstop vault, the insurance fund, and auto-deleveraging.
+src/torihiki/liquidation.cljc:47:   ;; share of the liquidated notional paid into the insurance fund
+src/torihiki/liquidation.cljc:162:  waterfall the close had to go — `:book`, `:vault`, `:insurance`, or `:adl`.
+src/torihiki/liquidation.cljc:195:                        (update :insurance-fund (fnil + 0) fee))
+src/torihiki/liquidation.cljc:207:              ;; stage 3: the insurance fund makes the vault whole
+src/torihiki/liquidation.cljc:208:              (let [fund (get state' :insurance-fund 0)
+XXXX
+    (throw (ex-info "torihiki.fixed: value escaped the i53 domain"
+                    {:where where :value v :i53-max i53-max}))))
+
+;; ── rates ───────────────────────────────────────────────────────────────────
+
+(def ^:const rate-scale 1000000000)      ; 10^9. 1 bp = 100000, 100% = 10^9
+
+(defn bps
+  "Basis points -> rate. 1 bp = 0.0001."
+  [n]
+  (* n 100000))
+
+(defn pct
+  "Percent -> rate."
+  [n]
+  (* n 10000000))

@@ -1,0 +1,1 @@
+2026-09-09 1125 JST not-run: host load 32 (>20), 指示により not-run evidence のみ。hypothesis: falsify-12 副次の settle-deficit fx/check :deficit throw (sweep halt 型) の累算実測は保留 — NEXT fix 待ち。hypothesis 未実測のため skip。

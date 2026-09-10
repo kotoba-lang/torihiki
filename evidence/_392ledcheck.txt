@@ -1,0 +1,7 @@
+323248b frame 391: ledger line (load gate skip 1115, 1m 20.65 all>=20, not-run evidence)
+8281a2f frame 391: load gate skip (11:15, 1m 20.65 all>=20, not-run evidence)
+95057a2 frame 390: load gate skip (11:09, 1m 36.55 all>=20, not-run evidence)
+ status/maturity.md | 1 +
+ 1 file changed, 1 insertion(+)
+ (全 window) 突入後最初の枠で全 gate 再実測 (新規実測時 suite **131** / parity **39** / bench **91**)。次枠番号 = **392**。
+- 2026-09-09 1141 frame 393 load gate skip (no code changes, cron): 負荷 11:41 直測 2 回 (25.34/38.87/41.78, 26.73/38.70/41.69) 全 window ≥20 で「全 <20」不成立のため test/parity/bench/falsify 新規実測は not-run (evidence/2026-09-09-1141-maturity-remeasure-skip.md + skip-check-0909-1141.txt)。HEAD **323248b** (frame 392 = 1125 skip runner と同一) src/ 変更なし (git diff HEAD -- src/ script/ deps.edn = 0 lines 直接実測; untracked は診断スクリプト/evidence 作業ファイルのみ)。正本引用 frame-286 (e81a243) suite 130 維持, OPEN 赤 6 site 引用行は有効のまま。NEXT 未実測 0 件, 発覚 0 件, 新規 hypothesis なし。スコア 7 軸変更なし (**3/3/3/3/2/1/1**)。残作業不変: validate-i53-halt fix パッケージ + bench 3 箇所 (bench.clj:112 / probe.clj:31 / curve.clj:21) + fuzz 常設化。次ランナー: 負荷 <20 (全 window) 突入後最初の枠で全 gate 再実測 (新規実測時 suite **131** / parity **39** / bench **91**)。次枠番号 = **394**。

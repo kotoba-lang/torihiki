@@ -1,0 +1,8 @@
+=== 0328 in index? ===
+evidence/2026-09-09-0328-maturity-remeasure-skip.md
+=== tracked commits touching it ===
+5cd98c4 maturity: ledger line + evidence for frame 361 (load-gate skip 0328; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== git log grep frame 361/362 ===
+5cd98c4 maturity: ledger line + evidence for frame 361 (load-gate skip 0328; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== HEAD now ===
+5cd98c4

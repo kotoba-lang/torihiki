@@ -1,0 +1,16 @@
+[detached HEAD dc5cd5b] maturity: ledger line + evidence for frame 337 (load-gate skip 2214; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 3 files changed, 40 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-08-2214-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0908-2214.txt
+RC=0
+=== NEW HEAD ===
+dc5cd5b maturity: ledger line + evidence for frame 337 (load-gate skip 2214; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1) 22:17
+=== DIFF HEAD~1 HEAD stat ===
+dc5cd5b maturity: ledger line + evidence for frame 337 (load-gate skip 2214; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ .../2026-09-08-2214-maturity-remeasure-skip.md     | 24 ++++++++++++++++++++++
+ evidence/skip-check-0908-2214.txt                  | 15 ++++++++++++++
+ status/maturity.md                                 |  2 +-
+ 3 files changed, 40 insertions(+), 1 deletion(-)
+=== src diff HEAD ===
+       0

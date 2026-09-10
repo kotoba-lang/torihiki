@@ -1,0 +1,6 @@
+HEAD: 773f1e8
+src/script diff bytes:
+       0
+scores row:
+spec/契約 | 3
+OK

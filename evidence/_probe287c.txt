@@ -1,0 +1,89 @@
+===UPTIME NOW FRESH===
+12:31  up 3 days,  5:15, 8 users, load averages: 21.33 33.65 35.04
+===TEST-287-JVM===
+
+Running tests in #{"test"}
+
+Testing torihiki.address-test
+
+Testing torihiki.api-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.state-test
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+JVM_EXIT=0
+===TEST-287-NBB===
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+namespaces 17/17
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0
+===TEST-287B-NBB===
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+namespaces 17/17
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0
+===PARITY-287===
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+KOTOBA_PARITY_EXIT=0
+===BENCH-287===
+Boxed math warning, torihiki/bench.clj:105:17 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Boxed math warning, torihiki/bench.clj:114:45 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+generating a 5,000,000-operation tape...
+warming up (JIT)...
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+Wrong number of args (2) passed to: torihiki.book/cancel!
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-15381279093131514061.edn
+BENCH_EXIT=1
+===SKIP-CHECK-1220===
+skip-check 2026-09-08 12:20 (frame 288, load-gate skip)
+reference: parallel session frame-287 full-gate (uncommitted) + committed frame-286 suite-130
+test-287-jvm.log : Ran 357 tests containing 915 assertions. 0 failures, 0 errors. JVM_EXIT=0
+test-287-nbb.log : namespaces 17/17. Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass. NBB_EXIT=0
+test-287b-nbb.log: namespaces 17/17. Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass. NBB_EXIT=0 (independent re-run)
+parity-287.log   : fixed: 38 cases, 0 drift. fixed/result: 20 cases, 0 drift. KOTOBA_PARITY_EXIT=0
+bench-287.log    : Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112). BENCH_EXIT=1 (known red)
+git diff HEAD -- src/ script/ = 0 bytes (src unchanged)
+scores unchanged 3/3/3/3/2/1/1

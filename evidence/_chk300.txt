@@ -1,0 +1,55 @@
+-rw-r--r--@ 1 junkawasaki  staff  552 Sep  8 12:13 evidence/bench-287.log
+-rw-r--r--@ 1 junkawasaki  staff  149 Sep  8 12:11 evidence/parity-287.log
+-rw-r--r--@ 1 junkawasaki  staff  614 Sep  8 12:11 evidence/test-287-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 12:12 evidence/test-287-nbb.log
+---300 exists?---
+evidence/2026-09-08-0016-maturity-remeasure-skip.md
+evidence/2026-09-08-0144-maturity-remeasure-skip.md
+evidence/2026-09-08-0145-maturity-remeasure-skip.md
+evidence/2026-09-08-0311-maturity-remeasure-skip.md
+evidence/2026-09-08-0334-maturity-remeasure-skip.md
+evidence/2026-09-08-0411-maturity-remeasure-skip.md
+evidence/2026-09-08-0415-maturity-remeasure-skip.md
+evidence/2026-09-08-0441-maturity-remeasure-skip.md
+evidence/2026-09-08-0453-maturity-remeasure-skip.md
+evidence/2026-09-08-0545-maturity-remeasure-skip.md
+evidence/2026-09-08-0614-maturity-remeasure-skip.md
+evidence/2026-09-08-0623-maturity-remeasure-skip.md
+evidence/2026-09-08-0642-maturity-remeasure-skip.md
+evidence/2026-09-08-0645-maturity-remeasure-skip.md
+evidence/2026-09-08-0712-maturity-remeasure-skip.md
+evidence/2026-09-08-0715-maturity-remeasure-skip.md
+evidence/2026-09-08-0719-maturity-remeasure-skip.md
+evidence/2026-09-08-0757-maturity-remeasure-skip.md
+evidence/2026-09-08-0814-maturity-remeasure-skip.md
+evidence/2026-09-08-0819-maturity-remeasure-skip.md
+evidence/2026-09-08-0834-maturity-remeasure-skip.md
+evidence/2026-09-08-0858-maturity-remeasure-skip.md
+evidence/2026-09-08-0912-maturity-remeasure-skip.md
+evidence/2026-09-08-0936-maturity-remeasure-skip.md
+evidence/2026-09-08-0945-maturity-remeasure-skip.md
+evidence/2026-09-08-0947-maturity-remeasure-skip.md
+evidence/2026-09-08-0954-maturity-remeasure-skip.md
+evidence/2026-09-08-0956-maturity-remeasure-skip.md
+evidence/2026-09-08-1010-maturity-remeasure-skip.md
+evidence/2026-09-08-1015-maturity-remeasure-skip.md
+evidence/2026-09-08-1044-maturity-remeasure-skip.md
+evidence/2026-09-08-1102-maturity-remeasure-skip.md
+evidence/2026-09-08-1113-maturity-remeasure-skip.md
+evidence/2026-09-08-1114-maturity-remeasure-skip.md
+evidence/2026-09-08-1118-maturity-remeasure-skip.md
+evidence/2026-09-08-1132-maturity-remeasure-skip.md
+evidence/2026-09-08-1141-maturity-remeasure-skip.md
+evidence/2026-09-08-1220-maturity-remeasure-skip.md
+evidence/2026-09-08-1230-maturity-remeasure-skip.md
+evidence/2026-09-08-1233-maturity-remeasure-skip.md
+evidence/2026-09-08-1246-maturity-remeasure-skip.md
+evidence/2026-09-08-1254-maturity-remeasure-skip.md
+evidence/2026-09-08-1306-maturity-remeasure-skip.md
+evidence/2026-09-08-1316-maturity-remeasure-skip.md
+evidence/2026-09-08-1324-maturity-remeasure-skip.md
+evidence/2026-09-08-1327-maturity-remeasure-skip.md
+evidence/2026-09-08-1330-maturity-remeasure-skip.md
+evidence/2026-09-08-1349-maturity-remeasure-skip.md
+evidence/2026-09-08-1351-maturity-remeasure-skip.md
+evidence/2026-09-08-1356-maturity-remeasure-skip.md

@@ -1,0 +1,8 @@
+2026-09-09 13:11 JST
+uptime: 1-min 26.92 / 5-min 23.92 / 15-min 23.61 (all >=20 -> load gate skip, frame 398)
+HEAD 915f832
+git diff HEAD --stat -- src script deps.edn: 0 bytes
+git status --porcelain -- src script deps.edn: 0 lines
+terminal backend empty-output fault (known); output captured via redirect + read_file
+skip record: evidence/2026-09-09-1315-maturity-remeasure-skip.md
+next frame: 399

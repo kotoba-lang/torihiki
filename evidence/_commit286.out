@@ -1,0 +1,7 @@
+[detached HEAD e81a243] maturity: ledger line + evidence for frame 286 (full-gate 1155; suite 130; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 6 files changed, 81 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-08-1155-maturity-remeasure.md
+ create mode 100644 evidence/bench-286.log
+ create mode 100644 evidence/parity-286.log
+ create mode 100644 evidence/test-286-jvm.log
+ create mode 100644 evidence/test-286-nbb.log

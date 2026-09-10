@@ -1,0 +1,11 @@
+8c22f48 maturity: ledger line for frame 277 (load-gate skip 0954; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+0938961 maturity: ledger line for frame 276 (load-gate skip 0945; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+2ea864c maturity: evidence for frame 276 (load-gate skip 0947; cite 0601 suite-128; src unchanged; origin slot 0936 superseded by parallel 275; ledger reconcile deferred to next frame)
+adbca28 maturity: ledger line for frame 275 (load-gate skip 0936; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+===STATUS(mat+ev)===
+?? evidence/2026-09-08-0956-maturity-remeasure-skip.md
+?? evidence/skip-check-0908-0956.txt
+===FILES===
+-rw-r--r--@ 1 junkawasaki  staff  1083 Sep  8 09:59 evidence/2026-09-08-0956-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff   749 Sep  8 09:59 evidence/skip-check-0908-0956.txt
+OK

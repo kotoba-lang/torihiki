@@ -1,0 +1,14 @@
+=== HEAD ===
+affdf62
+=== HEAD msg ===
+maturity: ledger line + evidence for frame 362 (load-gate skip 0325; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== show stat ===
+ evidence/2026-09-09-0325-maturity-remeasure-skip.md | 15 +++++++++++++++
+ evidence/skip-check-0909-0325.txt                   |  7 +++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 23 insertions(+), 1 deletion(-)
+=== files tracked? ===
+evidence/2026-09-09-0325-maturity-remeasure-skip.md
+evidence/skip-check-0909-0325.txt
+status/maturity.md
+=== uncommitted 0325? ===

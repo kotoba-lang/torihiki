@@ -1,0 +1,6 @@
+2026-09-09 11:41 load gate skip (frame 393)
+uptime 11:41:05: load 25.34 38.87 41.78 (all >=20)
+uptime 11:41:13: load 26.73 38.70 41.69 (all >=20)
+HEAD 323248b, src/script/deps.edn diff 0
+not-run: test/parity/bench/falsify
+see evidence/2026-09-09-1141-maturity-remeasure-skip.md

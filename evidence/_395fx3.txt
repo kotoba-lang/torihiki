@@ -1,0 +1,11 @@
+80:                      :insurance-fund 0
+1601:             (or (:insurance-fund clearing) 0)
+XXXX
+1027:          ;; current would liquidate people on a number nobody vouches for.
+1060:  place, so anybody able to submit one can stop the chain. `:liquidate` names
+1094:       (let [r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
+1102:(defmethod apply-tx :liquidate
+1105:  ;; market at the end of every block, so a `:liquidate` transaction can only
+1132:  used to happen only when a `:liquidate` transaction appeared, which made
+1454:  so two replicas configured differently would liquidate different accounts
+1660:                         ;; disagreed would liquidate at a different point.

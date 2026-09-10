@@ -1,0 +1,12 @@
+=== DIFF HEAD ===
+       0
+=== DIFF HEAD script ===
+       0
+=== EVIDENCE 287 ===
+-rw-r--r--@ 1 junkawasaki  staff  552 Sep  8 12:13 evidence/bench-287.log
+-rw-r--r--@ 1 junkawasaki  staff  149 Sep  8 12:11 evidence/parity-287.log
+-rw-r--r--@ 1 junkawasaki  staff  614 Sep  8 12:11 evidence/test-287-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 12:12 evidence/test-287-nbb.log
+=== check pre-run evidence for this frame ===
+ls: evidence/2026-09-08-1753-maturity-remeasure-skip.md: No such file or directory
+ls: evidence/skip-check-0908-1753.txt: No such file or directory

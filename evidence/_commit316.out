@@ -1,0 +1,8 @@
+=== HEAD before ===
+4742523 maturity: ledger line + evidence for frame 315 (load-gate skip 1653; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== stage ===
+A  evidence/2026-09-08-1709-maturity-remeasure-skip.md
+A  evidence/skip-check-0908-1709.txt
+M  status/maturity.md
+=== src diff (must be 0) ===
+       0

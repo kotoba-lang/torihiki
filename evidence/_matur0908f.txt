@@ -1,0 +1,35 @@
+=== HEAD 95f593d files ===
+95f593d8a33b75fd2fb429a17b6396abe4dc5391 maturity: evidence for frame 279 (full-gate 1029; suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-08-1030-maturity-remeasure.md | 17 +++++++++++
+ evidence/bench-279.log                         | 10 +++++++
+ evidence/cp-279.txt                            |  2 ++
+ evidence/parity-279.log                        |  4 +++
+ evidence/test-279-jvm.log                      | 40 ++++++++++++++++++++++++++
+ evidence/test-279-nbb.log                      |  9 ++++++
+ status/maturity.md                             |  2 +-
+ 7 files changed, 83 insertions(+), 1 deletion(-)
+=== is maturity.md clean? ===
+=== src diff 3f1f903..HEAD / 75b3197..HEAD ===
+       0
+       0
+=== list evidence 279 files committed ===
+evidence/2026-09-08-1030-maturity-remeasure.md
+evidence/append-check-1030.txt
+evidence/append-pos-1030.txt
+evidence/bench-279.log
+evidence/cp-279.txt
+evidence/grep-withdraw-1030.txt
+evidence/ls-src-1030.txt
+evidence/parity-279.log
+evidence/rank-1030.sh
+evidence/rank-1030b.sh
+evidence/rank-1030b.txt
+evidence/rank-state-1030.txt
+evidence/state-0905-1030.txt
+evidence/test-279-jvm.log
+evidence/test-279-nbb.log
+=== confirm 280 not started: any 1045/1048 files? ===
+evidence/2026-09-08-1044-maturity-remeasure-skip.md
+=== current HEAD ===
+95f593d8a33b75fd2fb429a17b6396abe4dc5391

@@ -1,0 +1,22 @@
+commit 95057a2ccc228164e485a8979feb2c8a1e541a9c
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Wed Sep 9 11:12:41 2026 +0900
+
+    frame 390: load gate skip (11:09, 1m 36.55 all>=20, not-run evidence)
+
+ .../2026-09-09-1109-maturity-remeasure-skip.md     | 25 ++++++++++++++++++++++
+ evidence/skip-check-0909-1109.txt                  |  7 ++++++
+ status/maturity.md                                 |  1 +
+ 3 files changed, 33 insertions(+)
+---
+# 2026-09-09 1049 maturity remeasure skip (frame 388)
+
+- 種別: cron, no code changes, load gate skip
+- 負荷 (pre-run 10:49 直測, torihiki_state.sh 経由): 1-min **66.18** / 5-min **88.55** / 15-min **100.52** — 全 window ≥20 で「全 <20」不成立の為 test/parity/bench/falsify 新規実測は not-run。
+- terminal fault: 本枠中 `uptime` / `date` / `git rev-parse` / `ls` の全直接コマンドが exit 0 かつ空出力 (連続再確認; `echo` は 1 回のみ通過)。既知の高負荷時 terminal 空出力 fault (torihiki_state.sh 300s timeout と同型)。HEAD / git diff の直接再検収は not-run とし、コード不変は前枠 (frame 387, HEAD 33602ff, src/script/deps.edn diff 0 bytes) を cron 枠間契約として引用。
+- 正本引用: frame-286 (e81a243, 09-08 12:06) **suite 130** (frame-382 確定の引用欠陥修正を踏襲; test-286-{jvm,nbb}.log 357/915 全緑, parity-286.log 0 drift, bench-286.log bench.clj:112 cancel! 2-arg 既知赤)。
+- NEXT 未実測リスト 0 件 (fix 未着手), 発覚 0 件, 新規 hypothesis なし。
+- スコア 7 軸すべて変更なし: **3/3/3/3/2/1/1** (反証実施 36 件照合, falsify-8〜12 累算 overflow クラス OPEN のまま)。
+- 残作業不変: validate-i53-halt fix パッケージ + bench 3 箇所 (bench.clj:112 / probe.clj:31 / curve.clj:21) + fuzz 常設化。
+- 次ランナー: 負荷 <20 (全 window) 突入後最初の枠で全 gate 再実測 (新規実測時 suite **131** / parity **39** / bench **91**; 引用正本 frame-286 / suite-130 / e81a243)。
+- frame 番号: 本枠は実走行順序数で **388** (frame 387 = 1045 の記録「次 = 388」に従う)。次枠は 389 から。

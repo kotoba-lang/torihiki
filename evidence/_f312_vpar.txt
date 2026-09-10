@@ -1,0 +1,3 @@
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+KOTOBA_PARITY_EXIT=0

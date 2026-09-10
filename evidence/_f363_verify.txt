@@ -1,0 +1,11 @@
+=== show --stat HEAD ===
+dc338ae maturity: ledger line + evidence for frame 363 (load-gate skip 0340; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ status/maturity.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+=== files present? ===
+-rw-r--r--@ 1 junkawasaki  staff  1497 Sep  9 03:41 evidence/2026-09-09-0340-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff   865 Sep  9 03:41 evidence/skip-check-0909-0340.txt
+=== HEAD ls-files ===
+evidence/2026-09-07-0340-falsify-iteration-skip.md
+evidence/2026-09-09-0340-maturity-remeasure-skip.md
+evidence/skip-check-0909-0340.txt

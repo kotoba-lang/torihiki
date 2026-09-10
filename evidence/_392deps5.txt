@@ -1,0 +1,17 @@
+23:;; So each pin is extracted with `git archive <sha>` into `.nbb-deps/<name>/`.
+41:(def cache (path/join repo ".nbb-deps"))
+55:(defn- extract! [nm sha]
+68:          (js/console.error (str "extract failed: " nm " @ " sha " — " e))
+79:(defn- walk! [dir seen acc]
+85:          (let [d (extract! nm sha)]
+87:            (walk! d seen acc)))))))
+91:  (walk! repo seen acc)
+===
+LICENSE
+README.md
+deps.edn
+gen-shadow-cljs-edn.cljs
+package.json
+===
+.nbb-deps/chain/deps.edn:10: :deps {io.github.kotoba-lang/io-ipld {:git/sha "4591764514239c4777f227a7a56d46c901e2a4a0"}}
+.nbb-deps/chain/deps.edn:13:         :extra-deps {io.github.cognitect-labs/test-runner

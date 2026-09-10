@@ -1,0 +1,8 @@
+[detached HEAD 132fe1d] maturity: ledger line + evidence for frame 303 (load-gate skip 1425; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 302 tangle 1422)
+ 5 files changed, 60 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-08-1422-maturity-remeasure-skip.md
+ create mode 100644 evidence/2026-09-08-1425-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0908-1422.txt
+ create mode 100644 evidence/skip-check-0908-1425.txt
+COMMIT_EXIT=0
+132fe1d8bf3cbbc9fbe72018c4abdbd987a9876a

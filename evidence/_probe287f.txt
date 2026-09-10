@@ -1,0 +1,29 @@
+===TAIL OF MATURITY (last 3 lines raw)===
+入後の最初の枠で全 gate 再実測 (suite **121 度目実測引用** / parity **56 実測目引用** / bench **84 実行目引用**想定赤; 新規実測時 suite 122 度目実測 / parity 57 実測目 / bench 85 実行目)。枠記録: evidence/2026-09-08-0144-maturity-remeasure-skip.md。terminal 直接 stdout 空返し fault 継続: ファイルリダイレクト + read_file 回収。
+
+===LINE 11 CHARACTER COUNT===
+5579
+===HEAD 60 chars of line 11===
+| テスト | 3 | 両ランタイム実測 357 tests / 915 assertions | テスト | 3 | 両ランタイム実測 357 tests / 915 a
+===check for 1209/1210/1230 md files===
+-rw-r--r--@ 1 junkawasaki  staff  1470 Sep  8 10:19 evidence/2026-09-08-1010-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1193 Sep  8 10:18 evidence/2026-09-08-1015-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1820 Sep  8 10:30 evidence/2026-09-08-1030-maturity-remeasure.md
+-rw-r--r--@ 1 junkawasaki  staff  2394 Sep  8 10:49 evidence/2026-09-08-1044-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1930 Sep  8 11:02 evidence/2026-09-08-1102-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1804 Sep  8 11:16 evidence/2026-09-08-1113-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1360 Sep  8 11:17 evidence/2026-09-08-1114-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1998 Sep  8 11:26 evidence/2026-09-08-1118-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1182 Sep  8 11:32 evidence/2026-09-08-1132-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1183 Sep  8 11:42 evidence/2026-09-08-1141-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1641 Sep  8 11:56 evidence/2026-09-08-1155-maturity-remeasure.md
+-rw-r--r--@ 1 junkawasaki  staff  1941 Sep  8 12:29 evidence/2026-09-08-1220-maturity-remeasure-skip.md
+===all skip-check today===
+-rw-r--r--@ 1 junkawasaki  staff  1104 Sep  8 10:49 evidence/skip-check-0908-1044.txt
+-rw-r--r--@ 1 junkawasaki  staff   664 Sep  8 11:02 evidence/skip-check-0908-1102.txt
+-rw-r--r--@ 1 junkawasaki  staff   710 Sep  8 11:16 evidence/skip-check-0908-1113.txt
+-rw-r--r--@ 1 junkawasaki  staff   554 Sep  8 11:17 evidence/skip-check-0908-1114.txt
+-rw-r--r--@ 1 junkawasaki  staff   784 Sep  8 11:26 evidence/skip-check-0908-1118.txt
+-rw-r--r--@ 1 junkawasaki  staff   739 Sep  8 11:32 evidence/skip-check-0908-1132.txt
+-rw-r--r--@ 1 junkawasaki  staff   808 Sep  8 11:42 evidence/skip-check-0908-1141.txt
+-rw-r--r--@ 1 junkawasaki  staff   832 Sep  8 12:29 evidence/skip-check-0908-1220.txt

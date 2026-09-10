@@ -1,0 +1,4 @@
+-rw-r--r--@ 1 junkawasaki  staff  551 Sep  8 06:01 /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/bench-263.log
+-rw-r--r--@ 1 junkawasaki  staff  142 Sep  8 06:01 /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/parity-263.log
+-rw-r--r--@ 1 junkawasaki  staff  614 Sep  8 06:00 /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/test-263-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 06:01 /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/test-263-nbb.log

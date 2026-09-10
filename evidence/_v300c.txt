@@ -1,0 +1,10 @@
+34971c0 maturity: ledger line + evidence for frame 301 (load-gate skip 1415; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 300 tangle 1405)
+       0
+commit 34971c0aa25df55a60110f3065b4b2e159b77e5f
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Tue Sep 8 14:21:10 2026 +0900
+
+    maturity: ledger line + evidence for frame 301 (load-gate skip 1415; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 300 tangle 1405)
+
+ .../2026-09-08-1405-maturity-remeasure-skip.md     | 26 ++++++++++++++++++++++
+ .../2026-09-08-1415-maturity-remeasure-skip.md     | 24 ++++++++++++++++++++

@@ -1,0 +1,7 @@
+===bytes 560-740 of maturity.md (region before/during 286 anchor)===
+�スト | 3 | 両ランタイム実測 357 tests / 915 assertions | テスト | 3 | 両ランタイム実測 357 tests / 915 assertions 與 本次 **286 度目枠** 2026-09-08 1155 cron - full-gate �
+===line 11 first 350 chars===
+| テスト | 3 | 両ランタイム実測 357 tests / 915 assertions | テスト | 3 | 両ランタイム実測 357 tests / 915 assertions 與 本次 **286 度目枠** 2026-09-08 1155 cron - full-gate 実測 (suite **130 度目実測**, HEAD 112555f [285 度目枠 = 1141 skip commit の ledger+evidence commit, src/ 変更なし - git diff 95f593d 
+
+===line 11 last 120 chars===
+1]), 本枠記録 evidence/2026-09-08-1113-maturity-remeasure-skip.md + 引用検収 evidence/skip-check-0908-1113.txt) 

@@ -1,0 +1,6 @@
+
+Error: Could not find namespace: torihiki.address-test
+    at file:///opt/homebrew/lib/node_modules/nbb/lib/nbb_main.js:13:216
+
+Node.js v26.0.0
+EXIT=1
