@@ -1,0 +1,3 @@
+# maturity remeasure skip (frame 402 window, 2026-09-09 13:52)
+
+Load gate: 1m load 30 >= 20 at start — per established gate (skip at 1115/1246 etc.), no re-measure run. Canonical evidence remains frame-401 (13:44): JVM+nbb 357/915 0F/0E both green (37th same-count, suite 134), fuzz digest 32nd byte-identical (fuzzdiff-401.txt empty), bench red bench-tape-cancel-arity 30th (bench.clj:112). Scores unchanged 3/3/3/3/2/1/1. No src diff since frame 401; falsify-13 remains the newest OPEN red (7 total). NEXT unchanged: validate-i53-halt fix package (bad-amount i53 + notional cap + balance-domain gate + accum sum gates across 6 sites incl. :insurance-fund + mul-rate/REDUCING pre-bounds + rate cap) then bench-tape-cancel-arity fix for 再現性 3.

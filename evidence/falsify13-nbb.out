@@ -1,0 +1,5 @@
+falsify-13: does :insurance-fund accumulation (liquidation.cljc:195) cross 2^53 unchecked?
+probe payment-identity slice-notional=1800000000000 F=1000000 fee 1800000000 odd false in-domain true seed 9007195654740992 seed-in-domain true two-fee-sum 3600000000 sum-lands-on-two53+1 true
+probe honest-ceiling (no seed) N-cap 9223372036854 fee-cap 9223372036 events-to-cross 976562
+probe seeded-crossing seed=9007195654740992 fee=1800000000 x2 stage1 :book stage2 :book fund0 9007195654740992 fund1 9007197454740992 root1 23ca2e32f2446600e94c33ff7e362638ea77475b75ffe46647b8e47173e60978 fund2 9007199254740992 root2 0b4f0277c55d0fac7f78d17b55544e01b777f06447c698204c9295dfa8537200
+done

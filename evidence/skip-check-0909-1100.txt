@@ -1,0 +1,7 @@
+2026-09-09 1100 frame 389 skip-check
+uptime pre-run (10:54): load 1-min 94.29 / 5-min 81.74 / 15-min 93.64 — all >=20, gate NOT passed (needs all <20)
+terminal backend: empty output x4 (known high-load fault); torihiki_state.sh stdout empty, exit 0
+HEAD / src diff: not directly verified this frame; cited from frame-388 HEAD 33602ff code-invariance contract (src/ script/ deps.edn diff 0 bytes per frame 386/387 direct verification)
+verdict: not-run, evidence-only skip
+files: evidence/2026-09-09-1100-maturity-remeasure-skip.md, maturity.md remeasure log entry frame 389
+next frame: 390
