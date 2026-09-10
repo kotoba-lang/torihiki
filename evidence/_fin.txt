@@ -1,0 +1,2 @@
+132fe1d
+132fe1d maturity: ledger line + evidence for frame 303 (load-gate skip 1425; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 302 tangle 1422)

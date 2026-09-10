@@ -1,0 +1,2 @@
+ 2:56  up 3 days, 19:39, 6 users, load averages: 27.19 42.00 40.95
+load rc=0

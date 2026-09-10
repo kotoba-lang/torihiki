@@ -1,0 +1,5 @@
+[detached HEAD e21561e] maturity: ledger line + evidence for frame 311 (load-gate skip月球1546; cite 287 suite-131; src unchanged; scores unchanged)
+ 16 files changed, 783 insertions(+), 1957 deletions(-)
+ create mode 100644 evidence/2026-09-08-1546-maturity-remeasure-skip.md
+ delete mode 100644 evidence/_gc.txt
+ create mode 100644 evidence/skip-check-0908-1546.txt

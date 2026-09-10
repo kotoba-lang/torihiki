@@ -1,0 +1,8 @@
+[detached HEAD 773f1e8] maturity: evidence for frame 277 (load-gate skip 0956; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 2 files changed, 18 insertions(+)
+ create mode 100644 evidence/2026-09-08-0956-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0908-0956.txt
+===VERIFY===
+773f1e8 maturity: evidence for frame 277 (load-gate skip 0956; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+8c22f48 maturity: ledger line for frame 277 (load-gate skip 0954; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+OK

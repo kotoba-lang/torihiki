@@ -1,0 +1,25 @@
+=== 287 evidence existence+markers ===
+--- test-287-jvm.log ---
+0 failures, 0 errors.
+JVM_EXIT=0
+--- test-287-nbb.log ---
+0 failures, 0 errors.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0
+--- parity-287.log ---
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA_PARITY_EXIT=0
+--- bench-287.log ---
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+BENCH_EXIT=1
+=== src diff ===
+       0
+=== HEAD ===
+cbfd844
+cbfd844 maturity: ledger line + evidence for frame 375 (load-gate skip 0527; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== load ===
+05:38:03
+ 5:38  up 3 days, 22:21, 6 users, load averages: 48.60 50.97 60.71
+DONE

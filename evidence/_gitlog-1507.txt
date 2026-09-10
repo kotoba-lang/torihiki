@@ -1,0 +1,8 @@
+edc0516 2026-09-08 15:06:26 +0900 maturity: ledger line + evidence for frame 307 (load-gate skip 1458; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+28f2986 2026-09-08 15:00:20 +0900 maturity: ledger line + evidence for frame 306 (load-gate skip 1450; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 305 tangle 1445)
+f5630c4 2026-09-08 14:50:32 +0900 maturity: ledger line + evidence for frame 304 (load-gate skip 1441; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+132fe1d 2026-09-08 14:32:25 +0900 maturity: ledger line + evidence for frame 303 (load-gate skip 1425; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 302 tangle 1422)
+34971c0 2026-09-08 14:21:10 +0900 maturity: ledger line + evidence for frame 301 (load-gate skip 1415; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 300 tangle 1405)
+b791cdf 2026-09-08 14:00:52 +0900 maturity: ledger line + evidence for frame 299 (load-gate skip 1356; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 298 tangle 1349+1351)
+61468ab 2026-09-08 13:47:53 +0900 maturity: ledger line + evidence for frame 297 (load-gate skip 1330; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+1522e61 2026-09-08 13:39:54 +0900 maturity: ledger line + evidence for frame 296 (load-gate skip 1327; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; parallel 1324 took 295)

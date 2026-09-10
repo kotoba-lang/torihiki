@@ -1,0 +1,31 @@
+===NOW===
+11:32 2026-09-08
+===UPTIME===
+11:32  up 3 days,  4:15, 9 users, load averages: 13.89 15.05 19.12
+===GITLOG===
+62a87e5 maturity: ledger line + evidence for frame 283 (load-gate skip 1118; cite 279 suite-129; fold parallel 1113/1114; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+c910859 maturity: ledger line + evidence for frame 282 (load-gate skip 1114; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+9b7ce68 maturity: ledger line + evidence for frame 282 (load-gate skip 1113; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+===SRCDIFF-BYTES===
+       0
+===STATUS===
+ D evidence/_gc.txt
+ D evidence/_load.txt
+ M evidence/_ls.txt
+ M evidence/_st.txt
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/_add277.txt
+?? evidence/_br277.txt
+?? evidence/_branches.txt
+?? evidence/_check283.txt
+?? evidence/_commit277.txt
+?? evidence/_commit278.txt
+?? evidence/_commit280.txt
+?? evidence/_commit283.txt

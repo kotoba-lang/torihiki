@@ -1,0 +1,5 @@
+5527a36 maturity: ledger line + evidence for frame 289 (load-gate skip 1230; cite parallel 287 suite-131 fold 287/288; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e81a243 maturity: ledger line + evidence for frame 286 (full-gate 1155; suite 130; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+112555f maturity: ledger line + evidence for frame 285 (load-gate skip 1141; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+963a559 maturity: ledger line + evidence for frame 284 (load-gate skip 1132; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+62a87e5 maturity: ledger line + evidence for frame 283 (load-gate skip 1118; cite 279 suite-129; fold parallel 1113/1114; src unchanged; scores unchanged 3/3/3/3/2/1/1)

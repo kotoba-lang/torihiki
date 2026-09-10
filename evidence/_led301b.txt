@@ -1,0 +1,1 @@
+'bench.clj:112 BENCH_EXIT=1 既知赤]), 本枠記録 evidence/2026-09-08-1405-maturity-remeasure-skip.md + 引用検収 evidence/skip-check-0908-1405.txt) 與 本次 **301 度目枠** 2026-09-08'

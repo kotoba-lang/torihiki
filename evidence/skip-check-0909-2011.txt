@@ -1,0 +1,7 @@
+2026-09-09 20:11 frame 404 load gate check (direct measurement, redirect workaround)
+uptime: 25.93 (1-min) / 32.08 (5-min) / 28.83 (15-min)
+gate rule: all windows < 20 required for genuine run
+result: SKIP (all windows >= 20)
+pre-run 20:09: 31.61 / 33.47 / 28.80 (same result)
+HEAD: d8fb6be; git diff HEAD --stat -- src/ script/ deps.edn = 0 lines
+new measurements this frame: none (not-run by gate)

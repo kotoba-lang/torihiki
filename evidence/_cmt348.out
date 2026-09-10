@@ -1,0 +1,11 @@
+[detached HEAD 9cf7f6b] maturity: ledger line + evidence for frame 348 (load-gate skip 0046; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 3 files changed, 38 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-09-0046-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0909-0046.txt
+rc=0
+9cf7f6b038d415fb46cec711c94c106eea8050c2
+9cf7f6b maturity: ledger line + evidence for frame 348 (load-gate skip 0046; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+f695641 maturity: ledger line and evidence for frame 347 skip
+2bad56a maturity: ledger line + evidence for frame 346 (load-gate skip 0022; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+---src diff---
+       0

@@ -1,0 +1,2 @@
+302 exists: True
+'302 度目枠** 2026-09-08 1422 cron - load gate skip枠 (14:22 uptime 1-min **23.27** / 5-min **26.50** / 15-min **32.37** 全 window ≥20 で全 <20 不成立の'

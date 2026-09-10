@@ -1,0 +1,131 @@
+=== DATE ===
+Tue Sep  8 11:53:50 JST 2026
+=== UPTIME ===
+11:53  up 3 days,  4:36, 9 users, load averages: 12.13 10.66 13.05
+=== HEAD ===
+112555f0af4660391c903ef657ad8563c7aeec10
+=== HEAD SUBJECT ===
+maturity: ledger line + evidence for frame 285 (load-gate skip 1141; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== GIT STATUS ===
+ D evidence/_gc.txt
+ D evidence/_load.txt
+ M evidence/_ls.txt
+ M evidence/_st.txt
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/_add277.txt
+?? evidence/_br277.txt
+?? evidence/_branches.txt
+?? evidence/_check283.txt
+?? evidence/_commit277.txt
+?? evidence/_commit278.txt
+?? evidence/_commit280.txt
+?? evidence/_commit283.txt
+?? evidence/_commit284.out
+?? evidence/_commit284.sh
+?? evidence/_cp285.e
+?? evidence/_cp285.err
+?? evidence/_cp285.txt
+?? evidence/_cron-now.txt
+?? evidence/_d1.txt
+?? evidence/_d2.txt
+?? evidence/_d3.txt
+?? evidence/_diag_284.out
+?? evidence/_diag_284.sh
+?? evidence/_diag_286.sh
+?? evidence/_diag_286.txt
+?? evidence/_diffs2.txt
+?? evidence/_diffstat_0954.txt
+?? evidence/_f276.txt
+?? evidence/_f276b.txt
+?? evidence/_final277.txt
+?? evidence/_final283.txt
+?? evidence/_frame277_probe.txt
+?? evidence/_frame278a.txt
+?? evidence/_git285.txt
+?? evidence/_gitlog2.txt
+?? evidence/_gitlog_0954.txt
+?? evidence/_grep276.txt
+?? evidence/_hdr277.txt
+?? evidence/_hdr277b.txt
+?? evidence/_head277.txt
+?? evidence/_head277b.txt
+?? evidence/_ins277.py
+?? evidence/_ins284.out
+?? evidence/_ins284.py
+?? evidence/_ledger277_add.txt
+?? evidence/_ledger282.out
+?? evidence/_ledger282.py
+?? evidence/_ledger283.out
+?? evidence/_ledger283.py
+?? evidence/_ledger284.out
+?? evidence/_ledger284.sh
+?? evidence/_load2.txt
+?? evidence/_log280.txt
+?? evidence/_ls262.txt
+?? evidence/_matur0908.sh
+?? evidence/_matur0908.txt
+?? evidence/_matur0908b.sh
+?? evidence/_matur0908b.txt
+?? evidence/_matur0908c.sh
+?? evidence/_matur0908c.txt
+?? evidence/_matur0908d.sh
+?? evidence/_matur0908d.txt
+?? evidence/_matur0908e.sh
+?? evidence/_matur0908e.txt
+?? evidence/_matur0908f.sh
+?? evidence/_matur0908f.txt
+?? evidence/_matur0908g.sh
+?? evidence/_matur0908g.txt
+?? evidence/_probe282.out
+?? evidence/_probe282.py
+?? evidence/_probe282b.out
+?? evidence/_probe282b.py
+?? evidence/_s276.txt
+?? evidence/_s276d.txt
+?? evidence/_st280.txt
+?? evidence/_st285.txt
+?? evidence/_staged277.txt
+?? evidence/_state_0954.txt
+?? evidence/_status2.txt
+?? evidence/_status_0954.txt
+?? evidence/_t279.txt
+?? evidence/_t279b.txt
+?? evidence/_t279c.txt
+?? evidence/_t279d.txt
+?? evidence/_t280.txt
+?? evidence/_v.txt
+?? evidence/_verify277.txt
+?? evidence/_verify283.out
+?? evidence/_verify283.py
+?? evidence/_verify284.out
+?? evidence/_verify284.sh
+?? evidence/_verifyfinal277.txt
+?? evidence/bench-285.log
+?? evidence/parity-285.log
+?? evidence/rank-0908-0834-commit.out
+?? evidence/rank-0908-0834-final.out
+?? evidence/rank-0908-0834-final.sh
+?? evidence/rank-0908-0834-inject.out
+?? evidence/rank-0908-0834-inject.py
+?? evidence/rank-0908-0834-post.out
+?? evidence/rank-0908-0834-post.sh
+?? evidence/rank-0908-0834-verify.out
+?? evidence/rank-0908-0834-verify.sh
+?? evidence/rank-0908-0912-insert.py
+?? evidence/rank-0908-12.out
+?? evidence/rank-0908-12a.out
+?? evidence/rank-0908-12b.out
+?? evidence/rank-0908-12c.out
+?? evidence/rank-0908-12d.out
+?? evidence/rank-0908-12e.out
+?? evidence/rank-0908-12f.out
+?? evidence/rank-0908-12g.out
+?? evidence/test-285-jvm.log
+?? evidence/test-285-nbb.log

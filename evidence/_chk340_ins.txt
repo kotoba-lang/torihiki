@@ -1,0 +1,2 @@
+INSERTED_OK
+RC=0

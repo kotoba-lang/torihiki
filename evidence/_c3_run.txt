@@ -1,0 +1,121 @@
+=== DATE ===
+2026-09-09 02:21:43 JST
+
+=== LOAD (uptime) ===
+ 2:21  up 3 days, 19:04, 6 users, load averages: 33.07 28.85 31.18
+
+=== NPROC ===
+10
+
+=== HEAD ===
+d73c1b82f7dd98e80215bb92a0644f14c0389aee maturity: ledger line + evidence for frame 355 (load-gate skip 0200; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ M evidence/_c3.txt
+ M evidence/_frame_check.txt
+ M evidence/_frame_log.txt
+ M evidence/_load.txt
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _ins344.py
+?? _ins345.py
+?? _verify279.py
+?? evidence/2026-09-09-0208-maturity-remeasure-skip.md
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_add333err.txt
+
+=== JDK ===
+openjdk version "21.0.1" 2023-10-17 LTS
+OpenJDK Runtime Environment Temurin-21.0.1+12 (build 21.0.1+12-LTS)
+OpenJDK 64-Bit Server VM Temurin-21.0.1+12 (build 21.0.1+12-LTS, mixed mode)
+which clojure: /opt/homebrew/bin/clojure
+clojure -version: Clojure CLI version 1.12.5.1654
+
+=== DEPS ===
+-rw-r--r--@ 1 junkawasaki  staff  2220 Aug  5 15:35 deps.edn
+{:paths ["src" "resources"]
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        ;; torihiki.log only. The book, clearinghouse, funding and
+        ;; liquidation namespaces have no dependencies at all and must keep
+        ;; it that way — they are the part a validator executes per order.
+        io.github.kotoba-lang/chain
+        {:git/url "https://github.com/kotoba-lang/chain.git"
+         :git/sha "f8f6db8bf8c689063d43297cbe6c06383cc6c3b6"}
+        ;; Pure, synchronous, dependency-free SHA-256 that is identical on the
+        ;; JVM and in JS. Its own docstring says it exists so repos stop
+        ;; hand-rolling one each; taking it at its word is the point.
+        ;; The authenticated tree over the state. Already a zero-dependency
+        ;; portable .cljc Merkle tree with inclusion proofs, extracted so that
+        ;; "any actor needing PoR/PoL reuses one audited implementation" —
+        ;; writing a fourth Merkle tree in this workspace to avoid one
+        ;; dependency would be writing a fourth thing to get subtly wrong.
+        io.github.kotoba-lang/merkle-sum
+        {:git/url "https://github.com/kotoba-lang/merkle-sum.git"
+         :git/sha "5bb473aed0c0bba6c0ae758d000a6142a5d79891"}
+        io.github.kotoba-lang/bytes
+        {:git/url "https://github.com/kotoba-lang/bytes.git"
+         :git/sha "5f977dd3e8ca73185488302841ade390e1979540"}}
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps {io.github.cognitect-labs/test-runner
+                      {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                       :git/sha "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73"}}
+         :main-opts ["-m" "cognitect.test-runner"]}
+  ;; The JVM half of the cross-runtime parity check; the nbb half is in
+  ;; torihiki.parity's docstring. Both must print the same state root.
+  :parity {:main-opts ["-m" "torihiki.parity"]}
+  ;; The throughput claim in the README is this alias. It is not a test —
+  ;; it prints numbers and asserts nothing — so it never gates CI, but it
+  ;; must stay runnable or the claim rots.
+  :bench {:extra-paths ["bench"]
+          :jvm-opts ["-Xmx4g" "-XX:+UseParallelGC"]
+          :main-opts ["-m" "torihiki.bench"]}}}
+
+=== SRC TREE ===
+src/torihiki/auth.cljc
+src/torihiki/mark.cljc
+src/torihiki/evm.cljc
+src/torihiki/clearing.cljc
+src/torihiki/commit.cljc
+src/torihiki/address.cljc
+src/torihiki/keccak.cljc
+src/torihiki/log.cljc
+src/torihiki/trigger.cljc
+src/torihiki/book.cljc
+src/torihiki/fixed.cljc
+src/torihiki/parity.cljc
+src/torihiki/principal.cljc
+src/torihiki/snapshot.cljc
+src/torihiki/oracle.cljc
+src/torihiki/slab.cljc
+src/torihiki/evm/interp.cljc
+src/torihiki/thorchain.cljc
+src/torihiki/funding.cljc
+src/torihiki/liquidation.cljc
+src/torihiki/state.cljc
+src/torihiki/api.cljc
+test/torihiki/funding_test.cljc
+test/torihiki/state_test.cljc
+test/torihiki/api_test.cljc
+test/torihiki/commit_test.cljc
+test/torihiki/clearing_test.cljc
+test/torihiki/thorchain_test.cljc
+test/torihiki/mark_test.cljc
+test/torihiki/book_test.cljc
+test/torihiki/principal_test.cljc
+test/torihiki/auth_test.cljc
+test/torihiki/evm_test.cljc
+test/torihiki/log_test.cljc
+test/torihiki/evm_interp_test.cljc
+test/torihiki/snapshot_test.cljc
+test/torihiki/trigger_test.cljc
+test/torihiki/oracle_test.cljc
+test/torihiki/address_test.cljc
+
+exit=0

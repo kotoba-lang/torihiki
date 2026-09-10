@@ -1,0 +1,6 @@
+=== HEAD ===
+3d50288a1ba5ec002eae404a9b340f70b422c1d5 2026-09-08 17:37:52 +0900 maturity: ledger line + evidence for frame 317 (load-gate skip 1727; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== src diff ===
+       0
+=== status of my files ===
+=== branch ===

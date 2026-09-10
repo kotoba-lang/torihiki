@@ -1,0 +1,14 @@
+=== VERIFY 367 line present ===
+1
+=== tail ===
+- 2026-09-09 0355 枠 (no code changes, cron, **366 度目枠  load gate skip**): 負荷 1-min **22.71** / 5-min **23.67** / 15-min 
+
+- 2026-09-09 0414 枠 (no code changes, cron, **367 度目枠  load gate skip**): 負荷 1-min **52.07** / 5-min **60.66** / 15-min 
+=== SRC DIFF (must be 0) ===
+       0
+=== STATUS ===
+?? evidence/2026-09-09-0414-maturity-remeasure-skip.md
+?? evidence/_ins367.out
+?? evidence/_ins367.py
+?? evidence/run-0414-investigate.txt
+?? evidence/skip-check-0909-0414.txt

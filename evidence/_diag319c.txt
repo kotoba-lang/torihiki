@@ -1,0 +1,9 @@
+=== files changed in 67b2726 ===
+67b2726 maturity: ledger line + evidence for frame 318 (load-gate skip 1740; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ evidence/2026-09-08-1740-maturity-remeasure-skip.md | 14 ++++++++++++++
+ evidence/skip-check-0908-1740.txt                   | 14 ++++++++++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 29 insertions(+), 1 deletion(-)
+=== ledger file last lines ===
+tail: maturity.md: No such file or directory
+tail: ledger.md: No such file or directory

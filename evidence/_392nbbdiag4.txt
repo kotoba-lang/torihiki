@@ -1,0 +1,21 @@
+#!/bin/sh
+cd /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki
+CP=$(nbb script/nbb-classpath.cljs 2>/dev/null)
+echo "CP_LEN=${#CP}" > evidence/_cp287.txt
+echo "CP=$CP" >> evidence/_cp287.txt
+nbb --classpath "$CP" script/tests-on-nbb.cljs > evidence/test-287-nbb.log 2>&1
+echo "NBB_EXIT=$?" >> evidence/test-287-nbb.log===
+323248b frame 391: ledger line (load gate skip 1115, 1m 20.65 all>=20, not-run evidence)
+8281a2f frame 391: load gate skip (11:15, 1m 20.65 all>=20, not-run evidence)
+95057a2 frame 390: load gate skip (11:09, 1m 36.55 all>=20, not-run evidence)
+57d8be7 frame 389 load gate skip (1100): load 94/82/94 all >=20, not-run evidence-only
+ee88713 maturity: ledger line + evidence for frame 386 (load-gate skip 1037; canonical = frame-286 suite-130; duplicate frame-384 numbering in 9657965/33602ff flagged [1028 = frame 385 misnumbered]; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+33602ff maturity: ledger line + evidence for frame 384 (load-gate skip 1028; canonical = frame-286 suite-130; OPEN-red citations re-verified at 6 sites on HEAD 9f8d9b9; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+9657965 maturity: ledger line + evidence for frame 384 (load-gate skip 1027; canonical = frame-286 suite-130; OPEN-red citations re-verified by direct line read 6 sites; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+9f8d9b9 maturity: ledger line + evidence for frame 383 (load-gate skip 1016; canonical = frame-286 suite-130; OPEN-red citations re-verified valid post kotoba.lang.text refactor 6 sites; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+===
+evidence/2026-09-04-maturity-remeasure-0839.md:13:| nbb 素呼び pitfall | 再確認: `nbb script/tests-on-nbb.cljs` 素呼びは `Could not find namespace: torihiki.address-test` で即落ちる (test-nbb-0840.err) — classpath は `nbb --classpath "$(nbb script/nbb-classpath.cljs)"` が必須 | test-nbb-0840.err |
+evidence/2026-09-04-maturity-remeasure-1120.md:11:2. **nbb tests**: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs` → evidence/test-nbb-1113.out: **same count 357/915, 0 failures, 0 errors. TESTS-ON-NBB: pass.** exit=0. (32nd identical-count measurement.)
+evidence/2026-09-04-maturity-remeasure-1120.md:13:4. **Seeded fuzz nbb**: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/fuzz-nbb-driver.cljs` → evidence/fuzz-nbb-1118.out, 16 seeds, done.
+evidence/2026-09-04-maturity-remeasure-2328.md:9:- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+evidence/2026-09-04-maturity-remeasure-2328.md:15:  `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/fuzz-nbb-driver.cljs`

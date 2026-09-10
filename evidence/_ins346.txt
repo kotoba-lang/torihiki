@@ -1,0 +1,2 @@
+INSERTED_OK new_bytes= 324465
+PYEXIT=0

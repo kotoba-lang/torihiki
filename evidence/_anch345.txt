@@ -1,0 +1,4 @@
+=== grep 344 line (first 200 chars) ===
+本次 **344 度目枠** 2026-09-08 2350 cron - load gate skip枠 (並行 tangle: 並行 2339 セッションが frame 343 を evidence+ledger 行のみで先行記録
+=== 101 hex of prefix of line containing 344 ===
+11:與 本次 **345 度目枠** 2026-09-09 0015 cron - load gate skip枠 (負荷 00:15 uptime 1-min **132.08** / 5-min **91.26** / 15-min **73.35** 全 window ≥20 で全 <20 不成立の為 高負荷続

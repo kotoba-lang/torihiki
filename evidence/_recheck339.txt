@@ -1,0 +1,28 @@
+=== HEAD ===
+3b2995979579823dbd73882f026dbf180d7f8fc6
+=== log1 ===
+3b29959 maturity: ledger line + evidence for frame 338 (load-gate skip 2222; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== status ===
+ M evidence/_c3.txt
+ M evidence/_frame_check.txt
+ M evidence/_load.txt
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/2026-09-08-2226-maturity-remeasure-skip.md
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_add333err.txt
+?? evidence/_add334.out
+?? evidence/_amu287.txt
+?? evidence/_anch316.txt
+=== diff stat maturity ===
+=== working tree 338 top line ===
+| テスト ||3 ||與 本次 **338 度目枠** 2026-09-08 2222 cron - load gate skip枠 (負荷 22:22 uptime 1-min **18.

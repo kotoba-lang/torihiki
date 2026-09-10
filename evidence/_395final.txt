@@ -1,0 +1,3 @@
+SRC_DIFF_END (empty=unchanged)
+8dc16308ee598e84c207fd67ed7964398ea4f6db frame 394: genuine run (11:44 1m 9.98 <20) — JVM+nbb 357/915 0F/0E both green (34th same-count, suite 131), bench red bench-tape-cancel-arity 27th (bench.clj:112); src diverged from e81a243 via kotoba.lang.text merge → citation base moves to this frame; NEW finding: nbb-classpath.cljs bootstrap self-dependency (bare nbb fails kotoba.lang.text; needs --classpath ../text/src); scores unchanged 3/3/3/3/2/1/1
+12:29  up 4 days,  5:12, 7 users, load averages: 35.00 53.67 48.01

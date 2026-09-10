@@ -1,0 +1,14 @@
+total 1104
+drwxr-xr-x@ 13 junkawasaki  staff     416 Sep  8 14:35 .
+drwxr-xr-x@ 94 junkawasaki  staff    3008 Sep  8 13:20 ..
+-rw-r--r--@  1 junkawasaki  staff    5927 Sep  5 06:50 ev-names-0906.txt
+-rw-r--r--@  1 junkawasaki  staff     174 Sep  5 06:50 final-wc-0906.txt
+-rw-r--r--@  1 junkawasaki  staff    4878 Sep  5 06:52 grep-42-0906.txt
+-rw-r--r--@  1 junkawasaki  staff      41 Sep  5 06:52 grep-count-0906.txt
+-rw-r--r--@  1 junkawasaki  staff    1741 Sep  5 06:55 line11-check-0906.txt
+-rw-r--r--@  1 junkawasaki  staff    1372 Sep  5 06:49 ls-evidence-0906.txt
+-rw-r--r--@  1 junkawasaki  staff  400068 Sep  8 21:21 maturity.md
+-rw-r--r--@  1 junkawasaki  staff   93087 Sep  6 04:10 maturity.md.bak-0402
+-rw-r--r--@  1 junkawasaki  staff   14923 Sep  5 06:49 state-0906-raw.txt
+-rw-r--r--@  1 junkawasaki  staff      35 Sep  5 06:49 wc-0906.txt
+-rw-r--r--@  1 junkawasaki  staff   15021 Sep  5 06:08 wc-check.txt

@@ -1,0 +1,4 @@
+[detached HEAD 028a344] maturity: ledger line and evidence for frame 348 skip
+ 3 files changed, 38 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-09-0047-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0909-0047.txt

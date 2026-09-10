@@ -1,0 +1,5 @@
+     614 evidence/test-287-jvm.log
+     218 evidence/test-287-nbb.log
+     149 evidence/parity-287.log
+     552 evidence/bench-287.log
+    1533 total

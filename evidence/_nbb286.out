@@ -1,0 +1,2 @@
+CP_LEN=561
+CP=src:test:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/chain/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/io-ipld/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/io-multiformats/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/org-ietf-cbor/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/merkle-sum/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/bytes/src

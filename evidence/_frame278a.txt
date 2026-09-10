@@ -1,0 +1,70 @@
+=== git log dates ===
+773f1e8 10:06 maturity: evidence for frame 277 (load-gate skip 0956; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+8c22f48 10:02 maturity: ledger line for frame 277 (load-gate skip 0954; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+0938961 09:55 maturity: ledger line for frame 276 (load-gate skip 0945; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+2ea864c 09:51 maturity: evidence for frame 276 (load-gate skip 0947; cite 0601 suite-128; src unchanged; origin slot 0936 superseded by parallel 275; ledger reconcile deferred to next frame)
+adbca28 09:42 maturity: ledger line for frame 275 (load-gate skip 0936; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+5cdd04b 09:27 maturity: ledger line for frame 274 (load-gate skip 0912; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+4a6f34e 09:04 maturity: ledger line for frame 273 (load-gate skip 0858; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+ce50cf9 08:48 maturity: ledger line for frame 272 (load-gate skip 0834; cite 0601 suite-128; reconcile frame 271 0819 evidence-only tangle; scores unchanged 3/3/3/3/2/1/1)
+7335359 08:47 maturity: ledger line for frame 272 (load-gate skip (0834; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+c339131 08:24 maturity: ledger line for frame 271 (load-gate skip 0819; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+=== HEAD===
+773f1e8921a098b0ff424b3ab4094cc05ac7da8a
+=== src diff vs 3f1f903 ===
+=== uncommitted ===
+ D evidence/_gc.txt
+ D evidence/_load.txt
+ M evidence/_ls.txt
+ M evidence/_st.txt
+?? evidence/_add277.txt
+?? evidence/_br277.txt
+?? evidence/_commit277.txt
+?? evidence/_cron-now.txt
+?? evidence/_d1.txt
+?? evidence/_d2.txt
+?? evidence/_d3.txt
+?? evidence/_diffs2.txt
+?? evidence/_diffstat_0954.txt
+?? evidence/_f276.txt
+?? evidence/_f276b.txt
+?? evidence/_final277.txt
+?? evidence/_frame277_probe.txt
+?? evidence/_frame278a.txt
+?? evidence/_gitlog2.txt
+?? evidence/_gitlog_0954.txt
+?? evidence/_grep276.txt
+?? evidence/_hdr277.txt
+?? evidence/_hdr277b.txt
+?? evidence/_head277.txt
+?? evidence/_head277b.txt
+?? evidence/_ins277.py
+?? evidence/_ledger277_add.txt
+?? evidence/_s276.txt
+?? evidence/_s276d.txt
+?? evidence/_staged277.txt
+?? evidence/_state_0954.txt
+?? evidence/_status2.txt
+?? evidence/_status_0954.txt
+?? evidence/_verify277.txt
+?? evidence/_verifyfinal277.txt
+?? evidence/rank-0908-0834-commit.out
+?? evidence/rank-0908-0834-final.out
+?? evidence/rank-0908-0834-final.sh
+?? evidence/rank-0908-0834-inject.out
+?? evidence/rank-0908-0834-inject.py
+?? evidence/rank-0908-0834-post.out
+?? evidence/rank-0908-0834-post.sh
+?? evidence/rank-0908-0834-verify.out
+?? evidence/rank-0908-0834-verify.sh
+?? evidence/rank-0908-0912-insert.py
+?? evidence/rank-0908-12.out
+?? evidence/rank-0908-12a.out
+?? evidence/rank-0908-12b.out
+?? evidence/rank-0908-12c.out
+?? evidence/rank-0908-12d.out
+?? evidence/rank-0908-12e.out
+?? evidence/rank-0908-12f.out
+?? evidence/rank-0908-12g.out
+d75b:
+END

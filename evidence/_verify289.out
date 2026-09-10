@@ -1,0 +1,47 @@
+===STATUS SHORT (should be no 287/288/289 evidence untracked)===
+?? evidence/2026-09-08-1233-maturity-remeasure-skip.md
+?? evidence/_amu287.txt
+?? evidence/_commit289.out
+?? evidence/_commit289.sh
+?? evidence/_cp287.txt
+?? evidence/_g287.txt
+?? evidence/_ins289.out
+?? evidence/_ins289.py
+?? evidence/_ins289b.out
+?? evidence/_ins289b.py
+?? evidence/_ins289c.out
+?? evidence/_ins289c.sh
+?? evidence/_meta287.sh
+?? evidence/_meta287.txt
+?? evidence/_probe287.sh
+?? evidence/_probe287b.sh
+?? evidence/_probe287b.txt
+?? evidence/_probe287c.sh
+?? evidence/_probe287c.txt
+?? evidence/_probe287d.sh
+?? evidence/_probe287d.txt
+?? evidence/_probe287e.sh
+?? evidence/_probe287e.txt
+?? evidence/_probe287f.sh
+?? evidence/_probe287f.txt
+?? evidence/_probe287g.sh
+?? evidence/_probe287g.txt
+?? evidence/_probe287h.sh
+?? evidence/_probe287h.txt
+?? evidence/_run287_bench.sh
+?? evidence/_run287_jvm.sh
+?? evidence/_run287_nbb.sh
+?? evidence/_run287_parity.sh
+?? evidence/_st287.txt
+?? evidence/_verify289.out
+?? evidence/_verify289.sh
+===BRANCH===
+HEAD
+===LAST COMMIT DETAIL===
+commit 5527a36927f01f10a46b76d9d9194bf6711524b6
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Tue Sep 8 12:35:33 2026 +0900
+===VERIFY 289 ledger line present===
+289 度目枠 present: True
+288 度目枠 present: True
+287 度目枠 present: True

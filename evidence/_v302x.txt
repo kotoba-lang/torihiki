@@ -1,0 +1,4 @@
+first frame: 302
+302 tail: '302 度目枠** 2026-09-08 1422 cron - load gate skip枠 (14:22 upti'
+len 286475
+302 occurrences: 2

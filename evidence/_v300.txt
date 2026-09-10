@@ -1,0 +1,32 @@
+1
+915 assertions 與 本次 **300 度目枠**
+ D evidence/_gc.txt
+ M evidence/_gs.txt
+ M evidence/_head.txt
+ M evidence/_head2.txt
+ M evidence/_load.txt
+ M evidence/_ls.txt
+ M evidence/_st.txt
+ M status/maturity.md
+?? evidence/2026-09-08-1405-maturity-remeasure-skip.md
+?? evidence/2026-09-08-1415-maturity-remeasure-skip.md
+?? evidence/rank-0908-0834-commit.out
+?? evidence/rank-0908-0834-final.out
+?? evidence/rank-0908-0834-final.sh
+?? evidence/rank-0908-0834-inject.out
+?? evidence/rank-0908-0834-inject.py
+?? evidence/rank-0908-0834-post.out
+?? evidence/rank-0908-0834-post.sh
+?? evidence/rank-0908-0834-verify.out
+?? evidence/rank-0908-0834-verify.sh
+?? evidence/rank-0908-0912-insert.py
+?? evidence/rank-0908-12.out
+?? evidence/rank-0908-12a.out
+?? evidence/rank-0908-12b.out
+?? evidence/rank-0908-12c.out
+?? evidence/rank-0908-12d.out
+?? evidence/rank-0908-12e.out
+?? evidence/rank-0908-12f.out
+?? evidence/rank-0908-12g.out
+?? evidence/skip-check-0908-1405.txt
+?? evidence/skip-check-0908-1415.txt

@@ -1,0 +1,7 @@
+bounded_regex.kotoba
+bounded_text.kotoba
+text.cljc
+===
+73bdb13 Merge jv/text-self-hosted: kotoba.lang.text no longer requires clojure.string
+1d7bc89 text: stop delegating to clojure.string — implement it, and pin what that decides
+PIN-RESOLVABLE

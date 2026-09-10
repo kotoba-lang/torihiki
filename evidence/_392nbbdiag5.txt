@@ -1,0 +1,6 @@
+ls: ../kotoba/src/kotoba/lang/: No such file or directory
+===
+0862e71 torihiki: kotoba.lang.text instead of clojure.string (.cljs)
+68e374b test: run the whole suite on the runtime that deploys, without a JVM
+===
+ls: .nbb-deps/kotoba: No such file or directory

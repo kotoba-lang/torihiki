@@ -1,0 +1,4 @@
+ls: .nbb-deps/text/src/kotoba/lang/: No such file or directory
+---
+ls: .nbb-deps/text: No such file or directory
+---

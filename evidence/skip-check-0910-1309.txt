@@ -1,0 +1,3 @@
+2026-09-10 13:09 frame 409 load gate check
+1-min 25.92 / 5-min 26.03 / 15-min 25.09 — all >=20 -> gate FAIL -> not-run
+HEAD d8fb6be, git diff HEAD -- src/ script/ deps.edn = 0 lines

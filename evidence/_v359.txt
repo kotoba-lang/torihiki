@@ -1,0 +1,12 @@
+e60d57e maturity: ledger line + evidence for frame 359 (load-gate skip 0304; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+commit e60d57ec3aedb4915e2338f016b7bf056a529224
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Wed Sep 9 03:14:08 2026 +0900
+
+    maturity: ledger line + evidence for frame 359 (load-gate skip 0304; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-09-0304-maturity-remeasure-skip.md | 15 +++++++++++++++
+ evidence/skip-check-0909-0304.txt                   |  7 +++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 23 insertions(+), 1 deletion(-)

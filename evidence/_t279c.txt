@@ -1,0 +1,26 @@
+== jvm tail ==
+
+Testing torihiki.trigger-test
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+JVM_EXIT=0
+== nbb tail ==
+namespaces 17/17
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0
+== parity tail ==
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+PARITY_EXIT=0
+== bench tail ==
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+Wrong number of args (2) passed to: torihiki.book/cancel!
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-9616658137141979319.edn
+BENCH_EXIT=1

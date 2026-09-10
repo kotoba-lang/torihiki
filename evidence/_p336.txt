@@ -1,0 +1,6 @@
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA_PARITY_EXIT=0
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+BENCH_EXIT=1
+END

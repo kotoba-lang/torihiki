@@ -1,0 +1,24 @@
+{:paths ["src" "resources"]
+ :deps {
+        ;; kotoba.lang.text, not clojure.string. Pinned as an explicit floor:
+        ;; tools.deps takes the NEWEST sha it is shown, so without a floor here
+        ;; this repo silently rides whatever a sibling happens to name.
+        io.github.kotoba-lang/text {:git/sha "73bdb13ae7a3d004b44bca08be03a3191157a38f"}
+       org.clojure/clojure {:mvn/version "1.12.0"}
+        ;; torihiki.log only. The book, clearinghouse, funding and
+        ;; liquidation namespaces have no dependencies at all and must keep
+        ;; it that way — they are the part a validator executes per order.
+        io.github.kotoba-lang/chain
+        {:git/url "https://github.com/kotoba-lang/chain.git"
+         :git/sha "f8f6db8bf8c689063d43297cbe6c06383cc6c3b6"}
+        ;; Pure, synchronous, dependency-free SHA-256 that is identical on the
+        ;; JVM and in JS. Its own docstring says it exists so repos stop
+        ;; hand-rolling one each; taking it at its word is the point.
+        ;; The authenticated tree over the state. Already a zero-dependency
+        ;; portable .cljc Merkle tree with inclusion proofs, extracted so that
+        ;; "any actor needing PoR/PoL reuses one audited implementation" —
+        ;; writing a fourth Merkle tree in this workspace to avoid one
+===
+b48bf0e torihiki: kotoba.lang.text instead of clojure.string
+24e4bbf feat(state): state root を認証木にする — 1 残高を replay 無しで検証できる
+c6f7d66 slab: repair the ClojureScript path, and add a parity harness that proves it

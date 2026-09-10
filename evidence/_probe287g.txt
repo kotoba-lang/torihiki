@@ -1,0 +1,7 @@
+===all occurrences of 286 entry anchor + byte offsets===
+676:與 本次 **286 度目枠**
+===first occurrence context (bytes 1-200 of hit)===
+===does 287/288/289 already in ledger?===
+0
+===line count of file===
+     492 status/maturity.md

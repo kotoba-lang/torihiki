@@ -1,0 +1,16 @@
+=== branch ===
+DETACHED
+=== log5 ===
+2bad56a maturity: ledger line + evidence for frame 346 (load-gate skip 0022; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+399c1e6 maturity: ledger line + evidence for frame 345 (load-gate skip 0015; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+b0bc4de maturity: ledger line + evidence for frames 343/344 (load-gate skip 2341/2350; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel frame-343)
+e1b65f8 maturity: ledger line + evidence for frame 343 (load-gate skip 2341; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+32c0260 maturity: ledger line + evidence for frame 342 (load-gate skip 2338; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== ancestors from 2bad56a ===
+2bad56a maturity: ledger line + evidence for frame 346 (load-gate skip 0022; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+399c1e6 maturity: ledger line + evidence for frame 345 (load-gate skip 0015; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+b0bc4de maturity: ledger line + evidence for frames 343/344 (load-gate skip 2341/2350; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel frame-343)
+e1b65f8 maturity: ledger line + evidence for frame 343 (load-gate skip 2341; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+32c0260 maturity: ledger line + evidence for frame 342 (load-gate skip 2338; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+2c1dca2 maturity: ledger line + evidence for frame 341 (load-gate skip 2257; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+c356f1c maturity: ledger line + evidence for frame 340 (load-gate skip 2246/2257/2312; fold 3 parallel frame-340 evidence sets; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

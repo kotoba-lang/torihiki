@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/_ins340b.py", line 10, in <module>
+    assert s.count(marker) == 1, "marker count = %d" % s.count(marker)
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: marker count = 3

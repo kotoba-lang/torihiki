@@ -1,0 +1,15 @@
+Boxed math warning, torihiki/bench.clj:105:17 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Boxed math warning, torihiki/bench.clj:114:45 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+generating a 5,000,000-operation tape...
+warming up (JIT)...
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+Wrong number of args (2) passed to: torihiki.book/cancel!
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+evidence/test-287-jvm.log:Ran 357 tests containing 915 assertions.
+evidence/test-287-jvm.log:0 failures, 0 errors.
+evidence/test-287-nbb.log:Ran 357 tests containing 915 assertions.
+evidence/test-287-nbb.log:0 failures, 0 errors.
+evidence/test-287-nbb.log:Ran 357 tests containing 915 assertions.
+evidence/test-287-nbb.log:0 failures, 0 errors.

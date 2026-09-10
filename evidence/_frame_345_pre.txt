@@ -1,0 +1,10 @@
+=== now ===
+2026-09-09 00:22
+=== head time ===
+b0bc4deff8a79f5cc9278f5f1b4d202f24e33956 2026-09-08 23:57:02 +0900 maturity: ledger line + evidence for frames 343/344 (load-gate skip 2341/2350; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel frame-343)
+=== any 345 skip evd? ===
+=== cited 287 evd ===
+OK test-287-jvm.log (     614 bytes)
+OK test-287-nbb.log (     218 bytes)
+OK parity-287.log (     149 bytes)
+OK bench-287.log (     552 bytes)

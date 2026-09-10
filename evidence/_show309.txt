@@ -1,0 +1,10 @@
+commit 14d8276431960ecf27f5d468774807f9014097e7
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Tue Sep 8 15:22:28 2026 +0900
+
+    maturity: ledger line + evidence for frame 309 (load-gate skip 1514; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-08-1514-maturity-remeasure-skip.md | 13 +++++++++++++
+ evidence/skip-check-0908-1514.txt                   |  6 ++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 20 insertions(+), 1 deletion(-)

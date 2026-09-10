@@ -1,0 +1,15 @@
+028a344 maturity: ledger line and evidence for frame 348 skip
+9cf7f6b maturity: ledger line + evidence for frame 348 (load-gate skip 0046; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+f695641 maturity: ledger line and evidence for frame 347 skip
+2bad56a maturity: ledger line + evidence for frame 346 (load-gate skip 0022; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+399c1e6 maturity: ledger line + evidence for frame 345 (load-gate skip 0015; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+b0bc4de maturity: ledger line + evidence for frames 343/344 (load-gate skip 2341/2350; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel frame-343)
+e1b65f8 maturity: ledger line + evidence for frame 343 (load-gate skip 2341; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+32c0260 maturity: ledger line + evidence for frame 342 (load-gate skip 2338; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+2c1dca2 maturity: ledger line + evidence for frame 341 (load-gate skip 2257; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+c356f1c maturity: ledger line + evidence for frame 340 (load-gate skip 2246/2257/2312; fold 3 parallel frame-340 evidence sets; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+* (HEAD detached from dd55c85)
+b791cdf maturity: ledger line + evidence for frame 299 (load-gate skip 1356; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 298 tangle 1349+1351)
+797fb10 maturity: 1349 cron load-gate skip frame (193 度目枠/1349, no code change, HEAD 5968fd8c; ref 1010 meas suite 109)
+b06c009 maturity: 0510 cron load-gate skip frame (137 度目枠, no code change, HEAD c9e2349; ref 0310 meas)
+502106d maturity: 0349 cron load-gate skip frame (128 度目枠, no code change, HEAD c3b2fb4; ref 0310 meas)

@@ -1,0 +1,19 @@
+0938961 maturity: ledger line for frame 276 (load-gate skip 0945; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+2ea864c maturity: evidence for frame 276 (load-gate skip 0947; cite 0601 suite-128; src unchanged; origin slot 0936 superseded by parallel 275; ledger reconcile deferred to next frame)
+adbca28 maturity: ledger line for frame 275 (load-gate skip 0936; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+5cdd04b maturity: ledger line for frame 274 (load-gate skip 0912; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+4a6f34e maturity: ledger line for frame 273 (load-gate skip 0858; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+ce50cf9 maturity: ledger line for frame 272 (load-gate skip 0834; cite 0601 suite-128; reconcile frame 271 0819 evidence-only tangle; scores unchanged 3/3/3/3/2/1/1)
+7335359 maturity: ledger line for frame 272 (load-gate skip (0834; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+c339131 maturity: ledger line for frame 271 (load-gate skip 0819; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+0938961 maturity: ledger line for frame 276 (load-gate skip 0945; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+2ea864c maturity: evidence for frame 276 (load-gate skip 0947; cite 0601 suite-128; src unchanged; origin slot 0936 superseded by parallel 275; ledger reconcile deferred to next frame)
+adbca28 maturity: ledger line for frame 275 (load-gate skip 0936; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+5cdd04b maturity: ledger line for frame 274 (load-gate skip 0912; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+4a6f34e maturity: ledger line for frame 273 (load-gate skip 0858; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+ce50cf9 maturity: ledger line for frame 272 (load-gate skip 0834; cite 0601 suite-128; reconcile frame 271 0819 evidence-only tangle; scores unchanged 3/3/3/3/2/1/1)
+7335359 maturity: ledger line for frame 272 (load-gate skip (0834; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+c339131 maturity: ledger line for frame 271 (load-gate skip 0819; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+===
+      33
+OK

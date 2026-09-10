@@ -1,0 +1,54 @@
+=== SHOW HEAD STAT ===
+commit cbfd84435fc876403c5fd2737ad5ac0ce528e221
+Author: Jun Kawasaki <jun784@gmail.com>
+Date:   Wed Sep 9 05:30:56 2026 +0900
+
+    maturity: ledger line + evidence for frame 375 (load-gate skip 0527; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+
+ evidence/2026-09-09-0527-maturity-remeasure-skip.md | 13 +++++++++++++
+ evidence/skip-check-0909-0527.txt                   |  1 +
+ status/maturity.md                                  |  3 ++-
+ 3 files changed, 16 insertions(+), 1 deletion(-)
+=== MATURITY FRAME 37x IN HEAD ===
+本次 **355 度目枠**
+本次 **353 度目枠**
+本次 **354 度目枠**
+本次 **352 度目枠**
+本次 **351 度目枠**
+本次 **350 度目枠**
+本次 **349 度目枠**
+本次 **348 度目枠**
+=== COUNT 度目枠 in HEAD maturity ===
+     108
+=== HIGHEST FRAME NUMBER in HEAD maturity ===
+359
+359
+360
+=== git log all recent ===
+cbfd844 maturity: ledger line + evidence for frame 375 (load-gate skip 0527; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+d674c93 maturity: ledger line + evidence for frame 374 (load-gate skip 0524; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+745d238 maturity: ledger line + evidence for frame 373 (load-gate skip 0511; fold frame 372; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+629e993 maturity: ledger line + evidence for frame 371 (load-gate skip 0455; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+da8db74 maturity: ledger line + evidence for frame 370 (load-gate skip 0446; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+38e31a7 maturity: ledger line + evidence for frame 369 (load-gate skip 0428; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+801698a maturity: ledger line + evidence for frame 368 (load-gate skip 0421; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+aa66120 maturity: ledger line + evidence for frame 367 (load-gate skip 0414; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+7481872 maturity: ledger line + evidence for frames  ‏365+366 (load-gate skip, fold tangle 0350/0355; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5e98c86 maturity: ledger line + evidence for frame 364 (load-gate skip 0344; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+517ff68 maturity: ledger line + evidence for frame 363 (load-gate skip 0340; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+affdf62 maturity: ledger line + evidence for frame 362 (load-gate skip 0325; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5cd98c4 maturity: ledger line + evidence for frame 361 (load-gate skip 0328; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+46f1a36 maturity: ledger line + evidence for frame 360 (load-gate skip 0314; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4fc6e4 maturity: ledger line + evidence for frame 359 (load-gate skip 0300; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== uncommitted new maturity/skip evidence files (tracked-tracked status) ===
+?? evidence/_c360_date.txt
+?? evidence/_c360_diff.txt
+?? evidence/_c360_load.txt
+?? evidence/_c3_run.txt
+?? evidence/_chk340_anchor.txt
+?? evidence/_chk340_head.txt
+?? evidence/_chk340_ins.txt
+?? evidence/_chk340_log.txt
+?? evidence/_chk_head.txt
+?? evidence/_chk_load.txt
+DONE

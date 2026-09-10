@@ -1,0 +1,5 @@
+46f1a36 maturity: ledger line + evidence for frame 360 (load-gate skip 0314; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ evidence/2026-09-09-0314-maturity-remeasure-skip.md | 15 +++++++++++++++
+ evidence/skip-check-0909-0314.txt                   |  7 +++++++
+ status/maturity.md                                  |  2 +-
+ 3 files changed, 23 insertions(+), 1 deletion(-)

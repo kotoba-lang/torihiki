@@ -1,0 +1,21 @@
+=== NOW ===
+2026-09-09 00:29
+=== HEAD ===
+399c1e67d10b663a66955d33e36ec4ff3b5d07c2
+=== LOG3 ===
+399c1e6 maturity: ledger line + evidence for frame 345 (load-gate skip 0015; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+b0bc4de maturity: ledger line + evidence for frames 343/344 (load-gate skip 2341/2350; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel frame-343)
+e1b65f8 maturity: ledger line + evidence for frame 343 (load-gate skip 2341; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+32c0260 maturity: ledger line + evidence for frame 342 (load-gate skip 2338; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+2c1dca2 maturity: ledger line + evidence for frame 341 (load-gate skip 2257; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== 345 md evd? ===
+-rw-r--r--@ 1 junkawasaki  staff  1402 Sep  9 00:25 evidence/2026-09-09-0015-maturity-remeasure-skip.md
+=== 345 skip-check? ===
+-rw-r--r--@ 1 junkawasaki  staff  1026 Sep  9 00:25 evidence/skip-check-0909-0015.txt
+=== 346 md evd? ===
+-rw-r--r--@ 1 junkawasaki  staff  1402 Sep  9 00:25 evidence/2026-09-09-0015-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1692 Sep  9 00:24 evidence/2026-09-09-0022-maturity-remeasure-skip.md
+=== uncommitted track ===
+?? evidence/2026-09-09-0022-maturity-remeasure-skip.md
+?? evidence/_maturitylines.txt
+?? evidence/skip-check-0909-0022.txt

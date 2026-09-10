@@ -1,0 +1,10 @@
+=== CITED 287 EVIDENCE VERIFY ===
+test-287-jvm.log: exists=True lines=40 markers_ok=True
+test-287-nbb.log: exists=True lines=9 markers_ok=True
+parity-287.log: exists=True lines=4 markers_ok=True
+bench-287.log: exists=True lines=10 markers_ok=True
+ALL_CITED_OK=True
+WROTE skip-check-0908-2214.txt
+WROTE 2026-09-08-2214-maturity-remeasure-skip.md
+ANCHOR_LINE_STARTS_WITH_336: False
+frame 337 already present

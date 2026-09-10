@@ -1,0 +1,57 @@
+HEAD=42d8707e43110aa7ad13419fcd37b09d7882e9f9
+---BRANCH---
+HEAD
+---LOG---
+42d8707 maturity: ledger line for frame 278 (load-gate skip 1015; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+37f442f maturity: evidence for frame 278 (load-gate skip 1010; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+773f1e8 maturity: evidence for frame 277 (load-gate skip 0956; cite 0601 suite-128; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+8c22f48 maturity: ledger line for frame 277 (load-gate skip 0954; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+0938961 maturity: ledger line for frame 276 (load-gate skip 0945; cite 0601 suite-128; scores unchanged 3/3/3/3/2/1/1)
+---SRC-DIFF-BYTES (75b3197..HEAD, 3f1f903..HEAD)---
+       0
+       0
+---UNCOMMITTED SRC---
+       0
+---UPTIME---
+10:45  up 3 days,  3:28, 8 users, load averages: 57.02 30.55 21.26
+---STATUS---
+A  evidence/2026-09-08-1030-maturity-remeasure.md
+ D evidence/_gc.txt
+ D evidence/_load.txt
+ M evidence/_ls.txt
+ M evidence/_st.txt
+A  evidence/bench-279.log
+A  evidence/cp-279.txt
+A  evidence/parity-279.log
+A  evidence/test-279-jvm.log
+A  evidence/test-279-nbb.log
+M  status/maturity.md
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/_add277.txt
+?? evidence/_br277.txt
+?? evidence/_branches.txt
+?? evidence/_commit277.txt
+?? evidence/_commit278.txt
+?? evidence/_cron-now.txt
+?? evidence/_d1.txt
+?? evidence/_d2.txt
+?? evidence/_d3.txt
+?? evidence/_diffs2.txt
+?? evidence/_diffstat_0954.txt
+?? evidence/_f276.txt
+?? evidence/_f276b.txt
+?? evidence/_final277.txt
+?? evidence/_frame277_probe.txt
+?? evidence/_frame278a.txt
+?? evidence/_gitlog2.txt
+?? evidence/_gitlog_0954.txt
+?? evidence/_grep276.txt
+?? evidence/_hdr277.txt
+?? evidence/_hdr277b.txt

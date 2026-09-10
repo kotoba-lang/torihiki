@@ -1,0 +1,38 @@
+=== _c3.txt ===
+39 evidence/_c3.txt
+Testing torihiki.book-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.state-test
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+=== git log -3 ===
+d73c1b8 maturity: ledger line + evidence for frame 355 (load-gate skip 0200; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+785684b maturity: ledger line + evidence for frame 354 (load-gate skip 0158; fold 並行 frame-353 0148 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4e9837 maturity: ledger line + evidence for frame 352 (load-gate skip 0143; fold 並行 0142 evidence; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== HEAD ===
+d73c1b8

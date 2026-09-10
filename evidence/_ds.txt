@@ -1,0 +1,10 @@
+ evidence/_gc.txt    |    4 -
+ evidence/_git.txt   |   14 +-
+ evidence/_gs.txt    | 1977 +++++++--------------------------------------------
+ evidence/_head.txt  |   17 +-
+ evidence/_head2.txt |   17 +-
+ evidence/_load.txt  |    3 +-
+ evidence/_ls.txt    |  103 +--
+ evidence/_st.txt    |  277 +++++++-
+ status/maturity.md  |    2 +-
+ 9 files changed, 557 insertions(+), 1857 deletions(-)

@@ -1,0 +1,16 @@
+== test-287-jvm.log ==
+614 test-287-jvm.log
+Ran 357 tests containing 915 assertions.
+
+== test-287-nbb.log ==
+218 test-287-nbb.log
+Ran 357 tests containing 915 assertions.
+
+== parity-287.log ==
+149 parity-287.log
+fixed: 38 cases, 0 drift
+
+== bench-287.log ==
+552 bench-287.log
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+

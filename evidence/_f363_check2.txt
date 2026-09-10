@@ -1,0 +1,15 @@
+=== log -8 ===
+dc338ae maturity: ledger line + evidence for frame 363 (load-gate skip 0340; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5e98c86 maturity: ledger line + evidence for frame 364 (load-gate skip 0344; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+517ff68 maturity: ledger line + evidence for frame 363 (load-gate skip 0340; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+affdf62 maturity: ledger line + evidence for frame 362 (load-gate skip 0325; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+5cd98c4 maturity: ledger line + evidence for frame 361 (load-gate skip 0328; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+46f1a36 maturity: ledger line + evidence for frame 360 (load-gate skip 0314; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e4fc6e4 maturity: ledger line + evidence for frame 359 (load-gate skip 0300; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e60d57e maturity: ledger line + evidence for frame 359 (load-gate skip 0304; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== 363 count in maturity.md ===
+grep: repetition-operator operand invalid
+=== 362 count ===
+grep: repetition-operator operand invalid
+=== HEAD src diff ===
+       0

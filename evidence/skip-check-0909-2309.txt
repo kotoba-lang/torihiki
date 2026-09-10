@@ -1,0 +1,10 @@
+2026-09-09 23:09:39 JST frame 405 load gate skip
+uptime: 23:09 up 4 days, 15:52, load averages: 14.72 18.33 22.64
+gate: all-windows<20 NOT met (15-min 22.64 >= 20) -> not-run
+HEAD: d8fb6be (frame 403 skip commit, unchanged)
+git diff HEAD --stat -- src/ script/ deps.edn: 0 lines
+untracked: maturity.md + diagnostic scripts + evidence workfiles only
+canonical ref: frame-401 (915f832) suite-134 / fuzz digest 32 / bench red run 30
+scores: 3/3/3/3/2/1/1 unchanged; falsify count 13; NEXT unmeasured 0
+evidence: evidence/2026-09-09-2309-maturity-remeasure-skip.md
+next frame: 406

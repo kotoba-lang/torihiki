@@ -1,0 +1,7 @@
+132fe1d maturity: ledger line + evidence for frame 303 (load-gate skip 1425; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel 302 tangle 1422)
+ .../2026-09-08-1422-maturity-remeasure-skip.md     | 20 ++++++++++++++++++++
+ .../2026-09-08-1425-maturity-remeasure-skip.md     | 22 ++++++++++++++++++++++
+ evidence/skip-check-0908-1422.txt                  |  8 ++++++++
+ evidence/skip-check-0908-1425.txt                  |  9 +++++++++
+ status/maturity.md                                 |  2 +-
+ 5 files changed, 60 insertions(+), 1 deletion(-)

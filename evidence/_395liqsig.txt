@@ -1,0 +1,30 @@
+228:(defn liquidate
+229-  "The waterfall, with the hole it may leave behind moved out of `:collateral`.
+230-
+231-  `liquidate*` is the waterfall itself and is unchanged: stages 1 to 4 still
+232-  decide where a position goes and who pays for it. What this adds is the last
+233-  piece of bookkeeping the waterfall never did — when a stage leaves an account
+234-  owing more than it had, that debt is recorded as `:deficit` instead of being
+235-  left as a negative `:collateral`.
+236-
+237-  The accounts that can end up underwater are exactly the ones the waterfall
+238-  touched: the liquidated account, the backstop vault that inherited its
+239-  position, and any counterparty auto-deleveraged at the bankruptcy price. They
+240-  are settled in a fixed order rather than as a set, because iteration order of
+XXXX
+                        _ (bk/place! book side limit (fx/abs* delta) bk/flag-ioc liquidator-account)
+                        fills (drop before (bk/fills book))
+                        filled (reduce + 0 (map :qty fills))
+                        cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) fills))]
+                    (if (zero? filled)
+                      [0 0]
+                      [(if (pos? delta) filled (- filled)) (fx/fdiv cost filled)])))]
+    (reduce
+     (fn [ex' acct]
+       (let [r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
+                              (:markets ex') (:liq-params ex') take-fn)]
+         (assoc ex' :clearing (:state r))))
+     ex
+     (if (or stale? (not (pos? mark)))
+       []
+       (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))))

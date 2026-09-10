@@ -1,0 +1,12 @@
+
+Running tests in #{"test"}
+
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+Boxed math warning, torihiki/bench.clj:105:17 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Boxed math warning, torihiki/bench.clj:114:45 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+generating a 5,000,000-operation tape...

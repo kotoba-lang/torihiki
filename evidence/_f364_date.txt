@@ -1,0 +1,25 @@
+2026-09-09 03:44:39
+ 3:44  up 3 days, 20:27, 6 users, load averages: 20.98 21.49 30.03
+517ff68d091721c04f47c9b743fb6bd5993f10d4
+       0
+--- cite files ---
+-rw-r--r--@ 1 junkawasaki  staff  552 Sep  8 12:13 evidence/bench-287.log
+-rw-r--r--@ 1 junkawasaki  staff  149 Sep  8 12:11 evidence/parity-287.log
+-rw-r--r--@ 1 junkawasaki  staff  614 Sep  8 12:11 evidence/test-287-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 12:12 evidence/test-287-nbb.log
+--- last skip md ---
+# torihiki maturity remeasure — frame 363 (load-gate skip)
+
+- 枠: **363 度目枠** 2026-09-09 0340 cron
+- 種別: load gate skip 枠 (高負荷 → not-run, evidence のみ)
+- 並行 tangle 観測: 無し (HEAD は **affdf62** が frame 362 =0325 skip commit を正本化済, frame-363 uncommitted evidence 未発見) ため本枠 03:40 を重複枠なきよう **363** に正本化 重複枠なし (fold 不要)
+- 負荷 (03:40 uptime): 1-min **16.26** /  क़5-min **25.90** / ㄠ15-min **34.30** —  क़5-min・15-min ≥20 で「全 <20」不成立の為 高負荷続行 (torihiki_state.sh 300s timeout 既知 fault のため 直接 load/git + リダイレクト回収)
+- HEAD: **affdf62** = frame 362 (=0325 skip commit, src/ 変更なし - git diff HEAD -- src/ script/ 0 bytes で正本引用確認済)
+- 引用先 287 実測を正本引用 [suite **131 度目実測**, HEAD e81a243] を実検収:
+  - evidence/test-287-jvm.log [357/915 全緑 0 failures 0 errors JVM_EXIT=0]
+  - evidence/test-287-nbb.log [357/915 全緑 17/17 ns TESTS-ON-NBB pass NBB_EXIT=0]
+  - evidence/parity-287.log [固定 38 + fixed/result 20 cases 0 drift KOTOBA_PARITY_EXIT=0]
+  - evidence/bench-287.log [同一 ArityException bench.clj:112 BENCH_EXIT=1 既知赤]
+-反証枠: 高負荷のため新 falsify 未実施 (累積 反証 36・発覚 30 不変)
+-スコア: 3/3/3/3/2/1/1 変更なし
+-本枠記録: evidence/2026-09-09-0340-maturity-remeasure-skip.md + 引用検収 evidence/skip-check-0909-0340.txt=== DONE ===

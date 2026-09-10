@@ -1,0 +1,12 @@
+11:44  up 4 days,  4:27, 8 users, load averages: 9.98 24.35 34.81
+ script/kotoba-parity.cljs   | 2 +-
+ script/nbb-classpath.cljs   | 2 +-
+ src/torihiki/auth.cljc      | 2 +-
+ src/torihiki/evm.cljc       | 6 +++---
+ src/torihiki/keccak.cljc    | 2 +-
+ src/torihiki/principal.cljc | 2 +-
+ src/torihiki/slab.cljc      | 4 ++--
+ src/torihiki/snapshot.cljc  | 2 +-
+ src/torihiki/thorchain.cljc | 6 +++---
+ 9 files changed, 14 insertions(+), 14 deletions(-)
+323248b frame 391: ledger line (load gate skip 1115, 1m 20.65 all>=20, not-run evidence)

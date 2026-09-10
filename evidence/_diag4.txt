@@ -1,0 +1,14 @@
+=== DIAG 2026-09-09 03:05:03 JST ===
+--- uptime ---
+ 3:05  up 3 days, 19:48, 6 users, load averages: 53.33 51.03 44.31
+--- host load ---
+{ 53.33 51.03 44.31 }
+--- git HEAD ---
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+--- which clojure ---
+/opt/homebrew/bin/clojure
+--- clojure version ---
+Clojure CLI version 1.12.5.1654
+--- project deps.edn exists ---
+-rw-r--r--@ 1 junkawasaki  staff  2220 Aug  5 15:35 deps.edn
+EXIT=0

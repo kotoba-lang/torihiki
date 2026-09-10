@@ -1,0 +1,7 @@
+36:  `rate-scale` = 10^9, so a funding rate of 0.0001 (1 bp) is 100000.")
+65:(def ^:const rate-scale 1000000000)      ; 10^9. 1 bp = 100000, 100% = 10^9
+67:(defn bps
+72:(defn pct
+100:  "Apply a rate (scaled by `rate-scale`) to an integer amount, rounding
+103:  (check :mul-rate (fdiv (* amount rate) rate-scale)))
+zsh:1: === not found

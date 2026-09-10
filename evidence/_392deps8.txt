@@ -1,0 +1,5 @@
+45:;; levels up from this repo; `KOTOBA_CHECKOUTS` overrides that for a layout
+47:(defn- checkout-dir [nm]
+48:  (or (some-> (aget js/process.env "KOTOBA_CHECKOUTS") (path/join nm))
+../text
+73bdb13ae7a3d004b44bca08be03a3191157a38f

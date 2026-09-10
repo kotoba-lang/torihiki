@@ -1,0 +1,12 @@
+2bad56a maturity: ledger line + evidence for frame 346 (load-gate skip 0022; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+399c1e6 maturity: ledger line + evidence for frame 345 (load-gate skip 0015; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+b0bc4de maturity: ledger line + evidence for frames 343/344 (load-gate skip 2341/2350; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1; fold parallel frame-343)
+f695641 09-09 00:46 maturity: ledger line and evidence for frame 347 skip
+
+ .../2026-09-09-0028-maturity-remeasure-skip.md     | 27 ++++++++++++++++++++++
+ evidence/skip-check-0909-0028.txt                  | 12 ++++++++++
+ status/maturity.md                                 |  2 +-
+ 3 files changed, 40 insertions(+), 1 deletion(-)
+---
+-rw-r--r--@ 1 junkawasaki  staff  1771 Sep  9 00:33 evidence/2026-09-09-0028-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1130 Sep  9 00:33 evidence/skip-check-0909-0028.txt

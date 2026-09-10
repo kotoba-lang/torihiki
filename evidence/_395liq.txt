@@ -1,0 +1,16 @@
+2:  "Liquidation, the backstop vault, the insurance fund, and auto-deleveraging.
+47:   ;; share of the liquidated notional paid into the insurance fund
+69:      (max 1 (fx/mul-rate magnitude partial-fraction)))))
+80:(defn- transfer-position
+152:                         leverage (fx/fdiv (* notional fx/rate-scale) base)]
+155:                      :score (fx/fdiv (* profit leverage) fx/rate-scale)})))))
+162:  waterfall the close had to go — `:book`, `:vault`, `:insurance`, or `:adl`.
+190:          (let [fee (fx/mul-rate (fx/abs* (fx/notional avg-price filled))
+195:                        (update :insurance-fund (fnil + 0) fee))
+200:                state' (transfer-position state acct vault mkt delta mark)
+207:              ;; stage 3: the insurance fund makes the vault whole
+208:              (let [fund (get state' :insurance-fund 0)
+211:                                (update :insurance-fund - covered)
+214:                  {:state state'' :closed delta :stage :insurance :covered covered}
+260:  cheapest possible insurance against that and it runs once per block."
+zsh:1: === not found

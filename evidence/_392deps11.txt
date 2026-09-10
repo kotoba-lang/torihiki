@@ -1,0 +1,15 @@
+evidence/2026-09-09-1141-maturity-remeasure-skip.md:7:- 正本引用: frame-286 (e81a243, 09-08 12:06) suite 130 維持 (test-286-{jvm,nbb}.log 357/915 0F/0E, parity-286.log 0 drift, bench-286.log cancel! 2-arg 既知赤)。OPEN 赤 6 site 引用行 (api.cljc:68 / api.cljc:202 / clearing.cljc:711 / clearing.cljc:726 / funding.cljc:138 / bench.clj:112) は frame 384/386 実読検収のまま有効 (src diff 0 のため不変)
+===
+evidence/2026-09-09-0945-maturity-remeasure-skip.md
+evidence/2026-09-09-0958-maturity-remeasure-skip.md
+evidence/2026-09-09-1016-maturity-remeasure-skip.md
+evidence/2026-09-09-1027-maturity-remeasure-skip.md
+evidence/2026-09-09-1028-maturity-remeasure-skip.md
+evidence/2026-09-09-1037-maturity-remeasure-skip.md
+evidence/2026-09-09-1045-maturity-remeasure-skip.md
+evidence/2026-09-09-1049-maturity-remeasure-skip.md
+evidence/2026-09-09-1100-maturity-remeasure-skip.md
+evidence/2026-09-09-1109-maturity-remeasure-skip.md
+evidence/2026-09-09-1115-maturity-remeasure-skip.md
+evidence/2026-09-09-1125-maturity-remeasure-skip.md
+evidence/2026-09-09-1141-maturity-remeasure-skip.md

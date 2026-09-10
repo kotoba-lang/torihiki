@@ -1,0 +1,5 @@
+[detached HEAD 3d50288] maturity: ledger line + evidence for frame 317 (load-gate skip 1727; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 3 files changed, 30 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-08-1727-maturity-remeasure-skip.md
+ create mode 100644 evidence/skip-check-0908-1727.txt
+rc=0

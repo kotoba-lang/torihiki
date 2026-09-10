@@ -1,0 +1,29 @@
+=== 287 files ===
+-rw-r--r--@ 1 junkawasaki  staff  552 Sep  8 12:13 evidence/bench-287.log
+-rw-r--r--@ 1 junkawasaki  staff  149 Sep  8 12:11 evidence/parity-287.log
+-rw-r--r--@ 1 junkawasaki  staff  614 Sep  8 12:11 evidence/test-287-jvm.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 12:12 evidence/test-287-nbb.log
+-rw-r--r--@ 1 junkawasaki  staff  218 Sep  8 12:13 evidence/test-287b-nbb.log
+=== parallel run scripts ===
+-rw-r--r--@ 1 junkawasaki  staff  174 Sep  8 12:09 evidence/_run287_bench.sh
+-rw-r--r--@ 1 junkawasaki  staff  478 Sep  8 12:09 evidence/_run287_jvm.sh
+-rw-r--r--@ 1 junkawasaki  staff  336 Sep  8 12:09 evidence/_run287_nbb.sh
+-rw-r--r--@ 1 junkawasaki  staff  436 Sep  8 12:09 evidence/_run287_parity.sh
+=== bench-287 head ===
+Boxed math warning, torihiki/bench.clj:105:17 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Boxed math warning, torihiki/bench.clj:114:45 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+generating a 5,000,000-operation tape...
+warming up (JIT)...
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+=== parity-287 head ===
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+KOTOBA_PARITY_EXIT=0
+=== latest evidence mds ===
+evidence/2026-09-08-1155-maturity-remeasure.md
+evidence/2026-09-08-1141-maturity-remeasure-skip.md
+evidence/2026-09-08-1132-maturity-remeasure-skip.md
+evidence/2026-09-08-1118-maturity-remeasure-skip.md
+evidence/2026-09-08-1114-maturity-remeasure-skip.md
+evidence/2026-09-08-1113-maturity-remeasure-skip.md

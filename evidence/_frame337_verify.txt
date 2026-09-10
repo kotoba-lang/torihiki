@@ -1,0 +1,12 @@
+=== LEDGER anchor line 20 (head 600 chars) ===
+| governor 統合 | 1 | derive-fn アカウント境界契約はあるが外部 gate 契約なし |
+
+=== frame 337 present in ledger? ===
+1
+=== frame 337 appears how many times ===
+       1
+=== new evidence files ===
+-rw-r--r--@ 1 junkawasaki  staff  1423 Sep  8 22:16 evidence/2026-09-08-2214-maturity-remeasure-skip.md
+-rw-r--r--@ 1 junkawasaki  staff  1159 Sep  8 22:16 evidence/skip-check-0908-2214.txt
+=== git status short (tracked-relevant) ===
+ M status/maturity.md

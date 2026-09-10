@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/_ins340c.py", line 9, in <module>
+    assert s.count(anchor) == 1, "anchor count = %d" % s.count(anchor)
+           ^^^^^^^^^^^^^^^^^^^^
+AssertionError: anchor count = 0

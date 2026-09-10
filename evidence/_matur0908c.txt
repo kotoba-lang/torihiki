@@ -1,0 +1,96 @@
+=== 1030 maturity file ===
+# 枠 279 (1029) full-gate 実測 — suite 129 度目実測
+
+- 日時: 2026-09-08 10:29 JST (cron 枠 279)
+- ゲート判定: load 1-min 11.18 / 5-min 12.96 / 15-min 15.62 (10:29 uptime) → 全 window <20 で **ゲート成立**, 初の full-gate 実測 (0601 以来, スキップ連鎖 263 枠 0601 → 279 枠間で load 高負荷継続 後 初回復)
+- HEAD: 42d8707 [278 度目枠 = 1015 skip commit の ledger 追記 commit]
+- src/ 変更なし: `git diff 3f1f903 HEAD -- src/ script/` = 0 bytes, `git diff 75b3197 HEAD -- src/ script/` = 0 bytes（0601 正本と同一コード確認済）
+- 全 gate 実測（suite **129 度目実測**, HEAD 42d8707）:
+  - evidence/test-279-jvm.log [357/915 全緑 0 failures 0 errors JVM_EXIT=0]
+  - evidence/test-279-nbb.log [357/915 全緑 17/17 ns TESTS-ON-NBB pass NBB_EXIT=0]
+  - evidence/parity-279.log [**64 実測目**, 38+20 cases 0 drift KOTOBA_PARITY_EXIT=0, 絶対 AMU_HOME + classpath 明示渡し]
+  - evidence/bench-279.log [**92 実行目赤**, 同一 ArityException bench.clj:112 `Wrong number of args (2) passed to: torihiki.book/cancel!` BENCH_EXIT=1, 既知 bench-tape-cancel-arity]
+- 7 軸スコア: 変更なし 3/3/3/3/2/1/1（spec 3, 実装 3, テスト 3, 反証 3, 再現性 2, governor 1, 運用 1）
+- 本枠反証: なし（発覚 0 件, falsify 実施なし — 全 gate 再確認枠）
+- 本枠記録: evidence/2026-09-08-1030-maturity-remeasure.md + evidence/2026-09-08-1029-gate-suite-129.txt
+
+## NEXT (不変)
+validate-i53-halt fix + attest-reserves/inbound/bond/twap/trigger/withdraw-transfer-vault/oracle/authorize-agent/set-referrer/builder/deposit account-id i53 caps（api/validate 全 case 総点検）→ bench 3 箇所 fix (bench.clj:112 / probe.clj:31 / curve.clj:21) → n ≥ 1M 3 回安定 → fuzz 常設化。未実測 0 件。
+=== test-279-jvm.log ===
+
+Running tests in #{"test"}
+
+Testing torihiki.address-test
+
+Testing torihiki.api-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.state-test
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+JVM_EXIT=0
+
+=== test-279-nbb.log ===
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+namespaces 17/17
+
+Ran 357 tests containing 915 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+NBB_EXIT=0
+
+=== parity-279.log ===
+fixed: 38 cases, 0 drift
+fixed/result: 20 cases, 0 drift
+KOTOBA-PARITY: pass — the compiled Wasm agrees with the .cljc oracle
+PARITY_EXIT=0
+
+=== bench-279.log ===
+Boxed math warning, torihiki/bench.clj:105:17 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+Boxed math warning, torihiki/bench.clj:114:45 - call: public static boolean clojure.lang.Numbers.isPos(java.lang.Object).
+generating a 5,000,000-operation tape...
+warming up (JIT)...
+Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).
+Wrong number of args (2) passed to: torihiki.book/cancel!
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-9616658137141979319.edn
+BENCH_EXIT=1
+
+=== cp-279.txt ===
+src:test:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/chain/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/io-ipld/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/io-multiformats/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/org-ietf-cbor/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/merkle-sum/src:/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/.nbb-deps/bytes/src
+CP_EXIT=0
+
+=== git diff status/maturity.md (uncommitted) ===
+
+=== staged diff stat ===

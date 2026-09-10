@@ -1,0 +1,27 @@
+===STAGED===
+A	evidence/2026-09-08-1220-maturity-remeasure-skip.md
+A	evidence/2026-09-08-1230-maturity-remeasure-skip.md
+A	evidence/bench-287.log
+A	evidence/parity-287.log
+A	evidence/skip-check-0908-1220.txt
+A	evidence/skip-check-0908-1230.txt
+A	evidence/test-287-jvm.log
+A	evidence/test-287-nbb.log
+A	evidence/test-287b-nbb.log
+M	status/maturity.md
+===COMMIT===
+[detached HEAD 5527a36] maturity: ledger line + evidence for frame 289 (load-gate skip 1230; cite parallel 287 suite-131 fold 287/288; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+ 10 files changed, 117 insertions(+), 1 deletion(-)
+ create mode 100644 evidence/2026-09-08-1220-maturity-remeasure-skip.md
+ create mode 100644 evidence/2026-09-08-1230-maturity-remeasure-skip.md
+ create mode 100644 evidence/bench-287.log
+ create mode 100644 evidence/parity-287.log
+ create mode 100644 evidence/skip-check-0908-1220.txt
+ create mode 100644 evidence/skip-check-0908-1230.txt
+ create mode 100644 evidence/test-287-jvm.log
+ create mode 100644 evidence/test-287-nbb.log
+ create mode 100644 evidence/test-287b-nbb.log
+===LOG HEAD===
+5527a36 maturity: ledger line + evidence for frame 289 (load-gate skip 1230; cite parallel 287 suite-131 fold 287/288; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+e81a243 maturity: ledger line + evidence for frame 286 (full-gate 1155; suite 130; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+112555f maturity: ledger line + evidence for frame 285 (load-gate skip 1141; cite 279 suite-129; src unchanged; scores unchanged 3/3/3/3/2/1/1)

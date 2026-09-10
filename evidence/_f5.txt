@@ -1,0 +1,10 @@
+commit b61f09a9dcf6ec9d64412decf7456a22944f8a69
+Merge: 9b0b760 0862e71
+Author: Jun Kawasaki <04.feasts_minded@icloud.com>
+Date:   Wed Sep 9 07:46:03 2026 +0900
+
+    Merge jv/kotoba-text-cljs: clojure.string retired for kotoba.lang.text
+
+ script/kotoba-parity.cljs | 2 +-
+ script/nbb-classpath.cljs | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)

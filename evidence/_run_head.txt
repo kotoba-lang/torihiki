@@ -1,0 +1,3 @@
+78dd942d756971e46d7f5fba75fe7b49a71a3edb
+head rc=0
+78dd942 maturity: ledger line + evidence for frame 358 (load-gate skip 0240; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)

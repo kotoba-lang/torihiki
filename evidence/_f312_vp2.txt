@@ -1,0 +1,2 @@
+/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/parity-287.log:fixed: 38 cases, 0 drift
+/Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/test-287-nbb.log:namespaces 17/17

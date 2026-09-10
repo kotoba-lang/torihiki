@@ -1,0 +1,75 @@
+=== date ===
+2026-09-08 17:27:39 +0900
+=== HEAD ===
+47425235065bda240aebf68b909a43d3d20630e4 maturity: ledger line + evidence for frame 315 (load-gate skip 1653; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== src/script diff bytes ===
+       0
+=== git log last 3 ===
+47425235065bda240aebf68b909a43d3d20630e4 maturity: ledger line + evidence for frame 315 (load-gate skip 1653; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+917de7db54a45d0e10e9af041054fa788a24eb87 maturity: ledger line + evidence for frame 314 (load-gate skip 1637; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+4f859d89ef6cb6b9ce7682f4057e2053d1a5caf5 maturity: ledger line + evidence for frame 313 (load-gate skip 1600; cite 287 suite-131; src unchanged; scores unchanged 3/3/3/3/2/1/1)
+=== git status short (head 40) ===
+?? _diag.py
+?? _diag2.py
+?? _ins279.py
+?? _ins279b.py
+?? _ins279c.py
+?? _ins279d.py
+?? _ins279e.py
+?? _verify279.py
+?? evidence/2026-09-08-1709-maturity-remeasure-skip.md
+?? evidence/_add.txt
+?? evidence/_add277.txt
+?? evidence/_add298.txt
+?? evidence/_add303.txt
+?? evidence/_amu287.txt
+?? evidence/_anch316.txt
+?? evidence/_b287.txt
+?? evidence/_bench286.out
+?? evidence/_br277.txt
+?? evidence/_bra.txt
+?? evidence/_branches.txt
+?? evidence/_c.txt
+?? evidence/_c1422.txt
+?? evidence/_c306.txt
+?? evidence/_c311.out
+?? evidence/_c311.rc
+?? evidence/_cached.txt
+?? evidence/_cfin303.txt
+?? evidence/_check.out
+?? evidence/_check.py
+?? evidence/_check283.txt
+?? evidence/_chk291.txt
+?? evidence/_chk291b.txt
+?? evidence/_chk298.txt
+?? evidence/_chk300.txt
+?? evidence/_chk316.txt
+?? evidence/_chk316b.txt
+?? evidence/_cleanup309.py
+?? evidence/_cmt1508.out
+?? evidence/_cmt291.out
+?? evidence/_cmt291b.out
+=== uptime ===
+17:27  up 3 days, 10:10, 10 users, load averages: 53.67 80.57 87.11
+=== tracked skip evidence tail ===
+evidence/2026-09-08-1508-maturity-remeasure-skip.md
+evidence/2026-09-08-1514-maturity-remeasure-skip.md
+evidence/2026-09-08-1531-maturity-remeasure-skip.md
+evidence/2026-09-08-1546-maturity-remeasure-skip.md
+evidence/2026-09-08-1550-maturity-remeasure-skip.md
+evidence/2026-09-08-1600-maturity-remeasure-skip.md
+evidence/2026-09-08-1637-maturity-remeasure-skip.md
+evidence/2026-09-08-1653-maturity-remeasure-skip.md
+=== uncommitted skip evidence (09-08) ===
+evidence/2026-09-08-1445-maturity-remeasure-skip.md
+evidence/2026-09-08-1452-maturity-remeasure-skip.md
+evidence/2026-09-08-1458-maturity-remeasure-skip.md
+evidence/2026-09-08-1508-maturity-remeasure-skip.md
+evidence/2026-09-08-1514-maturity-remeasure-skip.md
+evidence/2026-09-08-1531-maturity-remeasure-skip.md
+evidence/2026-09-08-1546-maturity-remeasure-skip.md
+evidence/2026-09-08-1550-maturity-remeasure-skip.md
+evidence/2026-09-08-1600-maturity-remeasure-skip.md
+evidence/2026-09-08-1637-maturity-remeasure-skip.md
+evidence/2026-09-08-1653-maturity-remeasure-skip.md
+evidence/2026-09-08-1709-maturity-remeasure-skip.md

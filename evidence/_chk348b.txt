@@ -1,0 +1,6 @@
+Unstaged changes after reset:
+M	evidence/_c3.txt
+M	evidence/_frame_check.txt
+M	evidence/_frame_log.txt
+M	evidence/_load.txt
+M	status/maturity.md
