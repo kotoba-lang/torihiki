@@ -2,3 +2,19 @@
 /.cpcache
 /node_modules
 /.nbb-deps
+
+# Diagnostic scripts left at the repo root by the maturity loop. The root
+# tracks only .edn/.json/.md.
+/_*.py
+/_*.sh
+/precheck_*.txt
+# Scripts that ran inside evidence/ rather than evidence produced there. The
+# repo deliberately tracks its evidence -- 232 .out, 152 .md, 121 .err -- so
+# those extensions are NOT ignored here; only the shapes it tracks none of.
+/evidence/*.py
+/evidence/*.sh
+/evidence/*.log
+/evidence/*.date
+/evidence/*.rc
+/evidence/*.run
+/evidence/*.stdout
