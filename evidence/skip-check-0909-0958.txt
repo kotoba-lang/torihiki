@@ -1,0 +1,16 @@
+2026-09-09 0958 frame 382 load-gate skip — citation check
+load 09:50: 1-min 90.70 / 5-min 91.95 / 15-min 72.68 (all >=20 -> high load, not-run)
+HEAD 500ab94 (frame 381 =0945 skip commit; unchanged 09:50->09:58, no lock, no tangle)
+src diff HEAD -- src/ script/ deps.edn = 0 lines (no code changes)
+
+CORRECTION of frame-381 citation defect:
+  frame-381 cited "frame 287 / suite 131 / test-287-*.log / HEAD e81a243" — DOES NOT EXIST.
+  (no frame-287 commit; test-287*/parity-287*/bench-287* absent in tree AND in git; e81a243 is the frame-286 commit.)
+  TRUE canonical = frame-286 (e81a243, 09-08 12:06), suite 130.
+  verified from commit e81a243:
+    evidence/test-286-nbb.log  357/915 0F/0E 17/17 ns NBB_EXIT=0
+    evidence/parity-286.log    fixed 38 + fixed/result 20, 0 drift KOTOBA_PARITY_EXIT=0
+    evidence/bench-286.log     ArityException bench.clj:112 cancel! 2-arg BENCH_EXIT=1 (known red)
+  suite count = 130 (next fresh measure = suite 131)
+scores unchanged 3/3/3/3/2/1/1. NEXT unchanged (fix package + bench 3 fix + fuzz 常設化).
+PASS (with correction).

@@ -1,0 +1,10 @@
+2026-09-09 0945 frame 381 load-gate skip — citation check
+load 09:45: 1-min 99.56 / 5-min 94.52 / 15-min 64.55 (all >=20 -> high load, not-run)
+HEAD 91e86ede (frame 380 =0937 skip commit)
+src diff HEAD -- src/ script/ = 0 bytes (no code changes)
+cited 287 measurement (suite 131, HEAD e81a243):
+  evidence/test-287-jvm.log  357/915 all green 0 failures 0 errors JVM_EXIT=0
+  evidence/test-287-nbb.log  357/915 all green 17/17 ns TESTS-ON-NBB pass NBB_EXIT=0
+  evidence/parity-287.log    38 + 20 cases 0 drift KOTOBA_PARITY_EXIT=0
+  evidence/bench-287.log     same ArityException bench.clj:112 BENCH_EXIT=1 known-red
+all 4 cited files present and consistent. no frame-381 tangle. PASS.
