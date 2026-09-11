@@ -6,13 +6,13 @@
   completion and counts/digests are exact-match verified below).
 - JVM `clojure -M:test`: Ran 357 tests containing 915 assertions. 0 failures,
   0 errors. EXIT=0 (evidence/test-jvm-2328.out).
-- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
   Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-nbb-2328.out) — **21st identical-count run** (JVM==nbb).
 - Seeded fuzz 19th digest verification: JVM
-  `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc") (fuzz-seeded/run)'`
+  `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
   (evidence/fuzz-jvm-2328.out) and nbb via standing driver
-  `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/fuzz-nbb-driver.cljs`
+  `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/fuzz-nbb-driver.cljk`
   (evidence/fuzz-nbb-2328.out) — JVM vs nbb byte-identical after stripping the
   single REPL echo line, AND both match the 0408 baseline
   (jvm-2328 vs jvm-0408 diff=0; nbb-2328 vs nbb-0408 diff=0) — **19th digest run**.

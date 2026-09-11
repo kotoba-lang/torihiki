@@ -20,8 +20,8 @@
 ;; stdout dumps stay comparable.
 ;;
 ;; No code in src/ or test/ is touched. Invoked:
-;;   JVM:  clojure -M -e '(load-file "evidence/falsify6-jvm-driver.clj")'
-;;   nbb:  nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/falsify6-driver.cljs
+;;   JVM:  clojure -M -e '(load-file "evidence/falsify6-jvm-driver.cljk")'
+;;   nbb:  nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify6-driver.cljk
 (ns falsify6-i53
   (:require [torihiki.state :as st]
             [torihiki.api :as api]

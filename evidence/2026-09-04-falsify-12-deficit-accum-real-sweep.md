@@ -2,7 +2,7 @@
 
 - date: 2026-09-04 20:29–21:56 JST (host load gate: 開始時 1-min 18.87 < 20 通過, 実測中 21.56–59.60 変動)
 - hypothesis: evidence/notrun-2026-09-04-1245.md (実行前登録, 12:45; 10:55–20:29 は負荷ゲート不成立で not-run 継続 — falsify12-notrun-load-1412.md ほか 9 件)。
-- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify12-multi-deficit.cljc") (load-file "evidence/falsify12-jvm-driver.clj")'` → falsify12-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/falsify12-driver.cljs` → falsify12-nbb.{out,err} (exit=0)。両 stdout は REPL echo 行を除き diff で比較。
+- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify12-multi-deficit.cljk") (load-file "evidence/falsify12-jvm-driver.cljk")'` → falsify12-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify12-driver.cljk` → falsify12-nbb.{out,err} (exit=0)。両 stdout は REPL echo 行を除き diff で比較。
 - method: `st/apply-block` (state.cljc:1189 end-of-block sweep) → `sweep-liquidations` (state.cljc:1052) → `liq/liquidate` (liquidation.cljc:228) → `cl/settle-deficit` (clearing.cljc:677) の**実物 sweep 経路のみ**を使用。probe A/B は seed なしの実清算、probe C は falsify-9 流 labelled synthetic-seed (新鮮な清算が残す state = collateral −d + live position を block 間で再現し、sweep 機構に実 delta を食わせる)。accumulator と適用経路は無修正の production code。src/ test/ は未変更 (HEAD dd55c85)。
 
 ## ハーネス構築で実測した前提 (verdict に効く知見)

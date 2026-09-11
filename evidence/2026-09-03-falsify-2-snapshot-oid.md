@@ -6,7 +6,7 @@
   order id 生成が replica 間で分岐する。この検証が test/snapshot_test.cljc に
   存在するか未確認だった。
 
-## 実在確認 (test/torihiki/snapshot_test.cljc)
+## 実在確認 (test/torihiki/snapshot_test.cljk)
 
 存在する。該当テスト 4 件:
 
@@ -24,7 +24,7 @@
   適用で state root と `:rejected` が一致 (未知 oid cancel の拒否が replica 間で
   同一)。
 
-実装側の根拠 (src/torihiki/book.cljc): free set は bit ladder で
+実装側の根拠 (src/torihiki/book.cljk): free set は bit ladder で
 「どの slot が占有されているか」の関数になっている → snapshot が resting
 orders を運べば free set は暗黙に復元される (L133-137 コメント)。
 
@@ -46,5 +46,5 @@ orders を運べば free set は暗黙に復元される (L133-137 コメント)
 ## NEXT (提案)
 
 falsify-3 — 上記は JVM 単一ランタイムの実測。nbb クロスランタイムで
-snapshot round-trip の oid 一貫性も parity (script/tests-on-nbb.cljs) を
+snapshot round-trip の oid 一貫性も parity (script/tests-on-nbb.cljk) を
 通すことで固定できる。

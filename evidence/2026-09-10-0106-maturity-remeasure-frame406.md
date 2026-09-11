@@ -5,7 +5,7 @@
 - HEAD **d8fb6be** (frame 404/405 skip commit と同一, コード不変; git status は maturity.md 修正 + untracked 診断スクリプトのみ, src/ script/ deps.edn 変更なし)。
 - JVM `clojure -M:test` → **357 tests / 915 assertions, 0 failures, 0 errors** (test-jvm-406.out, JVM_EXIT=0)。
 - nbb → 最初の呼び出しは bootstrap 依存で `Could not find namespace: torihiki.address-test` で落ちた (test-nbb-406.err; `--classpath "../text/src"` 単独では不十分 — nbb-classpath.cljs 出力を外側 classpath に与える 2 段構成が必要):
-  `nbb --classpath "$(nbb --classpath '../text/src' script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`
+  `nbb --classpath "$(nbb --classpath '../text/src' script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`
   → **357/915 0F/0E, namespaces 17/17, TESTS-ON-NBB: pass** (test-nbb-406.out, NBB_EXIT=0) — 両 runtime 同一カウント **38 度目**実測 (**suite 135**)。
 - bench `clojure -M:bench` → 既知赤 **bench-tape-cancel-arity 31 実行目** (bench-406.err: ArityException bench.clj:112, Wrong number of args (2) passed to torihiki.book/cancel!, n=5,000,000; BENCH_EXIT=1) — 再現性 2 のまま (bench **95** 相当)。
 - falsify/parity 新規実測なし。発覚 0 件, 新規 hypothesis なし。

@@ -1,18 +1,18 @@
 ----- Error --------------------------------------
 Message:  Unable to resolve symbol: run
-Location: /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljs:10:1
+Location: /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljk:10:1
 Phase:    analysis
 
 ----- Context ------------------------------------
 6: (require '[torihiki.state :as st] '[torihiki.book :as bk] '[torihiki.snapshot :as snap])
-7: (load-string (fs/readFileSync "evidence/fuzz-seeded.cljc" "utf8"))
+7: (load-string (fs/readFileSync "evidence/fuzz-seeded.cljk" "utf8"))
 8: (in-ns 'fuzz-seeded)
 9: (def n-seeds 80)
 10: (run)
    ^--- Unable to resolve symbol: run
 
 ----- Stack trace --------------------------------
-user - /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljs:10:1 
+user - /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljk:10:1 
 
 file:///opt/homebrew/lib/node_modules/nbb/lib/nbb_main.js:13
 $APP.MC),$APP.VZ);return g.A?g.A():g.call(null)}):null).then(function(g){$APP.k($APP.k(d)?g!=null:d)&&$APP.Qy.o($APP.x([g],0));return g}).catch(function(g){$APP.Oma(g,b);$APP.k($APP.Ry.h(b))&&console.error(g);throw Error($APP.Jk(g));})})):console.error("Usage: "+$APP.G.h("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")})();

@@ -1,7 +1,7 @@
 ;; falsify-13 nbb driver — all probes (2-event crossing).
 (require '["fs" :as fs])
 (require '[torihiki.state :as st] '[torihiki.clearing :as cl] '[torihiki.liquidation :as liq] '[torihiki.fixed :as fx])
-(load-string (fs/readFileSync "evidence/falsify13-insurance-accum.cljc" "utf8"))
+(load-string (fs/readFileSync "evidence/falsify13-insurance-accum.cljk" "utf8"))
 
 (println (falsify13-insurance-accum/header))
 

@@ -7,7 +7,7 @@ Phase:    analysis
 1: (require (quote ["fs" :as fs]))
 2: (require (quote [torihiki.state :as st] [torihiki.book :as bk] [torihiki.snapshot :as snap]))
             ^--- Wrong number of args (0) passed to quote
-3: (load-string (fs/readFileSync "evidence/fuzz-seeded.cljc" "utf8"))
+3: (load-string (fs/readFileSync "evidence/fuzz-seeded.cljk" "utf8"))
 4: (fuzz-seeded/run)
 
 ----- Stack trace --------------------------------

@@ -13,13 +13,13 @@ cron rank iteration (コード変更なし, HEAD dd55c85)。
 
 1. JVM `clojure -M:test`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (23:09, evidence/test-jvm-2309.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass` (23:12, evidence/test-nbb-2312.out)
    → 両ランタイム同日同カウント (9 度目の同日実測)。
-   注: `nbb script/tests-on-nbb.cljs` を素で呼ぶと classpath が無く
+   注: `nbb script/tests-on-nbb.cljk` を素で呼ぶと classpath が無く
    `Could not find namespace: torihiki.address-test` で落ちる (evidence/test-nbb-2309.out)。
-   classpath は必ず `script/nbb-classpath.cljs` 経由で組むこと。
-3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljc), 両ランタイム:
+   classpath は必ず `script/nbb-classpath.cljk` 経由で組むこと。
+3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljk), 両ランタイム:
    - JVM: evidence/fuzz-jvm-2311.out / nbb: evidence/fuzz-nbb-2311.out
    - seed 行 diff → identical (JVM==NBB)。かつ 22:31 出力の seed 行とも一致
      → seed 固定 digest は **8 度目** の実測で成立

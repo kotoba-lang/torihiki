@@ -5,13 +5,13 @@ cron rank iteration による再実測。コード変更なし、スコア変動
 ## 実測
 
 1. JVM `clojure -M:test` → `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`
    → `namespaces 17/17` / `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
    `TESTS-ON-NBB: pass — the runtime that deploys ran the suite`
    → 両ランタイム同日同カウント (21:11)。
 3. seeded fuzz 16 seeds 再実行:
-   - JVM: `clojure -M -e "$(cat evidence/fuzz-seeded.cljc) (fuzz-seeded/run)"` → evidence/fuzz-jvm-2111.out
-   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" -e "..."` → evidence/fuzz-nbb-2111.out
+   - JVM: `clojure -M -e "$(cat evidence/fuzz-seeded.cljk) (fuzz-seeded/run)"` → evidence/fuzz-jvm-2111.out
+   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" -e "..."` → evidence/fuzz-nbb-2111.out
    - diff (`#'` eval echo 行を除く) → 一致: **JVM==NBB 16/16 seed byte-identical (21:11)**
    - さらに 21:00 rerun 出力 (evidence/fuzz-jvm-rerun.out) とも **byte-identical**
      → seed 固定再現が 3 度目の実測でも成立。
@@ -30,6 +30,6 @@ cron rank iteration による再実測。コード変更なし、スコア変動
 
 ## NEXT (高レバー)
 
-harness を `clojure -M:test` と `script/tests-on-nbb.cljs` に接続して常設化する
+harness を `clojure -M:test` と `script/tests-on-nbb.cljk` に接続して常設化する
 (テスト軸 4 と反証軸 4 の両方の条件)。副次的に再現性 3 の bench 3 条件を
 低負荷時間帯 (load < 5) に 3 回実測する。

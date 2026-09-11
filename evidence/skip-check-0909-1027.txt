@@ -13,6 +13,6 @@ OPEN-red citations re-verified by direct line read (all still live at cited line
   clearing.cljc:711  :deficit (fnil + 0) unchecked                           (falsify-9,12)
   clearing.cljc:726  deposit collateral (fnil + 0) unchecked                 (falsify-8)
   funding.cljc:138   :funding-residue (fnil + 0) unchecked                  (falsify-10)
-  bench/torihiki/bench.clj:112 (bk/cancel! b oid) 2-arg — still red         (bench-tape-cancel-arity)
+  bench/torihiki/bench.cljk:112 (bk/cancel! b oid) 2-arg — still red         (bench-tape-cancel-arity)
 scores unchanged 3/3/3/3/2/1/1. NEXT unchanged (fix package + bench 3 fix + fuzz 常設化).
 PASS.

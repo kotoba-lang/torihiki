@@ -11,13 +11,13 @@ cron rank iteration (コード変更なし, HEAD dd55c85)。前回 remeasure-234
 
 1. JVM `clojure -M:test`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (00:14, evidence/test-jvm-0014.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass` (00:15, evidence/test-nbb-0015.out)
    → 両ランタイム同カウント **11 度目** の実測 (日付は 09-03 → 09-04 に跨ぐが全 10 回が同数値)。
 3. seeded fuzz 16 seeds, 両ランタイム:
-   - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc") (fuzz-seeded/run)'`
+   - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
      → evidence/fuzz-jvm-0016.out (先頭行は REPL 返値 `#'fuzz-seeded/run`)
-   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/fuzz-nbb-driver.cljs`
+   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/fuzz-nbb-driver.cljk`
      → evidence/fuzz-nbb-0016.out
    - seed 行 diff (先頭の REPL 返値 1 行を除く) → **identical (JVM==NBB)**。
    - かつ 23:38 baseline (evidence/fuzz-nbb-2338.out) とも一致

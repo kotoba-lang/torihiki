@@ -4,11 +4,11 @@
 - Host load at start: 18.0 (< 20 threshold → full run).
 - JVM `clojure -M:test`: Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-jvm-0314.out).
-- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
   Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-nbb-0314.out) — **18th identical-count run** (JVM==nbb).
-- Seeded fuzz 16th digest verification: JVM `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc")(fuzz-seeded/run)'`
-  and nbb via standing driver `evidence/fuzz-nbb-driver.cljs` (pins classpath) —
+- Seeded fuzz 16th digest verification: JVM `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk")(fuzz-seeded/run)'`
+  and nbb via standing driver `evidence/fuzz-nbb-driver.cljk` (pins classpath) —
   all 16 digest lines **byte-identical across runtimes AND vs the 0231 baseline**
   (evidence/fuzz-{jvm,nbb}-0314.out). The raw files differ only by the JVM REPL echo
   line `#'fuzz-seeded/run` (load-file return value); the digest output itself is identical.

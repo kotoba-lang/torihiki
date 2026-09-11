@@ -5,8 +5,8 @@
 
 ## Hypothesis
 
-`bench/torihiki/bench.clj:112` の `(bk/cancel! b oid)` (2 引数) は
-`src/torihiki/book.cljc:566` の現行 `cancel! [b oid owner]` (owner 必須, 2-arity 削除済み)
+`bench/torihiki/bench.cljk:112` の `(bk/cancel! b oid)` (2 引数) は
+`src/torihiki/book.cljk:566` の現行 `cancel! [b oid owner]` (owner 必須, 2-arity 削除済み)
 と署名不整合であり、既定 5M tape では ArityException でクラッシュする — status/maturity.md NEXT の記述は正しい。
 
 ## 証拠 (静的)

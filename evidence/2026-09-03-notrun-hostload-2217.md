@@ -18,7 +18,7 @@ cron 設定ルール「Host load > 20 → not-run evidence only」に基づき�
 - 前回 (21:52–53) の成熟度再計測: JVM / nbb とも 357 tests / 915 assertions 全緑
   (evidence/2026-09-03-maturity-remeasure-2156.md)。
 - OPEN 赤 **bench-tape-cancel-arity** は未修正のまま
-  (`bench/torihiki/bench.clj:112` が 2 引数 `(bk/cancel! b oid)` を呼出)。
+  (`bench/torihiki/bench.cljk:112` が 2 引数 `(bk/cancel! b oid)` を呼出)。
   本イテレーションでもコード変更は行っていない。
 
 ## NEXT

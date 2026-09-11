@@ -9,7 +9,7 @@
 
 1. JVM `clojure -M:test` → evidence/test-jvm-0119.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs` → evidence/test-nbb-0119.out:
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` → evidence/test-nbb-0119.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    → 両ランタイム同カウント **14 度目** の実測。
 3. seeded fuzz 16 seeds, 両ランタイム:

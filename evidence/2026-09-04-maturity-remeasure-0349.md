@@ -4,11 +4,11 @@
 - Host load at start: 8.49 (< 20 threshold → full run).
 - JVM `clojure -M:test`: Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-jvm-0349.out).
-- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
   Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-nbb-0350.out) — **19th identical-count run** (JVM==nbb).
-- Seeded fuzz 17th digest verification: JVM (load-file evidence/fuzz-seeded.cljc) and nbb via
-  standing driver evidence/fuzz-nbb-driver.cljs (pins classpath) — all 16 digest lines
+- Seeded fuzz 17th digest verification: JVM (load-file evidence/fuzz-seeded.cljk) and nbb via
+  standing driver evidence/fuzz-nbb-driver.cljk (pins classpath) — all 16 digest lines
   **byte-identical across runtimes AND vs the 0231 baseline**
   (evidence/fuzz-{jvm,nbb}-0349.out; whole-file diff vs nbb shows only the JVM REPL echo line).
 - `clojure -M:bench`: **RED (EXIT=1)** — ArityException at torihiki.bench/run-tape (bench.clj:112),

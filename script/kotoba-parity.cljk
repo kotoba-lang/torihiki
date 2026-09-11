@@ -3,7 +3,7 @@
 ;;
 ;;   AMU_HOME=<path-to-kotoba-lang/amu> \
 ;;   KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
-;;     nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/kotoba-parity.cljs
+;;     nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/kotoba-parity.cljk
 ;;
 ;; Compiles JVM-free, runs the Wasm through amu's own shipped host, evaluates
 ;; the same table against the `.cljc`, and compares. Exit 0 agreement, 1 drift,
@@ -16,7 +16,7 @@
 ;; explicit: `:oracle-retained-until-soak true`,
 ;; `:old-source-deletion-forbidden-before-soak true`, and `:cutover` is a
 ;; consumer selecting the new source rather than a rename. So
-;; `src/torihiki/fixed.cljc` is not going anywhere, and this is what makes
+;; `src/torihiki/fixed.cljk` is not going anywhere, and this is what makes
 ;; keeping it worth something.
 ;;
 ;; ## The one intended difference

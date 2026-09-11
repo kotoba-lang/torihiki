@@ -3,7 +3,7 @@
 ;; whose sequence probe B's JVM walk independently shows is reachable).
 (require '["fs" :as fs])
 (require '[torihiki.state :as st] '[torihiki.fixed :as fx])
-(load-string (fs/readFileSync "evidence/falsify10-funding-accum.cljc" "utf8"))
+(load-string (fs/readFileSync "evidence/falsify10-funding-accum.cljk" "utf8"))
 
 (println (falsify10-funding-accum/header))
 

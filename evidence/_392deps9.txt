@@ -1,8 +1,8 @@
 0862e71 torihiki: kotoba.lang.text instead of clojure.string (.cljs)
-diff --git a/script/nbb-classpath.cljs b/script/nbb-classpath.cljs
+diff --git a/script/nbb-classpath.cljk b/script/nbb-classpath.cljk
 index db014f5..0b8c9e8 100644
---- a/script/nbb-classpath.cljs
-+++ b/script/nbb-classpath.cljs
+--- a/script/nbb-classpath.cljk
++++ b/script/nbb-classpath.cljk
 @@ -31,7 +31,7 @@
  ;; short in a way that still loaded, it would run a subset and report a pass.
  (ns nbb-classpath

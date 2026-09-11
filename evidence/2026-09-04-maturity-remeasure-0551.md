@@ -4,16 +4,16 @@
 - Host load at start: 22.5 / 25.1 / 21.9 (high; all measurements still ran).
 - JVM `clojure -M:test`: Ran 357 tests containing 915 assertions. 0 failures,
   0 errors. EXIT=0 (evidence/test-jvm-0551.out).
-- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
   Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-nbb-0551.out) — **26th identical-count run** (JVM==nbb).
-  (First bare `nbb script/tests-on-nbb.cljs` call failed with "Could not find
-  namespace: torihiki.address-test" — classpath via script/nbb-classpath.cljs
+  (First bare `nbb script/tests-on-nbb.cljk` call failed with "Could not find
+  namespace: torihiki.address-test" — classpath via script/nbb-classpath.cljk
   is mandatory, as recorded.)
 - Seeded fuzz 24th digest verification: JVM
-  `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc") (fuzz-seeded/run)'`
+  `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
   (evidence/fuzz-jvm-0551.out) and nbb via standing driver
-  `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/fuzz-nbb-driver.cljs`
+  `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/fuzz-nbb-driver.cljk`
   (evidence/fuzz-nbb-0551.out) — JVM vs nbb identical after stripping the REPL
   echo lines (FUZZ_JVM_EQ_NBB via diff), AND matches the 0542 / 0520 / 0507
   baseline byte-for-byte (jvm-0551 vs jvm-0542 diff=0) — **24th digest run**.

@@ -10,7 +10,7 @@
 
 ## 正本引用 (変更なし)
 - 引用正本: **frame-286 (commit e81a243, 09-08 12:06) suite 130** — test-286-{jvm,nbb}.log (357/915 全緑), parity-286.log (0 drift), bench-286.log (bench.clj:112 cancel! 2-arg 既知赤)。
-- OPEN 赤 6 site 引用行 (api.cljc:68 / api.cljc:202 / clearing.cljc:711 / clearing.cljc:726 / funding.cljc:138 / bench/torihiki/bench.clj:112) は frame 384/386 実読検収のまま有効。
+- OPEN 赤 6 site 引用行 (api.cljc:68 / api.cljc:202 / clearing.cljc:711 / clearing.cljc:726 / funding.cljc:138 / bench/torihiki/bench.cljk:112) は frame 384/386 実読検収のまま有効。
 
 ## 本枠の反証
 - NEXT 未実測リスト 0 件 (fix 未着手) のため hypothesis なし, 発覚 0 件, 新規実測なし。反証実施 36 件 / 発覚 30 件のまま。
