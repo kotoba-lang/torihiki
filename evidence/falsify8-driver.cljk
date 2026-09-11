@@ -3,7 +3,7 @@
 ;; carries no try/catch — the driver's `catch :default` owns it).
 (require '["fs" :as fs])
 (require '[torihiki.state :as st])
-(load-string (fs/readFileSync "evidence/falsify8-halt-paths.cljc" "utf8"))
+(load-string (fs/readFileSync "evidence/falsify8-halt-paths.cljk" "utf8"))
 
 (println (falsify8-halt-paths/header))
 

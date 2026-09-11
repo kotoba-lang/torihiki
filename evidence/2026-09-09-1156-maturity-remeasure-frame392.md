@@ -19,14 +19,14 @@ genuine measurement; the canonical citation base moves to frame 392 (not frame 2
 
 ## NEW pitfall (nbb classpath bootstrap broken by the merge)
 
-Commit 0862e71 migrated `script/nbb-classpath.cljs` itself from `clojure.string` to
+Commit 0862e71 migrated `script/nbb-classpath.cljk` itself from `clojure.string` to
 `kotoba.lang.text` — but this script is the tool that *produces* the classpath
-containing kotoba/text. Chicken-and-egg: bare `nbb script/nbb-classpath.cljs` now fails
+containing kotoba/text. Chicken-and-egg: bare `nbb script/nbb-classpath.cljk` now fails
 with `Could not find namespace: kotoba.lang.text` (evidence/_392cp2.txt). The merge
 commit explicitly says ".cljs is deliberately NOT touched", yet this .cljs was rewritten.
 Working invocation (verified this frame):
-`nbb --classpath "../text/src" script/nbb-classpath.cljs` → prints full pinned classpath
-(evidence/_392cp4.txt), then `nbb --classpath "$CP" script/tests-on-nbb.cljs` → pass.
+`nbb --classpath "../text/src" script/nbb-classpath.cljk` → prints full pinned classpath
+(evidence/_392cp4.txt), then `nbb --classpath "$CP" script/tests-on-nbb.cljk` → pass.
 This must be fixed in the nbb-classpath/bridge fix workstream; the doc-comment invocation
 in nbb-classpath.cljs:6 and tests-on-nbb.cljs is now wrong.
 

@@ -13,10 +13,10 @@ cron rank iteration (コード変更なし)。
 
 1. JVM `clojure -M:test`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (22:37, evidence/test-jvm-2237.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    (evidence/test-nbb-2238.out) → 両ランタイム同日同カウント (7 度目の同日実測)。
-3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljc), 両ランタイム:
+3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljk), 両ランタイム:
    - JVM → evidence/fuzz-jvm-2238.out
    - nbb → evidence/fuzz-nbb-2238.out
    - `diff <(grep '^seed' jvm) <(grep '^seed' nbb)` → **差分なし, JVM==NBB 16/16 seed byte-identical (6 度目の実測)**
@@ -24,8 +24,8 @@ cron rank iteration (コード変更なし)。
 
 ## OPEN 赤の追認
 
-- bench-tape-cancel-arity は未修正のまま: `bench/torihiki/bench.clj:113` が
-  `(bk/cancel! b oid)` (2 引数) を呼ぶ一方、`src/torihiki/book.cljc:542` の `cancel!`
+- bench-tape-cancel-arity は未修正のまま: `bench/torihiki/bench.cljk:113` が
+  `(bk/cancel! b oid)` (2 引数) を呼ぶ一方、`src/torihiki/book.cljk:542` の `cancel!`
   は owner 必須化済み (docstring に越権 cancel 脆弱性の経緯記載)。bench 実行は
   既定 5M tape でクラッシュする。
 

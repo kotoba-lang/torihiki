@@ -2,7 +2,7 @@
 
 - date: 2026-09-04 (JST, host load ~14–18 — under gate, measured)
 - hypothesis: evidence/2026-09-04-falsify-10-funding-residue-accum-overflow-notrun.md (実行前登録)。仮説の R0 計算に減算ミスがあったため初回 JVM 実測 (evidence/falsify10-jvm.out 第 1 版) で crossing が起きず、R0 を訂正 (9007181254740991) して再実測 — 修正経緯は本欄に記録。
-- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify10-funding-accum.cljc") (load-file "evidence/falsify10-jvm-driver.clj")'` → falsify10-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/falsify10-driver.cljs` → falsify10-nbb.{out,err} (exit=0)
+- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify10-funding-accum.cljk") (load-file "evidence/falsify10-jvm-driver.cljk")'` → falsify10-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify10-driver.cljk` → falsify10-nbb.{out,err} (exit=0)
 - method: `fnd/apply-funding` (funding.cljc:130–140) は支払い `p` を `fx/mul-rate` で fx/check するが、`(update :funding-residue (fnil + 0) p)` と collateral 引き落とし `(fnil - 0) p` は**累算 sum 無検査** — falsify-8 (collateral) / falsify-9 (:deficit) と同一クラス (delta 検査済み / sum 無検査)。probe は実物の `st/apply-tx {:tx :funding-settle}` を **residue を直下に seed した** state に適用 (synthetic-seeded: ~979k 時間の honest 累算が残す形の時間圧縮のみ、accumulator と適用経路は無修正の production code)。falsify-9 と同じ方式。
 
 ## スケール突破 (NEXT の「~653k cross は非現実的」を回避した点)

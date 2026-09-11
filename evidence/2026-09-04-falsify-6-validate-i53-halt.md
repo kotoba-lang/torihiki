@@ -17,13 +17,13 @@ the way into storage**」、api.cljc ns docstring と state.cljc:1118 は
 
 ## 方法 (リポジトリ内コード変更なし — 追加は evidence/ の 3 ファイルのみ)
 
-- 共有 harness `evidence/falsify6-i53.cljc` (try/catch を含まない — 下記罠参照)
-- JVM driver `evidence/falsify6-jvm-driver.clj` (`catch Exception`)
-- nbb driver `evidence/falsify6-driver.cljs` (`catch :default`, pre-require +
+- 共有 harness `evidence/falsify6-i53.cljk` (try/catch を含まない — 下記罠参照)
+- JVM driver `evidence/falsify6-jvm-driver.cljk` (`catch Exception`)
+- nbb driver `evidence/falsify6-driver.cljk` (`catch :default`, pre-require +
   load-string — falsify-4 と同型)
-- 実行: `clojure -M -e '(load-file "evidence/falsify6-i53.cljc") (load-file "evidence/falsify6-jvm-driver.clj")'`
+- 実行: `clojure -M -e '(load-file "evidence/falsify6-i53.cljk") (load-file "evidence/falsify6-jvm-driver.cljk")'`
   → evidence/falsify6-jvm.{out,err} (exit=0)
-  `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/falsify6-driver.cljs`
+  `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify6-driver.cljk`
   → evidence/falsify6-nbb.{out,err} (exit=0)
 - 測定対象: amount ∈ {i53-max=9007199254740991, 2^53=9007199254740992,
   2^53+1=(+ 9007199254740992 1)} を :deposit :account 1 で validate → apply-block。
@@ -84,7 +84,7 @@ suite 常設化 (NEXT 2) の driver にも同じ制約が適用される。
 
 ## Files
 
-- evidence/falsify6-i53.cljc (共有 harness, try/catch なし)
-- evidence/falsify6-jvm-driver.clj / falsify6-driver.cljs (drivers)
+- evidence/falsify6-i53.cljk (共有 harness, try/catch なし)
+- evidence/falsify6-jvm-driver.cljk / falsify6-driver.cljs (drivers)
 - evidence/falsify6-jvm.{out,err} (JVM, exit=0)
 - evidence/falsify6-nbb.{out,err} (nbb, exit=0)

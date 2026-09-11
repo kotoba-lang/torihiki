@@ -2,7 +2,7 @@
 
 - date: 2026-09-04 02:48–03:05 JST (host load 18.85/17.35/18.14 — under gate, measured)
 - hypothesis: evidence/2026-09-04-falsify-8-cumulative-deposit-overflow-notrun.md (registered 02:32 not-run)
-- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify8-halt-paths.cljc") (load-file "evidence/falsify8-jvm-driver.clj")'` → falsify8-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/falsify8-driver.cljs` → falsify8-nbb.{out,err} (exit=0)
+- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify8-halt-paths.cljk") (load-file "evidence/falsify8-jvm-driver.cljk")'` → falsify8-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify8-driver.cljk` → falsify8-nbb.{out,err} (exit=0)
 
 ## Measured (both runtimes, validate passed nil at every step)
 

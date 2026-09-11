@@ -34,7 +34,7 @@ Latest full-gate canonical = **frame-286 (commit `e81a243`, 09-08 12:06), suite 
 - **clearing.cljc:711** `:deficit` sum `(fnil + 0)` unchecked (falsify-9, 12)
 - **clearing.cljc:726** `deposit` collateral `(fnil + 0)` unchecked (falsify-8)
 - **funding.cljc:138** `:funding-residue` `(fnil + 0)` unchecked (falsify-10)
-- **bench/torihiki/bench.clj:112** `(bk/cancel! b oid)` 2-arg — known red (bench-tape-cancel-arity)
+- **bench/torihiki/bench.cljk:112** `(bk/cancel! b oid)` 2-arg — known red (bench-tape-cancel-arity)
 
 ## NEXT / falsify status
 

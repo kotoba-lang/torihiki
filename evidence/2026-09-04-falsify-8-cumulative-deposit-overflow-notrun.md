@@ -29,4 +29,4 @@ NOT-RUN (hypothesis only). falsify-7's conclusion stands unchanged; NEXT gains t
 
 ## Next iteration
 
-With load < 20: build falsify8 driver on the falsify7 pattern (`evidence/falsify7-jvm-driver.clj` / `falsify7-driver.cljs`, nbb via `script/nbb-classpath.cljs`), run steps 1–3 on JVM + nbb, write `falsify8-{jvm,nbb}.out`, then register verdict in maturity.md and amend NEXT.
+With load < 20: build falsify8 driver on the falsify7 pattern (`evidence/falsify7-jvm-driver.cljk` / `falsify7-driver.cljs`, nbb via `script/nbb-classpath.cljk`), run steps 1–3 on JVM + nbb, write `falsify8-{jvm,nbb}.out`, then register verdict in maturity.md and amend NEXT.

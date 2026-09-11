@@ -8,7 +8,7 @@
   「seeded fuzz を回せば、両ランタイムが分岐する列が(もしあれば)検出される。
   検出されなければ反証ループは survived、ハーネスが次の反証の常設手段になる」。
 
-## harness (evidence/fuzz-seeded.cljc, src/test に変更なし)
+## harness (evidence/fuzz-seeded.cljk, src/test に変更なし)
 
 - PRNG は xorshift32 (bitwise のみ)。掛け算系 PRNG (mulberry32) は JS の
   2^53 精度限界で両ランタイムの state が分岐するため最初から除外。
@@ -22,9 +22,9 @@
 - digest 1 本あたり: flat-root, state-root, resting-count, rejected-count,
   fill-count, snapshot-parity flag。
 - 実行:
-  - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc") (fuzz-seeded/run)'`
-  - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljs):src" -e
-    "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljc\") (fuzz-seeded/run)"`
+  - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
+  - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk):src" -e
+    "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljk\") (fuzz-seeded/run)"`
 
 ## 過程で harness 自体が拾った欠陥 2 件 (engine ではなく harness 側)
 
@@ -73,7 +73,7 @@ seed から同一の flat-root / state-root / resting / rejected / fills に到�
 
 ## NEXT (提案)
 
-harness を `clojure -M:test` と script/tests-on-nbb.cljs の両方に接続し、
+harness を `clojure -M:test` と script/tests-on-nbb.cljk の両方に接続し、
 seed をパラメータ化した常設 fuzz ジョブにする (両軸の上げの条件を満たす)。
 その後の反証は harness の tx ミックスを攻撃的に進化させる方向
 (例: multi-market, 認証付き envelope (auth/check + nonce 再生), builder fee

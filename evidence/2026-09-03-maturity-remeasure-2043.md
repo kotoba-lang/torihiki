@@ -13,7 +13,7 @@ Ran 357 tests containing 915 assertions.
 ```
 
 ## nbb クロスランタイム — 20:45 実測
-classpath は `nbb script/nbb-classpath.cljs` の出力 (pins 由来, .nbb-deps) を使用:
+classpath は `nbb script/nbb-classpath.cljk` の出力 (pins 由来, .nbb-deps) を使用:
 ```
 Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.
@@ -23,8 +23,8 @@ TESTS-ON-NBB: pass — the runtime that deploys ran the suite
 → 両ランタイム同一カウント (357/915) 全緑。remeasure-1952 (19:52) と同カウント再現。
 
 補記: `script/run-nbb-tests.cljs` は存在しない (README 相当のヘッダコメントが参照)。
-実際の入口は `nbb script/nbb-classpath.cljs` → classpath を渡して
-`nbb ... script/tests-on-nbb.cljs`。class 生成は `nbb script/nbb-classpath.cljs` で再現可。
+実際の入口は `nbb script/nbb-classpath.cljk` → classpath を渡して
+`nbb ... script/tests-on-nbb.cljk`。class 生成は `nbb script/nbb-classpath.cljk` で再現可。
 
 ## `clojure -M:bench 100000` (JVM) × 3 — 20:46-20:47 実測
 ```

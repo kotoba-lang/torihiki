@@ -4,8 +4,8 @@
 
 ## 新規エビデンス (前回 0657 remeasure からの差分)
 
-- **テスト両 runtime 実測 30 度目**: JVM `clojure -M:test` (evidence/test-0712.out, JVM_EXIT=0) と nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs` (evidence/test-nbb-0712.out, NBB_EXIT=0) — 同一カウント 357 tests / 915 assertions, 0 failures。
-- **seeded fuzz digest 27 度目**: JVM (evidence/fuzz-jvm-0712.out) vs nbb driver (evidence/fuzz-nbb-0712.out) — REPL echo 行を除き byte-identical、かつ 0657/0608 baseline とも byte-identical (diff vs fuzz-jvm-0608.out = 0)。**新規 pitfall 再確認 (0712)**: 素 `nbb evidence/fuzz-nbb-driver.cljs` は `Could not find namespace: torihiki.state` で落ちる (本反復で 1 度失敗し classpath 付きで再実行) — nbb 側も `--classpath "$(nbb script/nbb-classpath.cljs)"` が必須。maturity.md 反証軸の根拠に反映済み。
+- **テスト両 runtime 実測 30 度目**: JVM `clojure -M:test` (evidence/test-0712.out, JVM_EXIT=0) と nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` (evidence/test-nbb-0712.out, NBB_EXIT=0) — 同一カウント 357 tests / 915 assertions, 0 failures。
+- **seeded fuzz digest 27 度目**: JVM (evidence/fuzz-jvm-0712.out) vs nbb driver (evidence/fuzz-nbb-0712.out) — REPL echo 行を除き byte-identical、かつ 0657/0608 baseline とも byte-identical (diff vs fuzz-jvm-0608.out = 0)。**新規 pitfall 再確認 (0712)**: 素 `nbb evidence/fuzz-nbb-driver.cljk` は `Could not find namespace: torihiki.state` で落ちる (本反復で 1 度失敗し classpath 付きで再実行) — nbb 側も `--classpath "$(nbb script/nbb-classpath.cljk)"` が必須。maturity.md 反証軸の根拠に反映済み。
 - **bench-tape-cancel-arity 22 実行目の再確認**: `clojure -M:bench` RED (BENCH_EXIT=1), ArityException `Wrong number of args (2) passed to: torihiki.book/cancel!` at bench.clj:112 (evidence/bench-0712.err)。
 - **validate-i53-halt fix 未着陸**: api.cljc の :bad-amount 検査は integer?/pos? のまま i53 上限なし (grep 確認 0712, :202 他)。
 - **falsify-11 honest walk 継続中**: JVM probe PID 58890, k=400000 時点の walk-progress (evidence/falsify11-jvm.err 07:10 更新) — 登録済み結論には影響なし。

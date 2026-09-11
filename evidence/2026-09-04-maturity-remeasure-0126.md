@@ -11,7 +11,7 @@ HEAD dd55c85 (unchanged since remeasure-0114)。コード変更なし。
 
 1. JVM `clojure -M:test` → evidence/test-jvm-0126.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs` → evidence/test-nbb-0127.out:
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` → evidence/test-nbb-0127.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    → 両ランタイム同カウント **15 度目** の実測。
 3. seeded fuzz 16 seeds, 両ランタイム:

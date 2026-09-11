@@ -5,7 +5,7 @@
 ## 実測
 
 - JVM `clojure -M:test`: Ran 357 tests containing 915 assertions. 0 failures, 0 errors. (21:44 実測)
-- nbb `script/tests-on-nbb.cljs` (pins 由来 classpath): namespaces 17/17, Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass. (同時刻実測)
+- nbb `script/tests-on-nbb.cljk` (pins 由来 classpath): namespaces 17/17, Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass. (同時刻実測)
 
 両ランタイム同日同カウント → テスト軸 3 の根拠は再確認。
 

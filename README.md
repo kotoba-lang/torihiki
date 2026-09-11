@@ -512,7 +512,7 @@ heights, which is two different owners for one account.
 
 ## Kotoba
 
-`torihiki.fixed` exists twice: `src/torihiki/fixed.cljc`, and
+`torihiki.fixed` exists twice: `src/torihiki/fixed.cljk`, and
 `kotoba/torihiki/fixed.kotoba` compiled by `amu` with no JVM anywhere on the
 path.
 
@@ -524,7 +524,7 @@ which for this one is nothing.
 
 ```bash
 AMU_HOME=<kotoba-lang/amu> KOTOBA_CHECKOUTS=<siblings> \
-  nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/kotoba-parity.cljs
+  nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/kotoba-parity.cljk
 # fixed: 38 cases, 0 drift
 # fixed/result: 20 cases, 0 drift
 ```
@@ -562,7 +562,7 @@ Kotoba version is integer throughout.
 Q9's rollback policy is explicit: `:oracle-retained-until-soak`,
 `:old-source-deletion-forbidden-before-soak`, and cutover is a consumer
 choosing the new source rather than a rename. Nothing in this repository calls
-the Kotoba build yet. `src/torihiki/fixed.cljc` is what the engine runs.
+the Kotoba build yet. `src/torihiki/fixed.cljk` is what the engine runs.
 
 ## Platform
 
@@ -620,8 +620,8 @@ Both runtimes, and the counts must agree:
 ```bash
 clojure -M:test                                    # the JVM
 KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
-  nbb --classpath "$(nbb script/nbb-classpath.cljs)" \
-      script/tests-on-nbb.cljs                     # ClojureScript, no JVM
+  nbb --classpath "$(nbb script/nbb-classpath.cljk)" \
+      script/tests-on-nbb.cljk                     # ClojureScript, no JVM
 clojure -M:bench 3000000                           # throughput
 ```
 
@@ -631,11 +631,11 @@ assertions, 0 failures**.
 **The ClojureScript run is the one that matters most, because it is the one
 that ships.** `torihiki-node` compiles this engine to a Worker bundle and a
 validator executes those bytes; the JVM suite is the one nobody deploys.
-Until `script/tests-on-nbb.cljs` existed, the ClojureScript path asserted
-`script/loads-on-nbb.cljs` (every namespace can be *required*) plus
+Until `script/tests-on-nbb.cljk` existed, the ClojureScript path asserted
+`script/loads-on-nbb.cljk` (every namespace can be *required*) plus
 `torihiki.parity` (two digests) and nothing else.
 
-It found something immediately. `test/torihiki/thorchain_test.cljc` built its
+It found something immediately. `test/torihiki/thorchain_test.cljk` built its
 Ethereum-log fixture with `(int c)` over a character, which is 84 on the JVM
 and **0** in ClojureScript -- so on the runtime that deploys, four assertions
 about reading a deposit out of a log were passing over a memo of nul bytes.
@@ -643,7 +643,7 @@ about reading a deposit out of a log were passing over a memo of nul bytes.
 by a fixture that encodes real bytes, under a floor that fails first and says
 so. `clojure -M:bench` still needs the JVM; nothing else does.
 
-`script/nbb-classpath.cljs` builds the classpath from the `deps.edn` pins
+`script/nbb-classpath.cljk` builds the classpath from the `deps.edn` pins
 rather than from sibling checkouts, which sit at whatever commit `west` last
 moved them to -- on 2026-08-31 all three were at a different commit than the
 pin. It exits 2 naming a dependency it cannot resolve, rather than printing a

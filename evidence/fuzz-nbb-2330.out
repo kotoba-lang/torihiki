@@ -4,7 +4,7 @@ Location: /tmp/fuzz-driver.cljs:1:1
 Phase:    analysis
 
 ----- Context ------------------------------------
-1: (load-file "evidence/fuzz-seeded.cljc")
+1: (load-file "evidence/fuzz-seeded.cljk")
    ^--- Unable to resolve symbol: load-file
 2: (fuzz-seeded/run)
 

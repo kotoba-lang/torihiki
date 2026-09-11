@@ -4,7 +4,7 @@
 ;; reachable).
 (require '["fs" :as fs])
 (require '[torihiki.state :as st] '[torihiki.fixed :as fx])
-(load-string (fs/readFileSync "evidence/falsify11-fees-accum.cljc" "utf8"))
+(load-string (fs/readFileSync "evidence/falsify11-fees-accum.cljk" "utf8"))
 
 (println (falsify11-fees-accum/header))
 

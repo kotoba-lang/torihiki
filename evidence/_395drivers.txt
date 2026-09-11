@@ -2,7 +2,7 @@ cat: evidence/falsify12-jvm-driver.cljc: No such file or directory
 ;; falsify-12 nbb driver — all probes (both runtimes).
 (require '["fs" :as fs])
 (require '[torihiki.state :as st] '[torihiki.fixed :as fx])
-(load-string (fs/readFileSync "evidence/falsify12-multi-deficit.cljc" "utf8"))
+(load-string (fs/readFileSync "evidence/falsify12-multi-deficit.cljk" "utf8"))
 
 (println (falsify12-multi-deficit/header))
 
@@ -25,8 +25,8 @@ cat: evidence/falsify12-jvm-driver.cljc: No such file or directory
        (falsify12-multi-deficit/line-threw label e)))))
 
 (println "done")
-src/torihiki/state.cljc:17:  `state-root` is SHA-256 over a tagged, length-prefixed canonical encoding,
-src/torihiki/state.cljc:1213:;;    23), which would hand out state-root collisions for free.
-src/torihiki/state.cljc:1720:  `state-root` both, and the parity scenario's published digest with them.
-src/torihiki/state.cljc:1907:  changed what `state-root` returns; this did not change at all, so a stored
-src/torihiki/state.cljc:1913:(defn state-root
+src/torihiki/state.cljk:17:  `state-root` is SHA-256 over a tagged, length-prefixed canonical encoding,
+src/torihiki/state.cljk:1213:;;    23), which would hand out state-root collisions for free.
+src/torihiki/state.cljk:1720:  `state-root` both, and the parity scenario's published digest with them.
+src/torihiki/state.cljk:1907:  changed what `state-root` returns; this did not change at all, so a stored
+src/torihiki/state.cljk:1913:(defn state-root

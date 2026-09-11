@@ -9,7 +9,7 @@ Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.
 ```
 
-## nbb クロスランタイム (script/tests-on-nbb.cljs, classpath は pins から生成)
+## nbb クロスランタイム (script/tests-on-nbb.cljk, classpath は pins から生成)
 ```
 0 failures, 0 errors.
 namespaces 17/17

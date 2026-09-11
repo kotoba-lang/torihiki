@@ -1,9 +1,9 @@
-;; The classpath `script/tests-on-nbb.cljs` needs, built from the deps.edn
+;; The classpath `script/tests-on-nbb.cljk` needs, built from the deps.edn
 ;; pins without starting a JVM.
 ;;
 ;;   node -e ''                       # nothing to install
-;;   nbb script/nbb-classpath.cljs    # prints one classpath on stdout
-;;   nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs
+;;   nbb script/nbb-classpath.cljk    # prints one classpath on stdout
+;;   nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk
 ;;
 ;; ## Why not `clojure -Spath`
 ;;
@@ -30,4 +30,4 @@
 ;; reads like a code error rather than a missing dependency -- and if it were
 ===
 ls: script/run-nbb-tests.cljs: No such file or directory
-script/tests-on-nbb.cljs:6:;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and
+script/tests-on-nbb.cljk:6:;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and

@@ -2,22 +2,22 @@
 
 ## 目的
 
-status/maturity.md の NEXT だった「seeded fuzz harness」が `evidence/fuzz-seeded.cljc`
+status/maturity.md の NEXT だった「seeded fuzz harness」が `evidence/fuzz-seeded.cljk`
 として存在するようになったため、それを両ランタイムで実測し 7 軸を再評価する。
 コード変更はなし（src/ test/ 触らず、測定と記録のみ）。
 
 ## 実測
 
-### 1. seeded fuzz（falsify-3 harness, evidence/fuzz-seeded.cljc）
+### 1. seeded fuzz（falsify-3 harness, evidence/fuzz-seeded.cljk）
 
 - 内容: xorshift32 seed 固定で adversarial block 列（24 blocks × 48 txs × 16 seeds、
   6 accounts、bad order / wrong-owner cancel / bogus oid / trigger / liquidation 混在、
   block 11 で snapshot round-trip）を folding し、flat root / state root / resting /
   rejection / fill / snapshot-parity を digest として出力。
-- JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc") (fuzz-seeded/run)'`
+- JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
   → evidence/fuzz-jvm.out（20:48 記録済み）と evidence/fuzz-jvm-rerun.out（21:00 再実行）が
   **byte-identical**（diff 空だ= seed 固定再現性の実測）。
-- nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" -e "$(cat evidence/fuzz-seeded.cljc)
+- nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" -e "$(cat evidence/fuzz-seeded.cljk)
   (fuzz-seeded/run)"` → evidence/fuzz-nbb-rerun.out。
   **JVM 出力と 16/16 seed 全 digest が byte-identical**（diff は JVM 側の `#'fuzz-seeded/run`
   var echo の 1 行のみ、seed 行は全て一致）。snapshot-parity は 16/16 `"true"`。
@@ -28,7 +28,7 @@ status/maturity.md の NEXT だった「seeded fuzz harness」が `evidence/fuzz
 ### 2. 両ランタイム同日テストスイート
 
 - JVM: `clojure -M:test` → **Ran 357 tests containing 915 assertions. 0 failures, 0 errors.**
-- nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`
+- nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`
   → **Ran 357 tests containing 915 assertions. 0 failures.**
   `TESTS-ON-NBB: pass — the runtime that deploys ran the suite`
   （evidence/nbb-tests-rerun.out, 21:00 実測）

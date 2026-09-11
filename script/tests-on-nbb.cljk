@@ -1,7 +1,7 @@
 ;; The whole test suite, on ClojureScript, without a JVM.
 ;;
 ;;   nbb --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
-;;       script/tests-on-nbb.cljs
+;;       script/tests-on-nbb.cljk
 ;;
 ;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and
 ;; calls this, so the pins are what runs rather than whatever is checked out.
@@ -27,7 +27,7 @@
 ;; ## And because the ledger already claimed this file
 ;;
 ;; ADR-2800004800 section 4 records, under "this period's added instruments",
-;; `script/tests-on-nbb.cljs -- 328 tests / 850 assertions on both runtimes`.
+;; `script/tests-on-nbb.cljk -- 328 tests / 850 assertions on both runtimes`.
 ;; The file was not on `main`. A recorded instrument that does not exist reads
 ;; exactly like one that exists and is passing, which is the failure this
 ;; workspace names as its own: a check that could not run returning the value

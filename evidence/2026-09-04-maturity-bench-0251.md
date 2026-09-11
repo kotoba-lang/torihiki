@@ -4,7 +4,7 @@
 - Host load at start: 15.40 1-min / 16.59 5-min / 17.69 15-min (< 20 threshold → full run allowed).
 - JVM `clojure -M:test`: **Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0**
   (evidence/test-jvm-0251.out).
-- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
   **Ran 357 tests containing 915 assertions. 0 failures, 0 errors. namespaces 17/17. EXIT=0**
   (evidence/test-nbb-0251.out) — **18th identical-count run** (JVM==nbb).
 - `clojure -M:bench`: **RED (EXIT=1)** — ArityException at torihiki.bench/run-tape

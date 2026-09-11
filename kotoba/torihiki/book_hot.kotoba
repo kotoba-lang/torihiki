@@ -14,7 +14,7 @@
 ;;
 ;; ## The measurement, in one line
 ;;
-;; `torihiki.parity/fresh` (src/torihiki/parity.cljc:27) is the smallest book
+;; `torihiki.parity/fresh` (src/torihiki/parity.cljk:27) is the smallest book
 ;; torihiki itself runs: n-levels 1024, cap 4096, ev-cap 4096. Computed with
 ;; `new-book`'s own formulas that is 26 arrays, 59,601 items, largest field
 ;; 4,096 -- a QUARTER of today's per-vector bound and under half the host's

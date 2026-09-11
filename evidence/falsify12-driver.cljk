@@ -1,7 +1,7 @@
 ;; falsify-12 nbb driver — all probes (both runtimes).
 (require '["fs" :as fs])
 (require '[torihiki.state :as st] '[torihiki.fixed :as fx])
-(load-string (fs/readFileSync "evidence/falsify12-multi-deficit.cljc" "utf8"))
+(load-string (fs/readFileSync "evidence/falsify12-multi-deficit.cljk" "utf8"))
 
 (println (falsify12-multi-deficit/header))
 

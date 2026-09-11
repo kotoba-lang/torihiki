@@ -4,11 +4,11 @@
 - Host load at start: 17.5 (< 20 threshold → full run).
 - JVM `clojure -M:test`: Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-jvm-0231.out).
-- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+- nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
   Ran 357 tests containing 915 assertions. 0 failures, 0 errors. EXIT=0
   (evidence/test-nbb-0231.out) — **17th identical-count run** (JVM==nbb).
-- Seeded fuzz 15th digest verification: JVM `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc")(fuzz-seeded/run)'`
-  and nbb via standing driver `evidence/fuzz-nbb-driver.cljs` (pins classpath) —
+- Seeded fuzz 15th digest verification: JVM `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk")(fuzz-seeded/run)'`
+  and nbb via standing driver `evidence/fuzz-nbb-driver.cljk` (pins classpath) —
   **byte-identical across runtimes AND vs the 0128 baseline**
   (evidence/fuzz-{jvm,nbb}-0231.out). Note: the invocation comment inside fuzz-seeded.cljc
   still says plain `nbb -e '(load-file ...)'` — nbb has no load-file; the driver is required.

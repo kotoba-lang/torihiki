@@ -19,12 +19,12 @@ chain-halt できる (validate に :bad-amount を足す fix では塞げない�
 
 ## 方法 (リポジトリ内コード変更なし — 追加は evidence/ の 3 ファイル)
 
-- 共有 harness `evidence/falsify7-halt-paths.cljc` (try/catch なし — falsify-6 と同型)
-- JVM driver `evidence/falsify7-jvm-driver.clj` (`catch Exception`)
-- nbb driver `evidence/falsify7-driver.cljs` (`catch :default`, pre-require + load-string)
+- 共有 harness `evidence/falsify7-halt-paths.cljk` (try/catch なし — falsify-6 と同型)
+- JVM driver `evidence/falsify7-jvm-driver.cljk` (`catch Exception`)
+- nbb driver `evidence/falsify7-driver.cljk` (`catch :default`, pre-require + load-string)
 - 実行:
-  `clojure -M -e '(load-file "evidence/falsify7-halt-paths.cljc") (load-file "evidence/falsify7-jvm-driver.clj")'` → falsify7-jvm.{out,err} (exit=0)
-  `nbb --classpath "$(nbb script/nbb-classpath.cljs)" evidence/falsify7-driver.cljs` → falsify7-nbb.{out,err} (exit=0)
+  `clojure -M -e '(load-file "evidence/falsify7-halt-paths.cljk") (load-file "evidence/falsify7-jvm-driver.cljk")'` → falsify7-jvm.{out,err} (exit=0)
+  `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify7-driver.cljk` → falsify7-nbb.{out,err} (exit=0)
 - 測定セル: (a) :withdraw 2^53 (seeded なし / i53-max 入金済み) ×2、
   (b) :order qty 2^53 flags=0、(c) :order qty 2^53 flags=4 (reduce-only)、
   (d) in-domain cross: block2 で account 1 が sell qty=i53-max @level 2 を rest、
@@ -83,7 +83,7 @@ falsify-5 の ring offset とは無関係。
 
 ## Files
 
-- evidence/falsify7-halt-paths.cljc (共有 harness, try/catch なし)
-- evidence/falsify7-jvm-driver.clj / falsify7-driver.cljs (drivers)
+- evidence/falsify7-halt-paths.cljk (共有 harness, try/catch なし)
+- evidence/falsify7-jvm-driver.cljk / falsify7-driver.cljs (drivers)
 - evidence/falsify7-jvm.{out,err} / falsify7-nbb.{out,err} (両 runtime, exit=0)
 - evidence/falsify7-diag-jvm.out / falsify7-diag.err (fill 窓 diag, throw 確認)

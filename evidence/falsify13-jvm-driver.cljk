@@ -1,5 +1,5 @@
 ;; falsify-13 JVM driver — all probes (2-event crossing).
-(load-file "evidence/falsify13-insurance-accum.cljc")
+(load-file "evidence/falsify13-insurance-accum.cljk")
 
 (println (falsify13-insurance-accum/header))
 

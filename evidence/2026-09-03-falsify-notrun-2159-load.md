@@ -8,7 +8,7 @@
 
 ## 現状の観測 (torihiki_state.sh 21:59)
 
-- OPEN 赤: **bench-tape-cancel-arity** (21:55 検出)。`bench/torihiki/bench.clj:112` が
+- OPEN 赤: **bench-tape-cancel-arity** (21:55 検出)。`bench/torihiki/bench.cljk:112` が
   `torihiki.book/cancel!` の廃止済み 2 引数署名 `(bk/cancel! b oid)` を呼ぶ。
   bench harness は cancel! owner 必須化に未追従 → 既定 5M tape でクラッシュ。
   これにより再現性軸の bench 3 条件実測が現状不可能 (クラッシュが先に立つ)。

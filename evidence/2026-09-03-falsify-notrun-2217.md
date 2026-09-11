@@ -12,7 +12,7 @@
 
 ## OPEN 赤 (変化なし確認のみ・実行はしていない)
 - bench-tape-cancel-arity (2026-09-03 21:55 検出):
-  bench/torihiki/bench.clj:112 が廃止済み 2 引数署名 `(bk/cancel! b oid)` を呼ぶ。
+  bench/torihiki/bench.cljk:112 が廃止済み 2 引数署名 `(bk/cancel! b oid)` を呼ぶ。
   本 iteration はコード変更禁止のため修正対象外。次回の仮説候補:
   「bench.clj を owner 必須化 3 引数署名に追従すれば 5M tape bench が
   低負荷時に 3 回連続安定する」→ 修正 + 低負荷時間帯 (load <10) で実測。

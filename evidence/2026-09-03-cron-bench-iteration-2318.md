@@ -19,5 +19,5 @@ No code changes made.
 
 ## Status deltas
 - None. テスト 3 / 反証 3 / 再現性 2 hold. NEXT remains:
-  fix bench/torihiki/bench.clj:112 to current cancel! owner-required signature,
+  fix bench/torihiki/bench.cljk:112 to current cancel! owner-required signature,
   then 3 stable low-load bench runs → 再現性 2→3.

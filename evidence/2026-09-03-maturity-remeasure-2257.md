@@ -13,13 +13,13 @@ cron rank iteration (コード変更なし)。
 
 1. JVM `clojure -M:test`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (22:50, evidence/test-jvm-2250.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljs)" script/tests-on-nbb.cljs`:
+2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    (evidence/test-nbb-2251.out) → 両ランタイム同日同カウント (8 度目の同日実測)。
-3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljc), 両ランタイム:
-   - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljc") (fuzz-seeded/run)'`
+3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljk), 両ランタイム:
+   - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
      → evidence/fuzz-jvm-2257.out
-   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljs)" -e "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljc\") (fuzz-seeded/run)"`
+   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" -e "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljk\") (fuzz-seeded/run)"`
      → evidence/fuzz-nbb-2257.out
    - diff → byte-identical (JVM==NBB)。かつ 22:31 / 21:53 出力の seed 行とも一致
      → seed 固定 digest byte-identical は **7 度目** の実測で成立。

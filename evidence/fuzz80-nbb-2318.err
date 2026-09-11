@@ -1,14 +1,14 @@
 ----- Error --------------------------------------
 Message:  Could not find namespace torihiki.state.
-Location: /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljs:28:3
+Location: /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljk:28:3
 
 ----- Context ------------------------------------
     ^--- Could not find namespace torihiki.state.
 
 ----- Stack trace --------------------------------
-fuzz-seeded              - /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljs:28:3 
+fuzz-seeded              - /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljk:28:3 
 clojure.core/load-string - <built-in> 
-user                     - /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljs:5:1 
+user                     - /Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/fuzz80-driver.cljk:5:1 
 
 file:///opt/homebrew/lib/node_modules/nbb/lib/nbb_main.js:13
 $APP.MC),$APP.VZ);return g.A?g.A():g.call(null)}):null).then(function(g){$APP.k($APP.k(d)?g!=null:d)&&$APP.Qy.o($APP.x([g],0));return g}).catch(function(g){$APP.Oma(g,b);$APP.k($APP.Ry.h(b))&&console.error(g);throw Error($APP.Jk(g));})})):console.error("Usage: "+$APP.G.h("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")})();

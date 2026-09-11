@@ -12,7 +12,7 @@ Ran 357 tests containing 915 assertions.
 ## falsify-2 第1段 (test 存在確認) — resolved this run
 
 status/maturity.md の falsify 候補-2「test/snapshot_test.cljc に検証が存在するか
-未確認」を確認した。正しいパスは `test/torihiki/snapshot_test.cljc`
+未確認」を確認した。正しいパスは `test/torihiki/snapshot_test.cljk`
 (候補-2 の記述は test/ 直下と書いていたため ls で最初見つからなかった — test/torihiki/ 配下)。
 
 存在し、しかも当該主張を直接カバーする test が並ぶ:
@@ -26,7 +26,7 @@ status/maturity.md の falsify 候補-2「test/snapshot_test.cljc に検証が�
   (unknown oid cancel も両側同一拒否)
 
 すべて本日 19:41 の 357/915 全緑に含まれる。src 側は
-`src/torihiki/book.cljc:242` `lowest-free` (ladder, lowest-set-bit)。
+`src/torihiki/book.cljk:242` `lowest-free` (ladder, lowest-set-bit)。
 **「復元後に oid が分岐する」経路は test が既に塞いでいる** —
 falsify-2 の harness 実測は test と同形になるため marginal gain が小さい。
 
