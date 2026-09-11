@@ -1,0 +1,5 @@
+Execution error (FileNotFoundException) at java.io.FileInputStream/open0 (FileInputStream.java:-2).
+evidence/fuzz-jvm-driver.cljc (No such file or directory)
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-16951894500426476252.edn
