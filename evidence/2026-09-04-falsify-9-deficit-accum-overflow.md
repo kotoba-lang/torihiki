@@ -2,7 +2,7 @@
 
 - date: 2026-09-04 (JST, host load 17.70/18.29/16.99 — under gate, measured)
 - hypothesis: evidence/2026-09-04-falsify-9-fees-collected-accum-overflow-notrun.md (registered pre-run)。**仮説の測定対象は実行中に修正された** (下記「過程」)。
-- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify9-accum-paths.cljk") (load-file "evidence/falsify9-jvm-driver.cljk")'` → falsify9-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify9-driver.cljk` → falsify9-nbb.{out,err} (exit=0)
+- runtimes: JVM `kbb -M -e '(load-file "evidence/falsify9-accum-paths.cljk") (load-file "evidence/falsify9-jvm-driver.cljk")'` → falsify9-jvm.{out,err} (exit=0); nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" evidence/falsify9-driver.cljk` → falsify9-nbb.{out,err} (exit=0)
 - method: `cl/settle-deficit` (clearing.cljc:706–712) は production では liquidation waterfall (liquidation.cljc:252) 経由でのみ到達可能。probe は清算損失が残すのと同じ形 (`collateral = −i53-max`) を直接 seed し、**実物の** `cl/settle-deficit` を実 exchange state に呼ぶ (accumulator 自体は無修正)。synthetic-seeded と明記。
 
 ## Measured (both runtimes, throw 皆無)

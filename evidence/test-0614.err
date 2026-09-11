@@ -1,1 +1,1 @@
-clojure -M:test  37.20s user 2.65s system 195% cpu 20.395 total
+kbb -M:test  37.20s user 2.65s system 195% cpu 20.395 total

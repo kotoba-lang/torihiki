@@ -4,8 +4,8 @@ cron rank iteration (コード変更なし)。
 
 ## 実測
 
-1. JVM `clojure -M:test`: `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (21:52)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
+1. JVM `kbb -M:test`: `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (21:52)
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass` (21:53)
    → 両ランタイム同日同カウント。テスト軸 3 の根拠は再確認。
 3. seeded fuzz 16 seeds (load gate 通過後: 21:53 実行直前 1-min load 12.92 < 20):
@@ -16,12 +16,12 @@ cron rank iteration (コード変更なし)。
 
 ## bench (5-min load gate 通過: 21:55 実行直前 5-min avg 17.83 < 20)
 
-- `clojure -M:bench` (引数なし, 既定 5M tape): **実行時クラッシュ**。
+- `kbb -M:bench` (引数なし, 既定 5M tape): **実行時クラッシュ**。
   `ArityException ... Wrong number of args (2) passed to: torihiki.book/cancel!` (bench.clj:112)
   → **新規 OPEN 赤**: bench harness が `cancel!` の owner 引数必須化 (セキュリティ修正,
   book.cljc:542 docstring「no two-argument arity left behind」) に未追従。
   bench/torihiki/bench.cljk:112 が `(bk/cancel! b oid)` の 2 引数呼び出しのまま。
-- `clojure -M:bench 100000`: 完走したが `cancelled 0` — 小さい tape では cancel 分岐の
+- `kbb -M:bench 100000`: 完走したが `cancelled 0` — 小さい tape では cancel 分岐の
   `(pos? oid)` が実質踏まれないため、**過去の bench 実測 (170,382 ops/sec 等) は
   cancel 経路を一切測っていない**ことになる。 crashes 未検出のまま數値だけ引用されていた。
   実測値 48,908 ops/sec / latency 20,447 ns/op (evidence/bench-2157.out) は

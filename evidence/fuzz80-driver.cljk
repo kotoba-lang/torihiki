@@ -1,6 +1,6 @@
 ;; falsify-4 driver: extends fuzz-seeded.cljc to 80 seeds (0..79) in-memory.
 ;; No file under src/ or test/ is touched. Invoked:
-;;   nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/fuzz80-driver.cljk
+;;   kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" evidence/fuzz80-driver.cljk
 (require '["fs" :as fs])
 ;; load-string cannot resolve new requires on nbb — pre-load them here
 (require '[torihiki.state :as st] '[torihiki.book :as bk] '[torihiki.snapshot :as snap])

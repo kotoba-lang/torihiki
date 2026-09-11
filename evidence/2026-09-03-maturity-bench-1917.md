@@ -3,11 +3,11 @@
 Host load at start: 19.99 / 17.71 / 17.60 (below 20 → runs allowed).
 Load at end: 17.37 / 17.33 / 17.46.
 
-## `clojure -M:test`
+## `kbb -M:test`
 Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.
 
-## `clojure -M:bench 1000`
+## `kbb -M:bench 1000`
 Bench now runs at HEAD (18:34 run's ArityException on `cancel!` is gone —
 bench harness matches current `torihiki.book/cancel!` signature):
 

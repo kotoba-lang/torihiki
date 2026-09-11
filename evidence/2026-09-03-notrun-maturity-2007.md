@@ -5,7 +5,7 @@
 - Gate: host load averages 55.35 / 51.72 / 36.85 (20:07 JST) — 1min が閾値 20 を
   大幅超過 (直前 20:02 の記録でも 43.72)。前回 not-run 記録
   (evidence/2026-09-03-notrun-fuzz-load-gate.md) で確立した load < 20 ゲートに抵触。
-- Decision: 実測 (`clojure -M:test` / `-M:bench` / fuzz) を行わない。負荷下の
+- Decision: 実測 (`kbb -M:test` / `-M:bench` / fuzz) を行わない。負荷下の
   throughput・タイミング観測は証跡として不正確になる。
 - スコア判定: status/maturity.md の 7 軸は本日 19:52 実測
   (evidence/2026-09-03-maturity-remeasure-1952.md, 357 tests / 915 assertions

@@ -14,10 +14,10 @@ status/maturity.md の NEXT だった「seeded fuzz harness」が `evidence/fuzz
   6 accounts、bad order / wrong-owner cancel / bogus oid / trigger / liquidation 混在、
   block 11 で snapshot round-trip）を folding し、flat root / state root / resting /
   rejection / fill / snapshot-parity を digest として出力。
-- JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
+- JVM: `kbb -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
   → evidence/fuzz-jvm.out（20:48 記録済み）と evidence/fuzz-jvm-rerun.out（21:00 再実行）が
   **byte-identical**（diff 空だ= seed 固定再現性の実測）。
-- nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" -e "$(cat evidence/fuzz-seeded.cljk)
+- nbb: `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" -e "$(cat evidence/fuzz-seeded.cljk)
   (fuzz-seeded/run)"` → evidence/fuzz-nbb-rerun.out。
   **JVM 出力と 16/16 seed 全 digest が byte-identical**（diff は JVM 側の `#'fuzz-seeded/run`
   var echo の 1 行のみ、seed 行は全て一致）。snapshot-parity は 16/16 `"true"`。
@@ -27,15 +27,15 @@ status/maturity.md の NEXT だった「seeded fuzz harness」が `evidence/fuzz
 
 ### 2. 両ランタイム同日テストスイート
 
-- JVM: `clojure -M:test` → **Ran 357 tests containing 915 assertions. 0 failures, 0 errors.**
-- nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`
+- JVM: `kbb -M:test` → **Ran 357 tests containing 915 assertions. 0 failures, 0 errors.**
+- nbb: `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`
   → **Ran 357 tests containing 915 assertions. 0 failures.**
   `TESTS-ON-NBB: pass — the runtime that deploys ran the suite`
   （evidence/nbb-tests-rerun.out, 21:00 実測）
 
 ### 3. bench（load 残存下, 単発）
 
-- 21:00、load average 15.01 で `clojure -M:bench 200000` → **170,382 ops/sec / 5869 ns/op**
+- 21:00、load average 15.01 で `kbb -M:bench 200000` → **170,382 ops/sec / 5869 ns/op**
   （evidence/bench-2100.out）。低負荷 3 回安定実測の条件には届かず、再現性 3 は見送り。
 
 ## スコア更新（この根拠による）

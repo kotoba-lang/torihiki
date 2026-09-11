@@ -1,7 +1,7 @@
 not-run (host load gate)
 
 frame 406 iteration: NOT RUN.
-reason: host load averages 43.35 / 42.02 / 45.62 (all > 20 gate at cron start 2026-09-10); also shell execution was unavailable in this session (terminal returned no output), so neither `clojure -M:test` nor `clojure -M:bench` could be launched.
+reason: host load averages 43.35 / 42.02 / 45.62 (all > 20 gate at cron start 2026-09-10); also shell execution was unavailable in this session (terminal returned no output), so neither `kbb -M:test` nor `kbb -M:bench` could be launched.
 
 Gate rule (cron task): host load > 20 -> not-run evidence only. No code changes.
 

@@ -19,14 +19,14 @@ i < 524288 では `(bit-and i 524287)` = i かつ w ≤ i+1 ゆえ offset ≤ 0 
 - tape 実測 (gen-tape 1048576, LCG 固定シード):
   - i ∈ [0, 524287] に cancel-kind op が **450,447 個** 存在 → 全て skip されるはず。
   - 最初の i ≥ 524288 の cancel-kind op は **i = 524289** (kind@524288=0, kind@524287=0)。
-  - 実行: `clojure -Sdeps '{:paths ["src" "bench"]}' -M -e '(b/gen-tape ...)'`(中間出力は transcript、err の Boxed math warning 2 行のみ既知)
+  - 実行: `kbb -Sdeps '{:paths ["src" "bench"]}' -M -e '(b/gen-tape ...)'`(中間出力は transcript、err の Boxed math warning 2 行のみ既知)
 
 ## 証拠 (動的, 実測)
 
-1. `clojure -M:bench 524288` → **exit=0, cancelled 0** (evidence/falsify-5-bench-524288.{out,err})。
+1. `kbb -M:bench 524288` → **exit=0, cancelled 0** (evidence/falsify-5-bench-524288.{out,err})。
    THROUGHPUT 196,361 ops/sec と出るが、450,447 個の cancel op をすべて素通りした
    cancel-free workload の数字 (n=524288 は仮想上「ちょうど全 cancel が skip される」境界)。
-2. `clojure -M:bench 524290` → **exit=1, ArityException at bench.clj:112**
+2. `kbb -M:bench 524290` → **exit=1, ArityException at bench.clj:112**
    (evidence/falsify-5-bench-524290.{out,err})。i=524289 の cancel op で
    `Wrong number of args (2) passed to: torihiki.book/cancel!` — 予測した境界と一致。
 

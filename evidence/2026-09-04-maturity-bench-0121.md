@@ -7,9 +7,9 @@
 
 ## 実測
 
-1. JVM `clojure -M:test` → evidence/test-jvm-0121.out:
+1. JVM `kbb -M:test` → evidence/test-jvm-0121.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (exit 0, 緑)
-2. bench `clojure -M:bench` (既定 5M tape) → evidence/bench-0121.out/.err — **6 実行目の赤追認**:
+2. bench `kbb -M:bench` (既定 5M tape) → evidence/bench-0121.out/.err — **6 実行目の赤追認**:
    `Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).`
    `Wrong number of args (2) passed to: torihiki.book/cancel!` (exit 1)
    → ウォームアップ後の計測本体に到達する前にクラッシュするため **throughput 数値は取得不可**。

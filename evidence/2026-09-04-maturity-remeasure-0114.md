@@ -7,9 +7,9 @@
 
 ## 実測
 
-1. JVM `clojure -M:test` → evidence/test-jvm-0119.out:
+1. JVM `kbb -M:test` → evidence/test-jvm-0119.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` → evidence/test-nbb-0119.out:
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` → evidence/test-nbb-0119.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    → 両ランタイム同カウント **14 度目** の実測。
 3. seeded fuzz 16 seeds, 両ランタイム:
@@ -18,7 +18,7 @@
    - diff (JVM 先頭の REPL 返値行を除く) → **identical (JVM==NBB)**
    - かつ 23:38 baseline (evidence/fuzz-nbb-2338.out) とも identical
      → seed 固定 digest byte-identical は **13 度目** の実測で成立。
-4. bench `clojure -M:bench` (赤追認, evidence/bench-0119.out/.err — 5 実行目):
+4. bench `kbb -M:bench` (赤追認, evidence/bench-0119.out/.err — 5 実行目):
    `Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).`
    → OPEN 赤 bench-tape-cancel-arity を 5 実行ベースで再確認。ソース追認: bench.clj:112 は `(bk/cancel! b oid)` のまま (book.cljc:542 の現行署名は owner 付き)。
 

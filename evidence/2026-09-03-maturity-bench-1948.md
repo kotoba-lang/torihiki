@@ -3,14 +3,14 @@
 ## Host load
 `19:44 up 10 days, load averages: 15.95 16.32 16.44` — below the 20 threshold → full run allowed.
 
-## `clojure -M:test` (JVM)
+## `kbb -M:test` (JVM)
 ```
 Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.
 ```
 → 357 tests / 915 assertions 全緑。status/maturity.md の記載 (357/915) と一致。
 
-## `clojure -M:bench 100000` (JVM)
+## `kbb -M:bench 100000` (JVM)
 ```
 operations       100,000
 placed           45,263
@@ -24,7 +24,7 @@ ratio vs HyperCore reference: 0.6x
 
 ## Prior run same day (evidence/2026-09-03-maturity-bench-1917.md と比較)
 同日 19:17 実測: 357/915 全緑, throughput は同桁帯。今回 112.7k ops/sec —
-reproduce 軸の `clojure -M:test` / `clojure -M:bench <n>` 再現性は確認済み。
+reproduce 軸の `kbb -M:test` / `kbb -M:bench <n>` 再現性は確認済み。
 負荷 (load ~16) 下でも結果は安定。
 
 ## Changes

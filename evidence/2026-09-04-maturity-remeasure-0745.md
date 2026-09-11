@@ -5,7 +5,7 @@
 ## host load gate
 
 - load averages 07:44: 26.79/25.52/23.58 → 07:49: 23.75/23.69/23.27 — 3 平均とも > 20 (tamaki fleet / cloud.itonami server 等の他ジョブが主因)
-- **標準 battery (clojure -M:test / nbb tests / seeded fuzz / bench) は not-run** — 0721 remeasure で確立した load > 20 gate に従う。最新緑実測は 0712 (357 tests / 915 assertions JVM==nbb 30 度目, fuzz digest byte-identical 27 度目), 最新 bench 赤 (cancel-arity) も 0712 が 22 実行目。スコア根拠は 0712 のまま据え置き。
+- **標準 battery (kbb -M:test / nbb tests / seeded fuzz / bench) は not-run** — 0721 remeasure で確立した load > 20 gate に従う。最新緑実測は 0712 (357 tests / 915 assertions JVM==nbb 30 度目, fuzz digest byte-identical 27 度目), 最新 bench 赤 (cancel-arity) も 0712 が 22 実行目。スコア根拠は 0712 のまま据え置き。
 
 ## 新規エビデンス (前回 0712/0721 からの差分)
 

@@ -114,7 +114,7 @@ specification is subtle are called out in the source.
 ## Measured throughput
 
 ```
-$ clojure -M:bench 10000000
+$ kbb -M:bench 10000000
 
   operations       10,000,000
   placed            4,501,960
@@ -163,7 +163,7 @@ actually set a live chain's block rate. What it establishes is that the
 execution layer is not the bottleneck, which is the only claim it should be
 used for.
 
-Reproduce with `clojure -M:bench <n-operations>`, and note what else the
+Reproduce with `kbb -M:bench <n-operations>`, and note what else the
 machine is doing while you do.
 
 ## Design
@@ -524,7 +524,7 @@ which for this one is nothing.
 
 ```bash
 AMU_HOME=<kotoba-lang/amu> KOTOBA_CHECKOUTS=<siblings> \
-  nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/kotoba-parity.cljk
+  kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/kotoba-parity.cljk
 # fixed: 38 cases, 0 drift
 # fixed/result: 20 cases, 0 drift
 ```
@@ -575,8 +575,8 @@ bit-identical anyway.
 **Verified, not assumed** — the two runtimes are checked against each other:
 
 ```bash
-clojure -M:parity
-nbb --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
+kbb -M:parity
+kbb --backend sci --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
     -e "(require '[torihiki.parity :as p]) (p/report)"
 # both must print
 #   FLAT ROOT   b4322bedd406112e6c2c7339e93d646eb7852959def143901961b3be4f43445a
@@ -618,11 +618,11 @@ recorded rather than assumed.
 Both runtimes, and the counts must agree:
 
 ```bash
-clojure -M:test                                    # the JVM
+kbb -M:test                                    # the JVM
 KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
-  nbb --classpath "$(nbb script/nbb-classpath.cljk)" \
+  kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" \
       script/tests-on-nbb.cljk                     # ClojureScript, no JVM
-clojure -M:bench 3000000                           # throughput
+kbb -M:bench 3000000                           # throughput
 ```
 
 Measured 2026-08-31 at `96ac270`, both printing **325 tests / 847
@@ -641,7 +641,7 @@ and **0** in ClojureScript -- so on the runtime that deploys, four assertions
 about reading a deposit out of a log were passing over a memo of nul bytes.
 `decode-deposit-data` itself was correct there all along and is now checked
 by a fixture that encodes real bytes, under a floor that fails first and says
-so. `clojure -M:bench` still needs the JVM; nothing else does.
+so. `kbb -M:bench` still needs the JVM; nothing else does.
 
 `script/nbb-classpath.cljk` builds the classpath from the `deps.edn` pins
 rather than from sibling checkouts, which sit at whatever commit `west` last

@@ -1,6 +1,6 @@
 ;; The whole test suite, on ClojureScript, without a JVM.
 ;;
-;;   nbb --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
+;;   kbb --backend sci --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
 ;;       script/tests-on-nbb.cljk
 ;;
 ;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and

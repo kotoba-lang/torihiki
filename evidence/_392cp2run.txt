@@ -1,4 +1,4 @@
 ----- Error --------------------------------------
 Message:  Could not find namespace: kotoba.lang.text
 file:///opt/homebrew/lib/node_modules/nbb/lib/nbb_main.js:13
-$APP.hB),$APP.YW);return h.v?h.v():h.call(null)}):null).then(function(h){$APP.l($APP.l(d)?h!=null:d)&&$APP.lx.l($APP.x([h],0));return h}).catch(function(h){$APP.Hja(h,b);$APP.l($APP.mx.g(b))&&console.error(h);throw Error($APP.im(h));})})):console.error("Usage: "+$APP.F.g("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")})();
+$APP.hB),$APP.YW);return h.v?h.v():h.call(null)}):null).then(function(h){$APP.l($APP.l(d)?h!=null:d)&&$APP.lx.l($APP.x([h],0));return h}).catch(function(h){$APP.Hja(h,b);$APP.l($APP.mx.g(b))&&console.error(h);throw Error($APP.im(h));})})):console.error("Usage: "+$APP.F.g("nbb")+" \x3cscript\x3e or kbb --backend sci -e \x3cexpr\x3e.")})();

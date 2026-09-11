@@ -11,9 +11,9 @@ cron rank iteration (コード変更なし)。
 
 ## 実測
 
-1. JVM `clojure -M:test`:
+1. JVM `kbb -M:test`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (22:37, evidence/test-jvm-2237.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    (evidence/test-nbb-2238.out) → 両ランタイム同日同カウント (7 度目の同日実測)。
 3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljk), 両ランタイム:

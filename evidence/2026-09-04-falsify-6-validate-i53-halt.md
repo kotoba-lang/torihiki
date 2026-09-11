@@ -21,9 +21,9 @@ the way into storage**」、api.cljc ns docstring と state.cljc:1118 は
 - JVM driver `evidence/falsify6-jvm-driver.cljk` (`catch Exception`)
 - nbb driver `evidence/falsify6-driver.cljk` (`catch :default`, pre-require +
   load-string — falsify-4 と同型)
-- 実行: `clojure -M -e '(load-file "evidence/falsify6-i53.cljk") (load-file "evidence/falsify6-jvm-driver.cljk")'`
+- 実行: `kbb -M -e '(load-file "evidence/falsify6-i53.cljk") (load-file "evidence/falsify6-jvm-driver.cljk")'`
   → evidence/falsify6-jvm.{out,err} (exit=0)
-  `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify6-driver.cljk`
+  `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" evidence/falsify6-driver.cljk`
   → evidence/falsify6-nbb.{out,err} (exit=0)
 - 測定対象: amount ∈ {i53-max=9007199254740991, 2^53=9007199254740992,
   2^53+1=(+ 9007199254740992 1)} を :deposit :account 1 で validate → apply-block。

@@ -6,17 +6,17 @@
 
 ## 実測
 
-1. JVM `clojure -M:test`: `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
+1. JVM `kbb -M:test`: `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    → 両ランタイム同カウント **13 度目** の実測。
 3. seeded fuzz 16 seeds, 両ランタイム:
-   - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'` → evidence/fuzz-jvm-0054.out
-   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/fuzz-nbb-driver.cljk` → evidence/fuzz-nbb-0055.out
+   - JVM: `kbb -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'` → evidence/fuzz-jvm-0054.out
+   - nbb: `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" evidence/fuzz-nbb-driver.cljk` → evidence/fuzz-nbb-0055.out
    - diff (JVM 先頭の REPL 返値行を除く) → **identical (JVM==NBB)**。
    - かつ 23:38 baseline (evidence/fuzz-nbb-2338.out) とも identical
      → seed 固定 digest byte-identical は **12 度目** の実測で成立。
-4. bench `clojure -M:bench` (赤追認, evidence/bench-0056.out/.err — 4 実行目):
+4. bench `kbb -M:bench` (赤追認, evidence/bench-0056.out/.err — 4 実行目):
    `Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).`
    → OPEN 赤 bench-tape-cancel-arity を 4 実行ベースで再確認。「低負荷 3 回安定」は赤修正後の条件なので不適用。
 

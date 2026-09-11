@@ -5,7 +5,7 @@ Scheduled maturity iteration did not execute the suites.
 - Load gate was PASSED (load 17.39/15.88/16.43 < 20 at pre-run 12:14), so this
   is not a load-gate skip: the run was eligible.
 - Run-time budget was exhausted during the initial reconnaissance batch
-  (harness SYSTEM NOTICE); `clojure -M:test` / `clojure -M:bench` were never
+  (harness SYSTEM NOTICE); `kbb -M:test` / `kbb -M:bench` were never
   started. No measurements, no evidence outputs produced this run.
 - No code changes, no state changes. Canonical unchanged:
   last genuine full gate = frame 401 / suite 134 (2026-09-09 13:44, 1m 9.30s,

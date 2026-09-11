@@ -1,6 +1,6 @@
 # torihiki maturity remeasure — 2026-09-04 09:55 JST (battery NOT RUN — load gate; falsify-11 honest-walk completed & reviewed)
 
-- host load across the iteration window: 09:24 **23.19/25.96/23.29** → 09:29 15.43/20.75/21.85 → 09:32 17.54/19.66/21.26 → 09:37 **35.76/27.81/24.26** → 09:42 18.50/23.27/23.41 → 09:48 **25.09/27.45/25.41** → 09:55 **31.21/24.17/23.90** — 1-min dipped below 20 twice but 5/15-min never did; `clojure -M:test` / nbb test / fuzz / bench **skipped** per iteration rule (all three < 20 required). Code HEAD `dd55c85` unchanged, `git diff` empty, no code changes
+- host load across the iteration window: 09:24 **23.19/25.96/23.29** → 09:29 15.43/20.75/21.85 → 09:32 17.54/19.66/21.26 → 09:37 **35.76/27.81/24.26** → 09:42 18.50/23.27/23.41 → 09:48 **25.09/27.45/25.41** → 09:55 **31.21/24.17/23.90** — 1-min dipped below 20 twice but 5/15-min never did; `kbb -M:test` / nbb test / fuzz / bench **skipped** per iteration rule (all three < 20 required). Code HEAD `dd55c85` unchanged, `git diff` empty, no code changes
 - the falsify-11 JVM honest-walk (PID 54913, started 07:30, 2h07m elapsed, 71:23 CPU) **completed exit=0 at 09:42** — the only state change this window; host load spikes are external (PID 2897 is an unrelated long-running `cloud.itonami.app.server`, up 12h, 724 CPU-min)
 
 ## NEW evidence: falsify-11 JVM honest-walk (completed output, first review)

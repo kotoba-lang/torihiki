@@ -3,7 +3,7 @@
 - date: 2026-09-04 05:50 JST
 - host load averages: **21.80 / 24.15 / 21.88** (1/5/15min) — all above the 20 threshold
   (05:44 pre-run script reading was 29.96 / 22.06 / 19.34; re-measured at 05:50)
-- decision: `clojure -M:test` / `clojure -M:bench` **skipped** per iteration rule (load > 20 → not-run evidence only)
+- decision: `kbb -M:test` / `kbb -M:bench` **skipped** per iteration rule (load > 20 → not-run evidence only)
 - code changes: none (in-flight untracked: evidence/, status/)
 
 ## context (from status/maturity.md, no change)
@@ -12,4 +12,4 @@
 - no new failures discovered this iteration because no suite was executed
 
 ## next iteration
-- re-run `clojure -M:test` (+ optionally `clojure -M:bench`) when load averages are < 20
+- re-run `kbb -M:test` (+ optionally `kbb -M:bench`) when load averages are < 20

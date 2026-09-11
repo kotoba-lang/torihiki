@@ -2,7 +2,7 @@
 
 - 日時: 2026-09-03 19:3x JST (host load ~10-19, 実行可)
 - runtime: JVM (clojure 1.12.0), repo pin 現状
-- harness: `evidence/falsify-1-race.cljk` (実行: `clojure -M -e '(load-file "evidence/falsify-1-race.cljk")'`)
+- harness: `evidence/falsify-1-race.cljk` (実行: `kbb -M -e '(load-file "evidence/falsify-1-race.cljk")'`)
 - 前例: engi `torihiki-on-engi` harness (engi/README.md:160-205) — account 1 = -50, owner 34 件 :wrong-key
 - repo コード変更: なし (src/ test/ 無編集。evidence/ スクリプトのみ)
 

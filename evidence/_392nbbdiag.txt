@@ -1,6 +1,6 @@
 ;; The whole test suite, on ClojureScript, without a JVM.
 ;;
-;;   nbb --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
+;;   kbb --backend sci --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
 ;;       script/tests-on-nbb.cljk
 ;;
 ;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and
@@ -22,7 +22,7 @@
 ----- Error --------------------------------------
 Message:  Could not find namespace: kotoba.lang.text
 file:///opt/homebrew/lib/node_modules/nbb/lib/nbb_main.js:13
-$APP.hB),$APP.YW);return h.v?h.v():h.call(null)}):null).then(function(h){$APP.l($APP.l(d)?h!=null:d)&&$APP.lx.l($APP.x([h],0));return h}).catch(function(h){$APP.Hja(h,b);$APP.l($APP.mx.g(b))&&console.error(h);throw Error($APP.im(h));})})):console.error("Usage: "+$APP.F.g("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")})();
+$APP.hB),$APP.YW);return h.v?h.v():h.call(null)}):null).then(function(h){$APP.l($APP.l(d)?h!=null:d)&&$APP.lx.l($APP.x([h],0));return h}).catch(function(h){$APP.Hja(h,b);$APP.l($APP.mx.g(b))&&console.error(h);throw Error($APP.im(h));})})):console.error("Usage: "+$APP.F.g("nbb")+" \x3cscript\x3e or kbb --backend sci -e \x3cexpr\x3e.")})();
                                                                                                                                                                                                                        ^
 
 Error: Could not find namespace: kotoba.lang.text

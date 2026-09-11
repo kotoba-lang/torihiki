@@ -11,12 +11,12 @@ cron rank iteration (コード変更なし, HEAD dd55c85)。
 
 ## 実測
 
-1. JVM `clojure -M:test`:
+1. JVM `kbb -M:test`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (23:09, evidence/test-jvm-2309.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass` (23:12, evidence/test-nbb-2312.out)
    → 両ランタイム同日同カウント (9 度目の同日実測)。
-   注: `nbb script/tests-on-nbb.cljk` を素で呼ぶと classpath が無く
+   注: `kbb --backend sci script/tests-on-nbb.cljk` を素で呼ぶと classpath が無く
    `Could not find namespace: torihiki.address-test` で落ちる (evidence/test-nbb-2309.out)。
    classpath は必ず `script/nbb-classpath.cljk` 経由で組むこと。
 3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljk), 両ランタイム:
@@ -24,7 +24,7 @@ cron rank iteration (コード変更なし, HEAD dd55c85)。
    - seed 行 diff → identical (JVM==NBB)。かつ 22:31 出力の seed 行とも一致
      → seed 固定 digest は **8 度目** の実測で成立
      (nbb 出力には REPL echo `#'fuzz-seeded/run` の 1 行が先頭に付くが seed digest 行は一致)。
-4. bench `clojure -M:bench` (赤追認):
+4. bench `kbb -M:bench` (赤追認):
    `Wrong number of args (2) passed to: torihiki.book/cancel!` (23:15, evidence/bench-2315.err)
    → OPEN 赤 bench-tape-cancel-arity を実行ベースで再確認 (bench.clj:112, 廃止済み 2 引数署名)。
 

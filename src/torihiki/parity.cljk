@@ -12,8 +12,8 @@
   nothing. The JVM suite could not observe it. Run this after touching
   anything in `torihiki.slab` or `torihiki.book`.
 
-    clojure -M:parity
-    nbb --classpath \"src:<path-to>/bytes/src\" -e \"(require '[torihiki.parity :as p]) (p/report)\"
+    kbb -M:parity
+    kbb --backend sci --classpath \"src:<path-to>/bytes/src\" -e \"(require '[torihiki.parity :as p]) (p/report)\"
 
   The two must print the same root."
   (:require [torihiki.book :as bk]

@@ -2,7 +2,7 @@
 
 Cron maturity-rank iteration. HEAD dd55c85, uncommitted: evidence/, status/ (only).
 
-## `clojure -M:test`
+## `kbb -M:test`
 Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.
 

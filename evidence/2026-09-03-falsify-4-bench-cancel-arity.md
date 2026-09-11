@@ -16,13 +16,13 @@
 
 ## 証拠 (動的, 実測)
 
-1. `clojure -M:bench 200000` → **exit=0, クラッシュせず** (evidence/falsify-4-bench-2333.{out,err})。
+1. `kbb -M:bench 200000` → **exit=0, クラッシュせず** (evidence/falsify-4-bench-2333.{out,err})。
    ただし `cancelled 0` — cancel 経路が一度も `cancel!` に到達していない。
    理由: run-tape:109 の ring offset `(bit-and (- w 1 (bit-and i 524287)) ring-mask)` は
    `w` が 524288 を超えるまで負で、負→bit-and で未書き込み slot (初期値 -1) を指すため
    `(pos? oid)` が常に false。**n < 524288 では bench は cancel を含まない workload を黙って測る**
    (192,855 ops/sec は cancel-free 記録であり、mix を測った数字ではない)。
-2. `clojure -M:bench 1000000` → **exit=1, ArityException 再現** (evidence/falsify-4-bench-1m-2336.err):
+2. `kbb -M:bench 1000000` → **exit=1, ArityException 再現** (evidence/falsify-4-bench-1m-2336.err):
    `Execution error (ArityException) at torihiki.bench/run-tape (bench.clj:112).`
    `Wrong number of args (2) passed to: torihiki.book/cancel!`
    23:15 の bench-2315.err (既定 5M) と同一例外・同一行。

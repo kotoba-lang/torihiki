@@ -2,7 +2,7 @@
 
 - date: 2026-09-09 12:06–13:10 JST (host load gate: 12:03 直測 1-min 12.11 / 5-min 11.81 / 15-min 17.42 全 <20 通過 — 09:37 以降約 15 枠の skip を経て最初の genuine 枠, frame 395)
 - hypothesis: evidence/2026-09-09-1206-falsify13-hypothesis.md (実行前登録 12:06)
-- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify13-insurance-accum.cljk") (load-file "evidence/falsify13-jvm-driver.cljk")'` → falsify13-jvm.{out,err} (exit=0); nbb `nbb --classpath "$(nbb --classpath "../text/src" script/nbb-classpath.cljk)" evidence/falsify13-nbb-driver.cljk` → falsify13-nbb.{out,err} (exit=0)。nbb classpath bootstrap は frame-394 発見の自己依存 fix (`--classpath ../text/src` 抜き) を使用。
+- runtimes: JVM `kbb -M -e '(load-file "evidence/falsify13-insurance-accum.cljk") (load-file "evidence/falsify13-jvm-driver.cljk")'` → falsify13-jvm.{out,err} (exit=0); nbb `kbb --backend sci --classpath "$(kbb --backend sci --classpath "../text/src" script/nbb-classpath.cljk)" evidence/falsify13-nbb-driver.cljk` → falsify13-nbb.{out,err} (exit=0)。nbb classpath bootstrap は frame-394 発見の自己依存 fix (`--classpath ../text/src` 抜き) を使用。
 - method: `liq/liquidate` (production 8-arity, liquidation.cljc:247) → `liquidate*` stage 1 (liquidation.cljc:187–197) → `fx/mul-rate` fee (i53 checked) → `(update :insurance-fund (fnil + 0) fee)` (liquidation.cljc:195, **sum 無検査**)。accumulator と適用経路は無修正の production code。take-fn は slice 全量を level 1000 で吸収 (bankruptcy 1000 = avg-price 1000 → stage-1 `:book` が発火、`>=` で成立)。src/ test/ は未変更 (HEAD 8dc16308, git diff HEAD -- src script deps.edn = 0)。
 
 ## ハーネス構築で実測した前提 (verdict に効く知見)

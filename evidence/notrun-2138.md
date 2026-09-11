@@ -1,7 +1,7 @@
 # not-run evidence — 2026-09-04 21:38 JST
 
 原因: host load > 20 (load average 30.11 / 29.70 / 31.23 @ 21:38, uptime 11 days)
-→ ジョブ規約により本 iteration の `clojure -M:test` / `clojure -M:bench` 実行は見送り (not-run)。
+→ ジョブ規約により本 iteration の `kbb -M:test` / `kbb -M:bench` 実行は見送り (not-run)。
 
 ## 本 iteration 中の他プロセス実況 (21:38)
 - falsify-12 (multi-deficit) JVM 実行完了: evidence/falsify12-jvm.out 6 行, 最終行 "done"。
