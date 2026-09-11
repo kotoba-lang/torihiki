@@ -3,7 +3,7 @@
 ## 判定: NOT-RUN (host load > 20)
 
 cron 設定ルール「Host load > 20 → not-run evidence only」に基づき、
-`clojure -M:test` / nbb tests / seeded fuzz / `clojure -M:bench` は実行せず記録のみ。
+`kbb -M:test` / nbb tests / seeded fuzz / `kbb -M:bench` は実行せず記録のみ。
 
 ## 実測 load averages
 

@@ -10,7 +10,7 @@
 |---|---|---|
 | JVM test | 357 tests / 915 assertions, 0 failures (**31 度目** 実測) | test-0839.out |
 | nbb test | 357 tests / 915 assertions, 0 failures, 17/17 namespaces — 同一カウント (**31 度目**) | test-nbb-0840.out |
-| nbb 素呼び pitfall | 再確認: `nbb script/tests-on-nbb.cljk` 素呼びは `Could not find namespace: torihiki.address-test` で即落ちる (test-nbb-0840.err) — classpath は `nbb --classpath "$(nbb script/nbb-classpath.cljk)"` が必須 | test-nbb-0840.err |
+| nbb 素呼び pitfall | 再確認: `kbb --backend sci script/tests-on-nbb.cljk` 素呼びは `Could not find namespace: torihiki.address-test` で即落ちる (test-nbb-0840.err) — classpath は `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)"` が必須 | test-nbb-0840.err |
 | seeded fuzz JVM | 16 seeds 完走, digests | fuzz-jvm-0841.out |
 | seeded fuzz nbb | 16 seeds 完走, **JVM と byte-identical** (`diff` 空, **28 度目** 実測) — seed 0 先頭 digest `ada0db86…` は 0657/0608/0712 baseline と一致 → 再現性維持 | fuzz-nbb-0842.out |
 | bench | **24 実行目の連続赤**: bench-tape-cancel-arity (`ArityException … bench.clj:112, Wrong number of args (2) passed to: torihiki.book/cancel!`) — harness 未修正のため予測どおり | bench-0843.out / bench-0843.err |

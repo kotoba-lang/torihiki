@@ -2,7 +2,7 @@
 
 - date: 2026-09-04 (JST, host load 14–35 変動 — 実測は低負荷帯で実施)
 - hypothesis: evidence/2026-09-04-falsify-11-fees-collected-accum-overflow-notrun.md (実行前登録)。level/qty の因数分解ミスと book ladder 制約 (n-levels 1024 tick-indexed) で 2 回の harness 修正を経て実測 (経緯は本欄末尾に記録)。
-- runtimes: JVM `clojure -M -e '(load-file "evidence/falsify11-fees-accum.cljk") (load-file "evidence/falsify11-jvm-driver.cljk")'` → falsify11-jvm.{out,err}; nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify11-driver.cljk` → falsify11-nbb.{out,err} (両 exit=0)
+- runtimes: JVM `kbb -M -e '(load-file "evidence/falsify11-fees-accum.cljk") (load-file "evidence/falsify11-jvm-driver.cljk")'` → falsify11-jvm.{out,err}; nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" evidence/falsify11-driver.cljk` → falsify11-nbb.{out,err} (両 exit=0)
 - method: `cl/apply-fill` (clearing.cljc:410, `(update :fees-collected (fnil + 0) (- fee share))`) は各 fill の fee を `fx/mul-rate` で fx/check するが累算 sum は無検査 — falsify-8 (collateral) / falsify-9 (:deficit) / falsify-10 (:funding-residue) と同一クラス (delta 検査済み / sum 無検査) の**第 4 例**。`:fees-collected` は state root に入る (state.cljc:1602 encode-clearing-totals)。probe は実物 `st/apply-block` の `:order` tx (maker → taker cross, taker-fee-rate 12500 / maker-fee-rate 0) を使用。fees-collected のみ時間圧縮 seed (probe B)、accumulator と適用経路は無修正の production code。
 
 ## 境界距離 trick の fee 経路への適用可否 (NEXT の「まず検証」への答え: **適用可**)

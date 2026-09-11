@@ -2,7 +2,7 @@
 
 - date: 2026-09-04 08:26 JST
 - host load averages: **21.54 / 21.08 / 22.78** (1/5/15min) — all above the 20 threshold
-- decision: `clojure -M:test` / `clojure -M:bench` / fuzz remeasure **skipped** per iteration rule (load > 20 → not-run evidence only)
+- decision: `kbb -M:test` / `kbb -M:bench` / fuzz remeasure **skipped** per iteration rule (load > 20 → not-run evidence only)
 - additional reason: the torihiki falsify-11 JVM honest-walk (probe C, java PID 2897 @ ~116% CPU, 660:17 CPU-minutes, started 21:25 the previous day) is still in-flight, writing evidence/falsify11-jvm.err (latest progress k=350000, fees=3212999824550000 ≈ 3.2e15, coll2=5794199430190991, coll3=9007199254740991=2^53−1) — adding battery load would contend with it; its completed output belongs to the next iteration's review. Extrapolated fees 2^53 crossing ≈ k≈980000 (progress rate ~9.18e9 fees/step; walk target presumably 1M) — the walk is long-running and must not be perturbed
 
 ## context (from status/maturity.md + evidence since 08:09, no score change)

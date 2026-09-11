@@ -1,6 +1,6 @@
 ;; Every namespace, required under nbb.
 ;;
-;;   npx nbb -cp "src:$(clojure -Spath)" script/loads-on-nbb.cljk
+;;   kbb --backend sci -cp "src:$(kbb -Spath)" script/loads-on-nbb.cljk
 ;;
 ;; ## Why this exists
 ;;

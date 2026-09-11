@@ -1,7 +1,7 @@
 # falsify-4 (harness 常設化) — not-run: host load gate
 
 日時: 2026-09-03 21:31 JST
-反証対象 (status/maturity.md NEXT): harness を `clojure -M:test` と
+反証対象 (status/maturity.md NEXT): harness を `kbb -M:test` と
 script/tests-on-nbb.cljk に接続し、常設 seeded fuzz ジョブとして実測する
 (テスト軸 3→4 / 再現性軸 2→3 の上げ条件)。
 
@@ -21,7 +21,7 @@ not-run。実測は行っていない。
 
 ## 仮説 (次回実測用に固定)
 
-falsify-4: fuzz-seeded.cljc を `clojure -M:test` と script/tests-on-nbb.cljk の
+falsify-4: fuzz-seeded.cljc を `kbb -M:test` と script/tests-on-nbb.cljk の
 両 suite に組み込み、同日両ランタイムで 16 seeds の digest 行が
 byte-identical に再現する (suite 組込み後も falsify-3 の結果が劣化しない)。
 Survived → テスト 3→4、再現性 2→3 の条件が揃う。Failed → digest 不一致の

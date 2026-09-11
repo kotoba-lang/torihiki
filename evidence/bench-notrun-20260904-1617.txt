@@ -1,4 +1,4 @@
 2026-09-04 15:51-16:17 JST bench cron iteration: NOT-RUN
 host load avg observed: 19.06/24.86/25.25 (15:51), 30.53 (15:56), 30.45 (16:02), 49.35 (16:09), 51.78/56.89/46.04 (16:17)
 load > 20 threshold held for entire window and rising toward end; waited ~26 min total, never dropped below 20
-no clojure -M:test / -M:bench executed per task rule. no code changes.
+no kbb -M:test / -M:bench executed per task rule. no code changes.

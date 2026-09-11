@@ -9,9 +9,9 @@ HEAD dd55c85 (unchanged since remeasure-0114)。コード変更なし。
 
 ## 実測
 
-1. JVM `clojure -M:test` → evidence/test-jvm-0126.out:
+1. JVM `kbb -M:test` → evidence/test-jvm-0126.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.`
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` → evidence/test-nbb-0127.out:
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk` → evidence/test-nbb-0127.out:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    → 両ランタイム同カウント **15 度目** の実測。
 3. seeded fuzz 16 seeds, 両ランタイム:
@@ -19,7 +19,7 @@ HEAD dd55c85 (unchanged since remeasure-0114)。コード変更なし。
    - diff (grep '^seed') → **identical (JVM==NBB)**
    - かつ 0119 baseline とも identical
      → seed 固定 digest byte-identical は **14 度目** の実測で成立。
-4. bench `clojure -M:bench` → exit=1, `Execution error (ArityException) at
+4. bench `kbb -M:bench` → exit=1, `Execution error (ArityException) at
    torihiki.bench/run-tape (bench.clj:112)` (evidence/bench-0128.out/.err — 6 実行目)。
    ソース追認: bench.clj:112 は 2 引数 `(bk/cancel! b oid)` のまま。
 

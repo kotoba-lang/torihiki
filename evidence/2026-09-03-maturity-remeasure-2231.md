@@ -10,17 +10,17 @@ cron rank iteration (コード変更なし)。
 
 ## 実測
 
-1. JVM `clojure -M:test`: `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (22:23, evidence/test-jvm-2222.out)
-2. nbb `nbb --classpath "$(nbb script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
+1. JVM `kbb -M:test`: `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` (22:23, evidence/test-jvm-2222.out)
+2. nbb `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk`:
    `Ran 357 tests containing 915 assertions. 0 failures, 0 errors. TESTS-ON-NBB: pass`
    (22:24, evidence/test-nbb-2224.out) → 両ランタイム同日同カウント (6 度目の同日実測)。
-   備考: classpath なしの `nbb script/tests-on-nbb.cljk` は
+   備考: classpath なしの `kbb --backend sci script/tests-on-nbb.cljk` は
    `Could not find namespace: torihiki.address-test` で落ちる (evidence/test-nbb-2223.out)。
    正しい呼び出しは pins 由来 classpath 必須 — これは失敗ではなく使い方の記録。
 3. seeded fuzz 16 seeds (evidence/fuzz-seeded.cljk):
-   - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
+   - JVM: `kbb -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
      → evidence/fuzz-jvm-2231.out
-   - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk)" -e "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljk\") (fuzz-seeded/run)"`
+   - nbb: `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" -e "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljk\") (fuzz-seeded/run)"`
      → evidence/fuzz-nbb-2229.out
    - `diff <(grep '^seed' jvm) <(grep '^seed' nbb)` → **差分なし, JVM==NBB 16/16 seed byte-identical (5 度目の実測)**
    - 21:53 の出力 (fuzz-jvm-2153.out) とも byte-identical → seed 固定再現は 5 度目の追認。

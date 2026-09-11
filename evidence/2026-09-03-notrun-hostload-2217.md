@@ -3,7 +3,7 @@
 ## 判定: NOT-RUN (host load > 20)
 
 cron 設定ルール「Host load > 20 → not-run evidence only」に基づき、
-`clojure -M:test` / `clojure -M:bench` は実行せず記録のみ。
+`kbb -M:test` / `kbb -M:bench` は実行せず記録のみ。
 
 ## 実測 load averages
 
@@ -23,5 +23,5 @@ cron 設定ルール「Host load > 20 → not-run evidence only」に基づき�
 
 ## NEXT
 
-- load が下がった次回イテレーションで `clojure -M:test` + `clojure -M:bench` 実行。
+- load が下がった次回イテレーションで `kbb -M:test` + `kbb -M:bench` 実行。
 - bench harness の cancel! owner 必須化への追従が 3 回安定実測 (再現性 3) の前提。

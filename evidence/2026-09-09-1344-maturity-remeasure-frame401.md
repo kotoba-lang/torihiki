@@ -9,14 +9,14 @@ HEAD **915f832** (frame 398/399/400 と同一, 並行重複なし). `git diff HE
 
 ## Results (all gates newly measured)
 
-- JVM `clojure -M:test` → **357 tests / 915 assertions, 0 failures, 0 errors**, JVM_EXIT=0
+- JVM `kbb -M:test` → **357 tests / 915 assertions, 0 failures, 0 errors**, JVM_EXIT=0
   (evidence/test-jvm-401.out)
-- nbb (bootstrap fix `nbb --classpath "../text/src" script/nbb-classpath.cljk` 経由) → **357/915, 0F/0E,
+- nbb (bootstrap fix `kbb --backend sci --classpath "../text/src" script/nbb-classpath.cljk` 経由) → **357/915, 0F/0E,
   namespaces 17/17, TESTS-ON-NBB: pass**, NBB_EXIT=0 (evidence/test-nbb-401.out)
   → 両 runtime 同一カウント **37 度目**実測 (**suite 134**)
 - Seeded fuzz digest: fuzz-jvm-401.out vs fuzz-nbb-401.out diff = **0 bytes** (echo 行除いた raw diff 空)
   → byte-identical **32 度目** (evidence/fuzzdiff-401.txt)
-- bench `clojure -M:bench` → 既知赤 **bench-tape-cancel-arity 30 実行目**
+- bench `kbb -M:bench` → 既知赤 **bench-tape-cancel-arity 30 実行目**
   (`ArityException at bench.clj:112, Wrong number of args (2) passed to: torihiki.book/cancel!`,
   bench-401.err) — 再現性 2 のまま (bench **94** 相当)
 

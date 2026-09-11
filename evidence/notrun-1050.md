@@ -1,7 +1,7 @@
 # maturity re-measure NOT-RUN — host load over threshold (2026-09-04 10:50 JST)
 
 - Scheduled torihiki maturity rank iteration (cron, state script + re-measure).
-- Trigger condition: re-run `clojure -M:test` / seeded fuzz / bench when host load < 20; otherwise not-run evidence only.
+- Trigger condition: re-run `kbb -M:test` / seeded fuzz / bench when host load < 20; otherwise not-run evidence only.
 - **Not run.** Host load at job time: `load averages: 26.60 24.43 25.31` (1-min 26.60 > 20 threshold), `uptime` 11 days (measured 2026-09-04 10:50:08 JST).
 - No tests, no bench, no code changes.
 

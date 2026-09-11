@@ -23,8 +23,8 @@ chain-halt できる (validate に :bad-amount を足す fix では塞げない�
 - JVM driver `evidence/falsify7-jvm-driver.cljk` (`catch Exception`)
 - nbb driver `evidence/falsify7-driver.cljk` (`catch :default`, pre-require + load-string)
 - 実行:
-  `clojure -M -e '(load-file "evidence/falsify7-halt-paths.cljk") (load-file "evidence/falsify7-jvm-driver.cljk")'` → falsify7-jvm.{out,err} (exit=0)
-  `nbb --classpath "$(nbb script/nbb-classpath.cljk)" evidence/falsify7-driver.cljk` → falsify7-nbb.{out,err} (exit=0)
+  `kbb -M -e '(load-file "evidence/falsify7-halt-paths.cljk") (load-file "evidence/falsify7-jvm-driver.cljk")'` → falsify7-jvm.{out,err} (exit=0)
+  `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" evidence/falsify7-driver.cljk` → falsify7-nbb.{out,err} (exit=0)
 - 測定セル: (a) :withdraw 2^53 (seeded なし / i53-max 入金済み) ×2、
   (b) :order qty 2^53 flags=0、(c) :order qty 2^53 flags=4 (reduce-only)、
   (d) in-domain cross: block2 で account 1 が sell qty=i53-max @level 2 を rest、

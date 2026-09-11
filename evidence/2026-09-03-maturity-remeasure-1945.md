@@ -4,7 +4,7 @@ Cron maturity-rank iteration. HEAD dd55c85, uncommitted: evidence/, status/ (onl
 Host load 12.9-25.4 (1min avg 25 briefly exceeded the 20 gate during load spike;
 test run started at ~19:41 when load was 16.9 → ran, see below).
 
-## `clojure -M:test` (re-verified this run)
+## `kbb -M:test` (re-verified this run)
 
 Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.

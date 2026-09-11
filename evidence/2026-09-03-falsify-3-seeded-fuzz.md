@@ -22,8 +22,8 @@
 - digest 1 本あたり: flat-root, state-root, resting-count, rejected-count,
   fill-count, snapshot-parity flag。
 - 実行:
-  - JVM: `clojure -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
-  - nbb: `nbb --classpath "$(nbb script/nbb-classpath.cljk):src" -e
+  - JVM: `kbb -M -e '(load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run)'`
+  - nbb: `kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk):src" -e
     "(require '[nbb.core :refer [load-file]]) (load-file \"evidence/fuzz-seeded.cljk\") (fuzz-seeded/run)"`
 
 ## 過程で harness 自体が拾った欠陥 2 件 (engine ではなく harness 側)
@@ -65,7 +65,7 @@ seed から同一の flat-root / state-root / resting / rejected / fills に到�
 ## スコアへの含意 (提案、実施は次回再計測時)
 
 - テスト軸 (3→4): fuzz/property ベースが **存在はする** ようになったが、
-  `clojure -M:test` に組み込まれておらず seed ジョブとして常設化していない。
+  `kbb -M:test` に組み込まれておらず seed ジョブとして常設化していない。
   4 の根拠にするには suite への接続が条件。
 - 再現性軸 (2→3): 実行コマンドが 2 行で pinned classpath から再現でき、
   出力が diff で判定できる。seeded fuzz ジョブ未整備という現状の減点根拠は
@@ -73,7 +73,7 @@ seed から同一の flat-root / state-root / resting / rejected / fills に到�
 
 ## NEXT (提案)
 
-harness を `clojure -M:test` と script/tests-on-nbb.cljk の両方に接続し、
+harness を `kbb -M:test` と script/tests-on-nbb.cljk の両方に接続し、
 seed をパラメータ化した常設 fuzz ジョブにする (両軸の上げの条件を満たす)。
 その後の反証は harness の tx ミックスを攻撃的に進化させる方向
 (例: multi-market, 認証付き envelope (auth/check + nonce 再生), builder fee

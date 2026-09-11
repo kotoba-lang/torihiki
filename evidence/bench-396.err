@@ -5,4 +5,4 @@ Wrong number of args (2) passed to: torihiki.book/cancel!
 
 Full report at:
 /var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-1806757493103021842.edn
-clojure -M:bench  10.58s user 0.53s system 201% cpu 5.514 total
+kbb -M:bench  10.58s user 0.53s system 201% cpu 5.514 total

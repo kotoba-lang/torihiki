@@ -30,9 +30,9 @@ orders を運べば free set は暗黙に復元される (L133-137 コメント)
 
 ## harness 実測
 
-- `clojure -M:test --namespace torihiki.snapshot-test` (JVM):
+- `kbb -M:test --namespace torihiki.snapshot-test` (JVM):
   **Ran 10 tests containing 21 assertions. 0 failures, 0 errors.**
-- 続けて全体 `clojure -M:test` (JVM):
+- 続けて全体 `kbb -M:test` (JVM):
   **Ran 357 tests containing 915 assertions. 0 failures, 0 errors.**
 - host load: 1min 14.59 / 5min 16.95 / 15min 16.66 → 実行可 (閾値 20 未満)。
 

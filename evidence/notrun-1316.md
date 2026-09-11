@@ -4,8 +4,8 @@ Result: NOT-RUN (host load gate)
 load averages: 62.39 65.34 64.34 (threshold > 20)
 uptime: up 11 days, 5:04, 10 users
 
-Per job policy: load > 20 → not-run evidence only. `clojure -M:test` and
-`clojure -M:bench` were both skipped to avoid compounding load on the host.
+Per job policy: load > 20 → not-run evidence only. `kbb -M:test` and
+`kbb -M:bench` were both skipped to avoid compounding load on the host.
 
 No code changes made.
 

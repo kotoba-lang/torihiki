@@ -1,6 +1,6 @@
 # torihiki maturity remeasure — 2026-09-04 10:06 JST (battery NOT RUN — load gate)
 
-- host load at iteration: 10:05 **33.69/30.90/27.98** → 10:06 **30.52/30.42/27.89** — 1/5/15-min all ≥ 20; `clojure -M:test` / nbb test / fuzz / bench **skipped** per iteration rule (all three < 20 required). 5th consecutive notrun-load window (0808, 0826, 0955, 0958, this)
+- host load at iteration: 10:05 **33.69/30.90/27.98** → 10:06 **30.52/30.42/27.89** — 1/5/15-min all ≥ 20; `kbb -M:test` / nbb test / fuzz / bench **skipped** per iteration rule (all three < 20 required). 5th consecutive notrun-load window (0808, 0826, 0955, 0958, this)
 - Code HEAD `dd55c85` unchanged, `git status` = untracked evidence/ + status/ only, no code changes
 - No new state since the 0955 note: falsify-11 honest-walk already completed 09:42 (981,177 crosses, fees crossed 2^53−1) and is reviewed there; no further background jobs finished this window
 

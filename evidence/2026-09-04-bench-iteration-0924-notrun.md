@@ -5,5 +5,5 @@
 - `uptime`: up 11 days, 1:11, 10 users, load averages: 23.19 25.96 23.29
 - `sysctl vm.loadavg`: { 23.19 25.96 23.29 } / hw.ncpu = 10
 - 事前スクリプト実測 (09:14): 25.89 23.88 20.28 — 3 平均すべて 20 超で持続。0924 時点も全平均 20 超
-- 実行: `clojure -M:test` / `clojure -M:bench` は **未実行**。コード変更なし
+- 実行: `kbb -M:test` / `kbb -M:bench` は **未実行**。コード変更なし
 - 前回計測値 (参考, 変更なし): test-0839 = 357 tests / 915 assertions 両 runtime 全緑 (31 度目), bench は bench-tape-cancel-arity で 0843 が 24 実行目の連続赤

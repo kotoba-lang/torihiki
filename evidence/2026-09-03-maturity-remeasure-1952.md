@@ -3,7 +3,7 @@
 ## Host load
 `19:51 up 10 days, load averages: 19.31 15.70 15.81` — 1min は閾値 20 未満 → full run allowed。
 
-## `clojure -M:test` (JVM)
+## `kbb -M:test` (JVM)
 ```
 Ran 357 tests containing 915 assertions.
 0 failures, 0 errors.
@@ -22,7 +22,7 @@ TESTS-ON-NBB: pass — the runtime that deploys ran the suite
 falsify-2 提案の「nbb で snapshot round-trip oid 一貫性 parity」は
 torihiki.snapshot-test が nbb suite に含まれる (17/17) ため、**この実行で既に充足**。
 
-## `clojure -M:bench 100000` (JVM)
+## `kbb -M:bench 100000` (JVM)
 ```
 THROUGHPUT       109,592 ops/sec
 latency          9125 ns/op

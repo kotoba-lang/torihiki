@@ -11,8 +11,8 @@
 ;; No code in src/ or test/ is touched by this file. It lives in
 ;; evidence/ like the falsify-1 harness and is invoked:
 ;;
-;;   JVM:  clojure -M -e '(load-file "evidence/fuzz-seeded.cljk")'
-;;   nbb:  nbb --classpath "src:<bytes>:<chain>:<merkle-sum>" \
+;;   JVM:  kbb -M -e '(load-file "evidence/fuzz-seeded.cljk")'
+;;   nbb:  kbb --backend sci --classpath "src:<bytes>:<chain>:<merkle-sum>" \
 ;;             -e '(load-file "evidence/fuzz-seeded.cljk")'
 ;;
 ;; The two stdout dumps must be byte-identical.

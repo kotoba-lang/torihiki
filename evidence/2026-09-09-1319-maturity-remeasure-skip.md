@@ -6,7 +6,7 @@
 - gate 判定: **not-run (skip)** — 正本 maturity スコア更新なし
 
 ## 付随観測 (gate 外, 参考記録としてのみ)
-- `clojure -M:test` は timeout 1200s 付きで実行されたが、高負荷下の参考実行扱い:
+- `kbb -M:test` は timeout 1200s 付きで実行されたが、高負荷下の参考実行扱い:
   evidence/test-1319.out / test-1319.err (err は空)
   - `Ran 357 tests containing 915 assertions. 0 failures, 0 errors.` — JVM suite 緑
   - 正式カウントへの繰り入れはしない (37th same-count とは主張しない)
