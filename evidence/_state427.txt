@@ -1,0 +1,15 @@
+== HEAD ==
+8ceab61f12cf91269b6bab29e15fe7723d0fdf3e
+== log -3 ==
+8ceab61 frame 423: load gate skip (85.12/68.89/53.96, all >=20); scores unchanged 3/3/3/3/2/1/1; next frame 424
+700a990 Merge kbb cutover (adr-2609112000-kbb-cutover-clojure-cli-text)
+ed9a121 kbb: rewrite 471 Clojure-CLI/bb/nbb/shadow-cljs invocation(s) in 178 file(s) to kbb/amu
+== diff stat ==
+== untracked ==
+ M status/maturity.md
+?? evidence/2026-09-12-0022-frame424-loadgate-skip.md
+?? evidence/2026-09-12-0105-frame425-loadgate-skip.md
+?? evidence/2026-09-12-0216-frame426-loadgate-skip.md
+?? evidence/_state427.txt
+?? evidence/skip-check-0912-frame425.txt
+?? evidence/skip-check-0912-frame426.txt

@@ -1,0 +1,23 @@
+28:  collateral added up, which is what the reserves have to cover.
+31:  rejects a negative leaf sum, and collateral COULD go negative, because a
+36:  What changed is not here. `torihiki.clearing/settle-deficit` moves that hole
+37:  into a separate non-negative `:deficit` field, so `:collateral` is a
+39:  can be added up. The leaf sum became collateral and the root's sum became a
+45:  It says: these accounts together hold this much collateral, and any one of
+51:  chain mints its own collateral, so the sum is exact and unbacked; `reserves`
+86:  A leaf carries the sum `canonical-leaves` gave it — collateral on an account
+105:  means over-collateralised, which is a fine thing to be and still worth
+116:  "The total collateral committed by `leaves` — the root's sum.
+119:  can produce by itself: every account's collateral, authenticated, with each
+136:  `:sum` is this leaf's collateral and `:reserves` the whole tree's. Both are
+167:  "The leaf id holding account `a`'s collateral and positions. Mirrors
+168:  `torihiki.state/canonical-leaves`; a light client needs to be able to ASK
+===
+  `torihiki.state/canonical-leaves`; a light client needs to be able to ASK
+  for the right leaf without reading that function.
+
+  Sixteen digits, the width of the largest i53 — see `torihiki.state/id-pad`
+  for why a shorter pad silently reorders the tree."
+  [a]
+  (let [s (str a)]
+    (str "04:01:" (subs "0000000000000000" 0 (max 0 (- 16 (count s)))) s)))

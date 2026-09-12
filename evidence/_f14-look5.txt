@@ -1,0 +1,91 @@
+src/torihiki/commit.cljk:37:  into a separate non-negative `:deficit` field, so `:collateral` is a
+src/torihiki/liquidation.cljk:234:  owing more than it had, that debt is recorded as `:deficit` instead of being
+src/torihiki/state.cljk:1622:            ;; `:deficit` is bad debt this account owes after a liquidation
+===
+97:(defn execute-adl
+128:(defn adl-ranking
+162:  waterfall the close had to go — `:book`, `:vault`, `:insurance`, or `:adl`.
+194:                        (update-in [:accounts acct :collateral] (fnil - 0) fee)
+195:                        (update :insurance-fund (fnil + 0) fee))
+212:                                (update-in [:accounts acct :collateral] (fnil + 0) covered))]
+217:                  (let [ranked (adl-ranking state'' mkt mark size)
+219:                        r (execute-adl state'' vault mkt bankruptcy
+221:                    {:state (assoc (:state r) :adl-queue ranked)
+223:                     :stage :adl
+224:                     :adl-closed (:closed r)
+225:                     :adl-unfilled (:unfilled r)
+251:                      (:adl-closed r))]
+===
+  "Run the waterfall for one account and market. Returns
+  `{:state .. :closed .. :stage ..}` where `:stage` names how far down the
+  waterfall the close had to go — `:book`, `:vault`, `:insurance`, or `:adl`.
+
+  `take-fn` is how the caller offers the position to the book: it receives
+  the signed size to close and the mark, and returns `[filled-lots
+  avg-price]`, or `[0 _]` if the book took nothing. Injecting it keeps this
+  namespace pure and testable without a book, and keeps the book from having
+  to know what a liquidation is."
+  [state acct mkt mark now markets params take-fn]
+  (let [pos (cl/position state acct mkt)
+        size (:size pos)]
+    (cond
+      (zero? size)
+      {:state state :closed 0 :stage :none}
+
+      (cooling-down? state acct mkt now params)
+      {:state state :closed 0 :stage :cooldown}
+
+      :else
+      (let [magnitude (slice-size size mark params)
+            ;; closing a long means selling: the delta is opposite the position
+            delta (if (pos? size) (- magnitude) magnitude)
+            [filled avg-price] (take-fn delta mark)
+            collateral (get-in state [:accounts acct :collateral] 0)
+            bankruptcy (bankruptcy-price pos collateral)
+            state (assoc-in state [:liquidation-clock [acct mkt]] now)]
+        (if (and (pos? (fx/abs* filled))
+                 (if (pos? size) (>= avg-price bankruptcy) (<= avg-price bankruptcy)))
+          ;; stage 1: the book absorbed it above bankruptcy
+          (let [fee (fx/mul-rate (fx/abs* (fx/notional avg-price filled))
+                                 (:liquidation-fee params))]
+            {:state (-> state
+                        (cl/apply-fill acct mkt filled avg-price 0)
+                        (update-in [:accounts acct :collateral] (fnil - 0) fee)
+                        (update :insurance-fund (fnil + 0) fee))
+             :closed filled
+             :stage :book})
+          ;; stage 2: hand the slice to the backstop vault at the mark
+          (let [vault (:backstop-vault state ::vault)
+                state' (transfer-position state acct vault mkt delta mark)
+                ;; A shortfall is how far the account went NEGATIVE — money it
+                ;; owes and cannot pay. Positive number, because every stage
+                ;; below subtracts it from somebody.
+                shortfall (max 0 (- (get-in state' [:accounts acct :collateral] 0)))]
+            (if (zero? shortfall)
+              {:state state' :closed delta :stage :vault}
+              ;; stage 3: the insurance fund makes the vault whole
+              (let [fund (get state' :insurance-fund 0)
+                    covered (min fund shortfall)
+                    state'' (-> state'
+                                (update :insurance-fund - covered)
+                                (update-in [:accounts acct :collateral] (fnil + 0) covered))]
+                (if (= covered shortfall)
+                  {:state state'' :closed delta :stage :insurance :covered covered}
+                  ;; stage 4: socialise the remainder onto profitable
+                  ;; counterparties, worst-ranked first
+                  (let [ranked (adl-ranking state'' mkt mark size)
+                        bankruptcy (max 1 bankruptcy)
+                        r (execute-adl state'' vault mkt bankruptcy
+                                       (- delta) ranked)]
+                    {:state (assoc (:state r) :adl-queue ranked)
+                     :closed delta
+                     :stage :adl
+                     :adl-closed (:closed r)
+                     :adl-unfilled (:unfilled r)
+                     :covered covered}))))))))))
+
+(defn liquidate
+  "The waterfall, with the hole it may leave behind moved out of `:collateral`.
+
+  `liquidate*` is the waterfall itself and is unchanged: stages 1 to 4 still
+  decide where a position goes and who pays for it. What this adds is the last

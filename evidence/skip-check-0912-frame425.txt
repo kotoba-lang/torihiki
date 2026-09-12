@@ -1,0 +1,5 @@
+ 1:05  up 6 days, 17:48, 5 users, load averages: 92.69 85.72 89.05
+8ceab61
+ M status/maturity.md
+?? evidence/2026-09-12-0022-frame424-loadgate-skip.md
+?? evidence/skip-check-0912-frame425.txt
