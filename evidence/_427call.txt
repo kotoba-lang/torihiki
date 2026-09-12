@@ -1,0 +1,34 @@
+== deps aliases ==
+29: {:test {:extra-paths ["test"]
+30-         :extra-deps {io.github.cognitect-labs/test-runner
+31-                      {:git/url "https://github.com/cognitect-labs/test-runner.git"
+--
+40:  :bench {:extra-paths ["bench"]
+41-          :jvm-opts ["-Xmx4g" "-XX:+UseParallelGC"]
+42-          :main-opts ["-m" "torihiki.bench"]}}}
+== tests-on-nbb head ==
+;; The whole test suite, on ClojureScript, without a JVM.
+;;
+;;   kbb --backend sci --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
+;;       script/tests-on-nbb.cljk
+;;
+;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and
+;; calls this, so the pins are what runs rather than whatever is checked out.
+;;
+;; ## Why this exists, and why `loads-on-nbb` is not it
+;;
+;; `loads-on-nbb` requires every namespace and stops. It catches the class it
+;; was written for -- unresolvable symbols, reader damage, macro expansion that
+;; only works on one side -- and its own comment says plainly that it does NOT
+;; catch behaviour that differs between the runtimes.
+;;
+;; That leaves the ClojureScript path asserting almost nothing, and the
+;; ClojureScript path is the one that DEPLOYS: `torihiki-node` compiles this
+;; engine to a Worker bundle, and a validator runs those bytes. The JVM suite
+;; is the one nobody ships.
+;;
+== bench alias ==
+40:  :bench {:extra-paths ["bench"]
+42:          :main-opts ["-m" "torihiki.bench"]}}}
+== prior frame 413/424 calls ==
+evidence/2026-09-12-0022-frame424-loadgate-skip.md:5:- HEAD **8ceab61** (frame 423 = 2026-09-11 23:09 skip commit)。直下に kbb cutover merge (700a990) + kbb rewrite (ed9a121, 178 file) 確認 — ただし本枠は skip 枠につき cutover 後の suite/parity/bench 再実測は未実施 (次 genuine 枠で suite 137 / parity 40 / bench 33 実行目として実測予定)。

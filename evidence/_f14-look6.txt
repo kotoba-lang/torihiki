@@ -1,0 +1,39 @@
+12:  ## Why merkle-sum and not a tree written here
+14:  `kotoba-lang/merkle-sum` is already a zero-dependency portable `.cljc`
+19:  classic proof-forgery footgun, and it also double-counts sums.
+24:  ## The sums are real now
+26:  A merkle-sum tree's root carries the total of its leaves, and for an
+27:  exchange that total is the prize: the root's sum is every account's
+28:  collateral added up, which is what the reserves have to cover.
+31:  rejects a negative leaf sum, and collateral COULD go negative, because a
+33:  on the account as a negative balance. A sum that is only valid while nobody
+36:  What changed is not here. `torihiki.clearing/settle-deficit` moves that hole
+37:  into a separate non-negative `:deficit` field, so `:collateral` is a
+39:  can be added up. The leaf sum became collateral and the root's sum became a
+43:  ## What the root's sum does and does not say
+45:  It says: these accounts together hold this much collateral, and any one of
+51:  chain mints its own collateral, so the sum is exact and unbacked; `reserves`
+54:  (:require [merkle-sum.core :as ms]
+59:  "The hasher merkle-sum digests node preimages with. Node preimages are
+60:  ASCII (`node|<hash>|<sum>|…`), so this is the string face of the same
+82:  the canonical order — merkle-sum's default `str` would be a no-op on them,
+86:  A leaf carries the sum `canonical-leaves` gave it — collateral on an account
+91:                 (mapv (fn [l] (assoc l :hash (leaf-hash l) :sum (:sum l 0))) leaves)
+105:  means over-collateralised, which is a fine thing to be and still worth
+113:    (- (reduce + 0 (map #(:sum % 0) leaves)) (long attested))))
+116:  "The total collateral committed by `leaves` — the root's sum.
+119:  can produce by itself: every account's collateral, authenticated, with each
+127:  (:sum (:root (tree leaves))))
+132:  Returns `{:id :bytes :sum :proof :root :reserves}` — everything a verifier
+136:  `:sum` is this leaf's collateral and `:reserves` the whole tree's. Both are
+142:        {:id id :bytes (vec (:bytes l)) :sum (:sum l 0) :proof p
+143:         :root (:hash (:root t)) :reserves (:sum (:root t))}))))
+152:  `root` is either the trusted root hash or a `{:hash :sum}` map. Given only
+154:  that is safe rather than a shortcut: every node preimage contains its sum,
+156:  fail against the one the caller trusts. The sums cannot be moved without
+157:  moving the hash, which is the property merkle-sum exists to provide."
+158:  [{:keys [id bytes sum proof reserves]} root]
+160:        root-sum (if (map? root) (:sum root) (or reserves 0))]
+163:          (ms/verify hash-hex (leaf-hash {:id id :bytes bytes}) (or sum 0) proof
+164:                     {:hash root-hash :sum root-sum})))))
+167:  "The leaf id holding account `a`'s collateral and positions. Mirrors
