@@ -1,0 +1,15 @@
+;; falsify-14 nbb driver
+(require '["fs" :as fs])
+(require '[torihiki.state :as st] '[torihiki.clearing :as cl] '[torihiki.commit :as cm])
+(load-string (fs/readFileSync "evidence/falsify14-multi-aggregate.cljk" "utf8"))
+
+(println (falsify14-multi-aggregate/header))
+
+(doseq [[label f] [["aggregate-sum" #(falsify14-multi-aggregate/probe-aggregate-sum)]
+                   ["control" #(falsify14-multi-aggregate/probe-control-reversible)]]]
+  (println
+   (try (falsify14-multi-aggregate/line (f))
+     (catch js/Error e
+       (falsify14-multi-aggregate/line-threw label e)))))
+
+(println "done")

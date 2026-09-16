@@ -1,0 +1,32 @@
+src/torihiki/commit.cljk:36:  What changed is not here. `torihiki.clearing/settle-deficit` moves that hole
+src/torihiki/commit.cljk:37:  into a separate non-negative `:deficit` field, so `:collateral` is a
+src/torihiki/state.cljk:1614:  (let [{:keys [collateral deficit positions]} (get-in clearing [:accounts a])
+src/torihiki/state.cljk:1622:            ;; `:deficit` is bad debt this account owes after a liquidation
+src/torihiki/state.cljk:1624:            ;; `torihiki.clearing/settle-deficit`. It is committed for the same
+src/torihiki/state.cljk:1640:              (enc-ints [enc-tag-account a (or collateral 0) (or deficit 0)
+src/torihiki/state.cljk:1785:         ;; account's collateral. Non-negative because `settle-deficit` moves
+src/torihiki/liquidation.cljk:234:  owing more than it had, that debt is recorded as `:deficit` instead of being
+src/torihiki/liquidation.cljk:242:  fork. `settle-deficit` is idempotent, so the duplicate when a counterparty is
+src/torihiki/liquidation.cljk:245:  See `torihiki.clearing/settle-deficit` for why the debt is worth keeping and
+src/torihiki/liquidation.cljk:252:    (assoc r :state (reduce cl/settle-deficit (:state r) touched))))
+src/torihiki/address.cljk:0
+src/torihiki/api.cljk:0
+src/torihiki/auth.cljk:0
+src/torihiki/book.cljk:0
+src/torihiki/clearing.cljk:18
+src/torihiki/commit.cljk:0
+src/torihiki/evm.cljk:0
+src/torihiki/fixed.cljk:0
+src/torihiki/funding.cljk:2
+src/torihiki/keccak.cljk:0
+src/torihiki/liquidation.cljk:2
+src/torihiki/log.cljk:0
+src/torihiki/mark.cljk:0
+src/torihiki/oracle.cljk:0
+src/torihiki/parity.cljk:0
+src/torihiki/principal.cljk:0
+src/torihiki/slab.cljk:0
+src/torihiki/snapshot.cljk:0
+src/torihiki/state.cljk:0
+src/torihiki/thorchain.cljk:0
+src/torihiki/trigger.cljk:0

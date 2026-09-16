@@ -1,0 +1,8 @@
+[detached HEAD 0ceca53] frame 422: load gate skip (53.19/39.91/38.69, all >=20); scores unchanged 3/3/3/3/2/1/1; next frame 423
+ 6 files changed, 31 insertions(+)
+ create mode 100644 evidence/2026-09-11-2105-frame422-loadgate-skip.md
+ create mode 100644 evidence/_f422a.txt
+ create mode 100644 evidence/_f422b.txt
+ create mode 100644 evidence/_f422c.txt
+ create mode 100644 evidence/skip-check-0911-2105.txt
+0ceca53 frame 422: load gate skip (53.19/39.91/38.69, all >=20); scores unchanged 3/3/3/3/2/1/1; next frame 423

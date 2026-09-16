@@ -1,0 +1,2 @@
+1
+uzz 常設化 + nbb-classpath bootstrap fix (2 段構成) + cutover 後 JVM suite/bench 呼び出し規約確立。次ランナー: 負荷 <20 (全 window) 突入後最初の枠で全 gate 再実測 (新規実測時 suite **137** / parity **40** / bench **33** 実行目)。次枠番号 = **432**。

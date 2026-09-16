@@ -1,0 +1,10 @@
+1707:(defn canonical-leaves
+1897:  Now derived from `canonical-leaves` so the two cannot drift: if a section
+1901:  (into [] (mapcat :bytes) (canonical-leaves ex)))
+1915:  an authenticated tree over `canonical-leaves`.
+1931:  (:hash (:root (cm/tree (canonical-leaves ex)))))
+17:  `state-root` is SHA-256 over a tagged, length-prefixed canonical encoding,
+1213:;;    23), which would hand out state-root collisions for free.
+1720:  `state-root` both, and the parity scenario's published digest with them.
+1907:  changed what `state-root` returns; this did not change at all, so a stored
+1913:(defn state-root

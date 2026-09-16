@@ -1,0 +1,160 @@
+;; The classpath `script/tests-on-nbb.cljk` needs, built from the deps.edn
+;; pins without starting a JVM.
+;;
+;;   node -e ''                       # nothing to install
+;;   kbb --backend sci script/nbb-classpath.cljk    # prints one classpath on stdout
+;;   kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk
+;;
+;; ## Why not `kbb -Spath`
+;;
+;; Because that is the JVM, and the point of the nbb suite is to run where no
+;; JVM does. `kbb -Spath` also resolves Maven coordinates this classpath
+;; has no use for.
+;;
+;; ## Why the pins and not the checkouts
+;;
+;; A sibling checkout sits at whatever commit `west` last moved it to, which
+;; is not necessarily the `:git/sha` in deps.edn. Measured on 2026-08-31 all
+;; three direct dependencies were at a different commit than the pin. Building
+;; the classpath from checkouts would run the suite against code the JVM suite
+;; is not running against, and the two runs would then disagree for a reason
+;; that is not a runtime difference at all.
+;;
+;; So each pin is extracted with `git archive <sha>` into `.nbb-deps/<name>/`.
+;; The checkout is used only as an object store.
+;;
+;; ## It refuses rather than returning a short classpath
+;;
+;; An unresolvable pin exits 2 with the name and sha on stderr. A short
+;; classpath would make `tests-on-nbb` fail to require a namespace, which
+;; reads like a code error rather than a missing dependency -- and if it were
+;; short in a way that still loaded, it would run a subset and report a pass.
+(ns nbb-classpath
+  (:require [clojure.edn :as edn]
+            [kotoba.lang.text :as str]
+            [nbb.core :refer [*file*]]
+            ["fs" :as fs]
+            ["path" :as path]
+            ["child_process" :as cp]))
+
+(def repo (path/resolve (path/join (path/dirname *file*) "..")))
+(def cache (path/join repo ".nbb-deps"))
+
+;; Where to look for the object store holding a pinned commit. `west` puts
+;; every project at `orgs/<org>/<name>`, so the superproject root is four
+;; levels up from this repo; `KOTOBA_CHECKOUTS` overrides that for a layout
+;; that is not this workspace's.
+(defn- checkout-dir [nm]
+  (or (some-> (aget js/process.env "KOTOBA_CHECKOUTS") (path/join nm))
+      (path/join repo ".." nm)))
+
+(defn- run [cmd]
+  (try {:ok (str (cp/execSync cmd #js{:stdio #js["ignore" "pipe" "ignore"]}))}
+       (catch :default e {:err (.-message e)})))
+
+(defn- extract! [nm sha]
+  (let [dest (path/join cache nm)]
+    (if (fs/existsSync dest)
+      dest
+      (let [co (checkout-dir nm)]
+        (when-not (fs/existsSync co)
+          (js/console.error (str "unresolvable: " nm " @ " sha " — no checkout at " co))
+          (js/process.exit 2))
+        (when (:err (run (str "git -C " co " cat-file -e " sha "^{commit}")))
+          (js/console.error (str "unresolvable: " nm " @ " sha " — commit not in " co))
+          (js/process.exit 2))
+        (fs/mkdirSync dest #js{:recursive true})
+        (when-let [e (:err (run (str "git -C " co " archive " sha " | tar -x -C " dest)))]
+          (js/console.error (str "extract failed: " nm " @ " sha " — " e))
+          (js/process.exit 2))
+        dest))))
+
+(defn- deps-of [dir]
+  (let [f (path/join dir "deps.edn")]
+    (when (fs/existsSync f)
+      ;; `:deps` only. An alias's `:extra-deps` is the JVM test runner and
+      ;; friends, which this path does not use and cannot resolve.
+      (:deps (edn/read-string (str (fs/readFileSync f "utf8")))))))
+
+(defn- walk! [dir seen acc]
+  (doseq [[coord v] (deps-of dir)]
+    (when-let [sha (:git/sha v)]
+      (let [nm (name coord)]
+        (when-not (@seen nm)
+          (swap! seen conj nm)
+          (let [d (extract! nm sha)]
+            (swap! acc conj (path/join d "src"))
+            (walk! d seen acc)))))))
+
+(let [seen (atom #{})
+      acc (atom [])]
+  (walk! repo seen acc)
+  (when (empty? @acc)
+    (js/console.error "no git dependencies resolved — deps.edn was not read")
+    (js/process.exit 2))
+  (println (str/join ":" (concat ["src" "test"] @acc))))
+grep: src/torihiki/clearing.cljc: No such file or directory
+                state' (transfer-position state acct vault mkt delta mark)
+                ;; A shortfall is how far the account went NEGATIVE — money it
+                ;; owes and cannot pay. Positive number, because every stage
+                ;; below subtracts it from somebody.
+                shortfall (max 0 (- (get-in state' [:accounts acct :collateral] 0)))]
+            (if (zero? shortfall)
+              {:state state' :closed delta :stage :vault}
+              ;; stage 3: the insurance fund makes the vault whole
+              (let [fund (get state' :insurance-fund 0)
+                    covered (min fund shortfall)
+                    state'' (-> state'
+                                (update :insurance-fund - covered)
+                                (update-in [:accounts acct :collateral] (fnil + 0) covered))]
+                (if (= covered shortfall)
+                  {:state state'' :closed delta :stage :insurance :covered covered}
+                  ;; stage 4: socialise the remainder onto profitable
+                  ;; counterparties, worst-ranked first
+                  (let [ranked (adl-ranking state'' mkt mark size)
+                        bankruptcy (max 1 bankruptcy)
+                        r (execute-adl state'' vault mkt bankruptcy
+                                       (- delta) ranked)]
+                    {:state (assoc (:state r) :adl-queue ranked)
+                     :closed delta
+                     :stage :adl
+                     :adl-closed (:closed r)
+                     :adl-unfilled (:unfilled r)
+                     :covered covered}))))))))))
+
+(defn liquidate
+  "The waterfall, with the hole it may leave behind moved out of `:collateral`.
+
+  `liquidate*` is the waterfall itself and is unchanged: stages 1 to 4 still
+  decide where a position goes and who pays for it. What this adds is the last
+  piece of bookkeeping the waterfall never did — when a stage leaves an account
+  owing more than it had, that debt is recorded as `:deficit` instead of being
+  left as a negative `:collateral`.
+
+  The accounts that can end up underwater are exactly the ones the waterfall
+  touched: the liquidated account, the backstop vault that inherited its
+  position, and any counterparty auto-deleveraged at the bankruptcy price. They
+  are settled in a fixed order rather than as a set, because iteration order of
+  a Clojure set is unspecified and two validators walking it differently is a
+  fork. `settle-deficit` is idempotent, so the duplicate when a counterparty is
+  also the vault costs a comparison.
+
+  See `torihiki.clearing/settle-deficit` for why the debt is worth keeping and
+  `torihiki.commit` for what being able to add up `:collateral` buys."
+  [state acct mkt mark now markets params take-fn]
+  (let [r (liquidate* state acct mkt mark now markets params take-fn)
+        touched (into [acct (:backstop-vault state ::vault)]
+                      (map :account)
+                      (:adl-closed r))]
+    (assoc r :state (reduce cl/settle-deficit (:state r) touched))))
+
+(defn scan
+  "Every account currently liquidatable on `mkt`, in a deterministic order.
+
+  Sorted by account id, not by map order: `keys` on a Clojure map has no
+  specified order, and liquidating in a different order on two validators
+  produces different fills, different marks, and a fork. The sort is the
+  cheapest possible insurance against that and it runs once per block."
+238:  touched: the liquidated account, the backstop vault that inherited its
+249:        touched (into [acct (:backstop-vault state ::vault)]
+252:    (assoc r :state (reduce cl/settle-deficit (:state r) touched))))

@@ -1,0 +1,7 @@
+2026-09-16 12:23 frame 466 load gate skip
+load 1m/5m/15m = 272.68 / 203.61 / 145.22 (uptime direct, all >= 20) -> gate FAIL -> not-run
+HEAD 0a99c9c2a1275d32ba2e99247f43978e62bf1645 (unchanged, frame 442-465 same)
+git diff HEAD -- src/ script/ deps.edn = 0 lines
+untracked: maturity.md (M) + evidence only
+canonical base: frame-464 (2026-09-16 0906, HEAD 0a99c9c2) suite 144 / parity 45 / fuzz 38 / bench f451 copy cancelled=153,767 3x stable
+next frame = 467

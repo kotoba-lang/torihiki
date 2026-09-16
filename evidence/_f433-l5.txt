@@ -1,0 +1,4 @@
+1598:(defn- encode-clearing-totals
+1780:      [{:id "04:00" :bytes (encode-clearing-totals clearing)}]
+1598:(defn- encode-clearing-totals
+1780:      [{:id "04:00" :bytes (encode-clearing-totals clearing)}]

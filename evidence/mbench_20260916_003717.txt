@@ -1,0 +1,48 @@
+=== DATE ===
+2026-09-16 00:37:17 JST
+=== UPTIME ===
+ 0:37  up 10 days, 17:20, 7 users, load averages: 21.08 19.51 19.41
+=== LOADAVG ===
+{ 21.08 19.51 19.41 }
+=== HEAD ===
+0a99c9c frame 442: maturity.md score-table citation refresh only (scores unchanged 3/3/3/3/2/1/1) - falsification count 13->15 (f14 pending, f15 partial survive 2026-09-14: bench ArityException consumed via owner wiring but cancelled=0 new defect)
+=== STATUS ===
+ M status/maturity.md
+?? evidence/2026-09-12-0022-frame424-loadgate-skip.md
+?? evidence/2026-09-12-0105-frame425-loadgate-skip.md
+?? evidence/2026-09-12-0216-frame426-loadgate-skip.md
+?? evidence/2026-09-12-2317-frame429-loadgate-skip.md
+?? evidence/2026-09-13-0112-frame430-genuine-cutover-recheck.md
+?? evidence/2026-09-13-1412-frame431-loadgate-skip.md
+?? evidence/2026-09-13-1825-frame432-loadgate-skip.md
+?? evidence/2026-09-13-2028-frame433-genuine-interrupted.md
+?? evidence/2026-09-13-2123-frame434-loadgate-skip.md
+?? evidence/2026-09-13-2319-frame435-loadgate-skip.md
+?? evidence/2026-09-14-0020-frame436-genuine-nbb-41st-pass-jvm-cljk-rootcause.md
+?? evidence/2026-09-14-0222-falsify-14-multi-account-aggregate-overflow.md
+?? evidence/2026-09-14-0222-falsify14-hypothesis.md
+?? evidence/2026-09-14-0512-frame438-genuine-jvm-suite-rename-copy-pass-suite137.md
+?? evidence/2026-09-14-055x-frame439-genuine-bench-rename-copy-known-red-33rd.md
+?? evidence/2026-09-14-063x-frame440-genuine-parity-40th-fuzz-33rd.md
+?? evidence/2026-09-14-1315-frame443-loadgate-skip.md
+?? evidence/2026-09-14-1409-frame438-loadgate-skip.md
+?? evidence/2026-09-14-1704-frame444-genuine-gate-passed-budget-exhausted.md
+?? evidence/2026-09-14-1712-falsify16-hypothesis.md
+?? evidence/2026-09-14-1712-frame444-genuine-falsify16-registered.md
+?? evidence/2026-09-14-1816-frame445-genuine-lite-nbb-43rd.md
+?? evidence/2026-09-14-2010-falsify16-hypothesis-cancel-owner-mismatch-static.md
+?? evidence/2026-09-14-2105-frame447-genuine-jvm-nbb-suite138.md
+?? evidence/2026-09-14-2320-frame448-static-f16-swap.md
+?? evidence/2026-09-15-0113-frame445-genuine-both-runtime-suite138-pass-bench33-red.md
+?? evidence/2026-09-15-0125-frame449-genuine-f16-argorder-fix-cancelled-172.md
+?? evidence/2026-09-15-0157-frame450-genuine-gate-passed-terminal-fault-notrun.md
+?? evidence/2026-09-15-0220-frame451-genuine-f17-ringowner-cancelled-153767-3xstable.md
+=== DECISION ===
+loadavg1={
+awk: syntax error at source line 1
+ context is
+	BEGIN{exit >>>  !({ <<< 
+awk: illegal statement at source line 1
+awk: illegal statement at source line 1
+	missing }
+STATUS: RUN-ALLOWED (host load { <= 20)

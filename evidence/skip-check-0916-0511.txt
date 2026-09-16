@@ -1,0 +1,5 @@
+load gate skip 2026-09-16 05:09-05:10 (frame 461)
+1-min 29.48 / 30.15 (>=20)
+5-min 20.91 / 21.77 (>=20)
+15-min 17.67 / 18.07
+all-<20 fails -> not-run. HEAD 0a99c9c2 (direct), src/ diff 0 lines. canonical frame-460.

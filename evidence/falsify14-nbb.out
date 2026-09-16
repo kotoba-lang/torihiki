@@ -1,0 +1,5 @@
+falsify-14: does the cross-account aggregate (merkle root sum) cross into a double-irreversible value with every leaf reversible?
+probe aggregate-sum 3x9007199254740994 (per-acct even reversible) sum-expected 27021597764222984 sum-odd false sum-in-domain false reserves 27021597764222984 root 55a6cf066f177cff6bf55c20454ec5fb17d3c3d3d2d60b7fbcba840935793aa0
+probe control 3x2^53 (aggregate reversible) sum-expected  sum-odd  sum-in-domain  reserves 27021597764222976 root 8b1ba1bd69507a35618bdad9524cf1e5ab07826202ab7e9938e8fac611c97c59
+done
+NBB_EXIT=0

@@ -1,0 +1,4 @@
+2026-09-13 21:23 frame 434 load gate check
+uptime: 21:23 up 8 days, 14:06, load 13.61 / 17.03 / 21.22
+1-min 13.61 (<20) / 5-min 17.03 (<20) / 15-min 21.22 (>=20) -> GATE FAIL (not all windows <20)
+decision: not-run (test/parity/bench/falsify)

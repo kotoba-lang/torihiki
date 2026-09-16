@@ -1,0 +1,15 @@
+generating a 1,000,000-operation tape...
+warming up (JIT)...
+measuring 1,000,000 operations...
+
+  operations       1,000,000
+  placed           450,908
+  cancelled        153,767
+  resting at end   223,196
+  elapsed          15.270 s
+
+  THROUGHPUT       65,488 ops/sec
+  latency          15270 ns/op
+
+  reference: HyperCore is documented at ~200,000 orders/sec
+  ratio vs that reference: 0.3x

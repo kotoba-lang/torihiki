@@ -1,0 +1,63 @@
+(defn- encode-clearing-totals
+  [clearing]
+  (enc-ints [enc-tag-account (count (:accounts clearing))
+             (or (:insurance-fund clearing) 0)
+             (or (:fees-collected clearing) 0)
+             (or (:funding-residue clearing) 0)]))
+
+(defn- encode-clearing-account
+  "One account: its collateral and its positions in sorted market order.
+  Sorted because Clojure map iteration order is unspecified — folding in map
+  order would make the root depend on insertion history rather than on state.
+
+  **This is the leaf a light client proves.** Everything needed to answer
+  \"what does account A hold\" is here and nowhere else, which is what lets an
+  inclusion proof stand in for a replay."
+  [clearing a]
+  (let [{:keys [collateral deficit positions]} (get-in clearing [:accounts a])
+        mkts (sort (keys positions))]
+    (into
+     (reduce (fn [acc m]
+              (let [p (get positions m)]
+                (into acc (enc-ints [enc-tag-position m (:size p)
+                                     (:entry-notional p)
+                                     (or (:isolated p) 0)]))))
+            ;; `:deficit` is bad debt this account owes after a liquidation
+            ;; the insurance fund could not fully cover — see
+            ;; `torihiki.clearing/settle-deficit`. It is committed for the same
+            ;; reason the collateral beside it is: a deposit pays it down
+            ;; before it credits anything, so two replicas that disagreed about
+            ;; it would disagree about the balance one block later.
+            ;; The referrer, and the volume. Both decide where money goes on
+            ;; the next fill — the referrer takes a share of the venue's fee,
+            ;; and the volume picks the tier — so a replica that disagreed
+            ;; about either would pay a different account or charge a
+            ;; different price.
+            ;;
+            ;; Volume decides which fee tier this account pays, so it is
+            ;; authority over money the same way the rates themselves are: two
+            ;; replicas that disagreed about it would charge different fees on
+            ;; the next fill.
+            (let [{:keys [epoch cur prev] :or {epoch 0 cur 0 prev 0}}
+                  (get-in clearing [:volume a])]
+              (enc-ints [enc-tag-account a (or collateral 0) (or deficit 0)
+                         epoch cur prev
+                         (or (get-in clearing [:referrers a]) 0)
+                         (if (get-in clearing [:referrers a]) 1 0)
+                         ;; Bonds and unbondings: a claim the chain can slash
+                         ;; and a claim the holder is waiting on. Both decide
+                         ;; what this account may spend, and bonds decide whose
+                         ;; price wins — a replica that disagreed would compute
+                         ;; a different mark.
+                         (reduce + 0 (vals (get-in clearing [:bonds a] {})))
+                         (count (get-in clearing [:bonds a] {}))
+                         (reduce + 0 (map :amount (get-in clearing [:unbonding a] [])))
+                         ;; Spot balances and what resting spot orders have
+                         ;; already committed. A balance is a holding the same
+                         ;; way collateral is, and a commitment decides whether
+                         ;; the next order is backed — so both are claims on
+                         ;; money and both belong under the root.
+                         (count (get-in clearing [:balances a] {}))
+                         ;; The chosen leverage per market. It decides the
+                         ;; margin this account must hold, so a replica that
+                         ;; disagreed would liquidate at a different point.

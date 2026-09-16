@@ -1,0 +1,9 @@
+time: 2026-09-15 23:13 JST
+load 1m: 86.21
+load 5m: 76.78
+load 15m: 62.78
+gate: all-<20 FAIL (all windows >=20) -> not-run
+HEAD: 0a99c9c2a1275d32ba2e99247f43978e62bf1645
+src/script/deps.edn diff vs HEAD: 0 lines
+canonical ref: frame-456 (suite 140 / parity 42 / fuzz 35 / bench red 34 consumed; f451 bench 3x stable)
+next frame: 458
