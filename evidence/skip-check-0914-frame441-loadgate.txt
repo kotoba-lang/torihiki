@@ -1,0 +1,4 @@
+frame 441 load gate check (2026-09-14 08:26, direct /usr/bin/uptime):
+load averages: 9.37 10.26 11.15 -> all windows <20, gate PASSED (genuine run allowed)
+HEAD at run start: 8af801db076a19c9eeaad02696da93e1169aceb0
+git diff HEAD --stat -- src/ script/ deps.edn: 0 lines (no src changes)

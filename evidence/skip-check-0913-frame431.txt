@@ -1,0 +1,2 @@
+2026-09-13 14:12 frame431 load gate: 1m 40.22 / 5m 29.42 / 15m 32.31 — all >=20, not-run
+HEAD 8af801db, src/script/deps.edn diff empty, next frame 432

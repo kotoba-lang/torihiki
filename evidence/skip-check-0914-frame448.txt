@@ -1,0 +1,1 @@
+frame 448 2026-09-14 2320: load 11.09/11.91/12.73 all <20 gate passed; budget exhausted -> not-run; HEAD 0a99c9c2; f16 static decisive: bench.cljc:112 cancel! owner/oid args swapped (sig [b oid owner]); cancelled=0 fully explained; fix = (bk/cancel! b oid (bit-and i 1023)); evidence/2026-09-14-2320-frame448-static-f16-swap.md; next frame 449

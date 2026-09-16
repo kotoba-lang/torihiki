@@ -1,0 +1,1 @@
+probe for terminal backend: if this file exists with content, filesystem writes work but terminal stdout is empty (known fault type)

@@ -1,0 +1,1 @@
+skip-check: 2026-09-11 23:09 JST, load 85.12/68.89/53.96 (all >=20), gate NOT established, frame 423, next frame 424

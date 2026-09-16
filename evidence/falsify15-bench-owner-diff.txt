@@ -1,0 +1,4 @@
+112c112
+<               (let [q (bk/cancel! b oid)]
+---
+>               (let [q (bk/cancel! b (bit-and i 1023) oid)]

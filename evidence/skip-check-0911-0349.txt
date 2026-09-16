@@ -1,0 +1,17 @@
+skip-check 2026-09-11 0349 (frame 411, cron, no code changes)
+date: Fri Sep 11 03:49:04 JST 2026
+uptime pre-run (03:43, torihiki_state.sh 経由): 7.42 9.51 10.27  (全 window <20)
+uptime 直測 03:49 (1):  19.37 13.84 11.66
+uptime 直測 03:49 (2):  20.51 14.37 11.89   <- 1-min >=20 (中間測定)
+uptime 直測 03:49 (3):  19.75 14.31 11.88
+判定: 1-min が 20 を跨ぎ (19.37 / 20.51 / 19.75) 「全 window <20」を確定できず
+      gate ambiguous -> 本枠 test/parity/bench/falsify 新規実測 not-run (skip)
+HEAD: 7ec6411 (d8fb6be から移行: 09-11 00:48 landing 91d23b8/9bea09f/7ec6411)
+git diff HEAD --stat -- src/ script/ deps.edn = 0 行 (空出力で確認)
+git status: M evidence/test-jvm-411.out / ?? evidence/test-nbb-411.{err,out} のみ (evidence のみ)
+IN-FLIGHT 検収 (01:08 orphaned runner, 実読):
+  test-jvm-411.out = Ran 357 tests / 915 assertions, 0 failures 0 errors, JVM_EXIT=0
+  test-nbb-411.out = Ran 357 tests / 915 assertions, 0 failures 0 errors,
+                     namespaces 17/17, TESTS-ON-NBB: pass, NBB_EXIT=0
+  test-nbb-411.err = 0 bytes
+  (bench / fuzz / falsify 出力は本枠 411 系に無し — suite 採用判定は次 genuine 枠へ)

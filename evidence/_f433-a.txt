@@ -1,0 +1,53 @@
+8af801db076a19c9eeaad02696da93e1169aceb0
+8af801d frame 428: append remeasure log entry to maturity.md
+1e2d09f frame 428: partial genuine gate (load 7.71/10.17/10.21 all <20); nbb suite 357/915 40th count (test-nbb-427c); JVM suite + bench invocations broken post-cutover (classpath bootstrap, new residual); falsify-14 deferred; scores unchanged 3/3/3/3/2/1/1; next frame 429
+8ceab61 frame 423: load gate skip (85.12/68.89/53.96, all >=20); scores unchanged 3/3/3/3/2/1/1; next frame 424
+700a990 Merge kbb cutover (adr-2609112000-kbb-cutover-clojure-cli-text)
+ed9a121 kbb: rewrite 471 Clojure-CLI/bb/nbb/shadow-cljs invocation(s) in 178 file(s) to kbb/amu
+ M status/maturity.md
+?? evidence/2026-09-12-0022-frame424-loadgate-skip.md
+?? evidence/2026-09-12-0105-frame425-loadgate-skip.md
+?? evidence/2026-09-12-0216-frame426-loadgate-skip.md
+?? evidence/2026-09-12-2317-frame429-loadgate-skip.md
+?? evidence/2026-09-13-0112-frame430-genuine-cutover-recheck.md
+?? evidence/2026-09-13-1412-frame431-loadgate-skip.md
+?? evidence/2026-09-13-1825-frame432-loadgate-skip.md
+?? evidence/_427call.txt
+?? evidence/_427call2.txt
+?? evidence/_f14-frame431.txt
+?? evidence/_f14-frame432-readback.txt
+?? evidence/_f14-frame432-uptime.txt
+?? evidence/_f14-look.txt
+?? evidence/_f14-look2.txt
+?? evidence/_f14-look3.txt
+?? evidence/_f14-look4.txt
+?? evidence/_f14-look5.txt
+?? evidence/_f14-look6.txt
+?? evidence/_f14-look7.txt
+?? evidence/_f14-tail.txt
+?? evidence/_f14-verify.txt
+?? evidence/_f433-a.txt
+?? evidence/_f433-gitstate.txt
+?? evidence/_probe-0913.txt
+?? evidence/_probe-uptime-0913.txt
+?? evidence/_state427.txt
+?? evidence/bench-427.out
+?? evidence/skip-check-0912-frame425.txt
+?? evidence/skip-check-0912-frame426.txt
+?? evidence/skip-check-0913-frame431.txt
+?? evidence/test-jvm-427.out
+?? evidence/test-jvm-427b.err
+?? evidence/test-jvm-427b.out
+?? evidence/test-jvm-427c.err
+?? evidence/test-jvm-427c.exit
+?? evidence/test-jvm-427c.out
+?? evidence/test-jvm-427d.err
+?? evidence/test-jvm-427d.out
+?? evidence/test-jvm-432.err
+?? evidence/test-jvm-432.out
+?? evidence/test-jvm-432c.err
+?? evidence/test-jvm-432c.out
+?? evidence/test-nbb-427.err
+?? evidence/test-nbb-427.out
+?? evidence/test-nbb-432.err
+?? evidence/test-nbb-432.out

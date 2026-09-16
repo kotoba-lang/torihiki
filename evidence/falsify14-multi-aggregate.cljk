@@ -1,0 +1,79 @@
+;; falsify-14 harness — does the CROSS-ACCOUNT aggregation path (the merkle-sum
+;; root sum over canonical-leaves) diverge JVM/nbb when every per-account
+;; collateral is double-reversible but the SUM is not?
+;;
+;; Hypothesis (registered pre-run in evidence/2026-09-14-0222-falsify14-hypothesis.md):
+;; commit.cljk:113 shortfall / :sum at the merkle root reduce ALL account
+;; collaterals into ONE aggregate with no domain check. Seed three accounts
+;; at 2^53+2 each (even, double-reversible per account — falsify-8 showed even
+;; values in [2^53,2^54) stay reversible); the aggregate 3·(2^53+2) lands in
+;; [2^54, 2^55) at ≡2 mod 4 → double-irreversible → nbb rounds, JVM keeps the
+;; exact long → roots diverge with zero throws. This is the last unmeasured
+;; accum-class site (per-account accumulation is settled by falsify-8/9/10/11/12/13).
+;;
+;; No try/catch here; drivers own catching. Nothing in src/ or test/ is touched.
+(ns falsify14-multi-aggregate
+  (:require [torihiki.state :as st]
+            [torihiki.commit :as cm]))
+
+(def i53-max 9007199254740991)
+;; 2^53+2: even, double-reversible as a per-account value (falsify-8 rule i)
+(def per-acct 9007199254740994)
+;; 3× = 27021597764222982 ≡ 2 (mod 4), in [2^54,2^55) → double-irreversible
+(def three 3)
+
+(defn header []
+  "falsify-14: does the cross-account aggregate (merkle root sum) cross into a double-irreversible value with every leaf reversible?")
+
+(defn- fresh []
+  (st/new-exchange {:market (torihiki.clearing/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                    :book-opts {:n-levels 65536 :cap 65536 :ev-cap 65536}}))
+
+(defn probe-aggregate-sum
+  "Seed accounts 4/6/8 each at 2^53+2 (individually reversible), then read
+  state-root and commit reserves/shortfall. Predicted: roots diverge across
+  runtimes, zero throws."
+  []
+  (let [ex (-> (fresh)
+               (assoc-in [:clearing :accounts 4 :collateral] per-acct)
+               (assoc-in [:clearing :accounts 6 :collateral] per-acct)
+               (assoc-in [:clearing :accounts 8 :collateral] per-acct))
+        leaves (st/canonical-leaves ex)
+        reserves (cm/reserves leaves)]
+    {:probe (str "aggregate-sum " three "x" per-acct " (per-acct even reversible)")
+     :sum-expected (* three per-acct)
+     :sum-odd (odd? (* three per-acct))
+     :sum-in-domain (<= (* three per-acct) i53-max)
+     :reserves reserves
+     :root (str (st/state-root ex))}))
+
+(defn probe-control-reversible
+  "Control: three accounts at 2^53 (even, in the reversible even grid even in
+  aggregate: 3·2^53 = 27021597764222976 ≡ 0 mod 4). Predicted: roots MATCH
+  across runtimes — isolating the divergence to irreversibility of the sum,
+  not the aggregation path itself."
+  []
+  (let [ex (-> (fresh)
+               (assoc-in [:clearing :accounts 4 :collateral] 9007199254740992)
+               (assoc-in [:clearing :accounts 6 :collateral] 9007199254740992)
+               (assoc-in [:clearing :accounts 8 :collateral] 9007199254740992))
+        leaves (st/canonical-leaves ex)]
+    {:probe "control 3x2^53 (aggregate reversible)"
+     :reserves (cm/reserves leaves)
+     :root (str (st/state-root ex))}))
+
+(defn line-threw
+  [probe e]
+  (str "probe " probe
+       " -> threw"
+       " msg=" (ex-message e)
+       " where=" (pr-str (:where (ex-data e)))
+       " value=" (pr-str (:value (ex-data e)))))
+
+(defn line [r]
+  (str "probe " (:probe r)
+       " sum-expected " (:sum-expected r)
+       " sum-odd " (:sum-odd r)
+       " sum-in-domain " (:sum-in-domain r)
+       " reserves " (:reserves r)
+       " root " (:root r)))

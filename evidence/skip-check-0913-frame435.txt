@@ -1,0 +1,1 @@
+load gate skip 2026-09-13 23:19 frame 435: 1m=23.38 5m=20.87 15m=18.21 (>=20 windows present, all<20 fails) -> not-run

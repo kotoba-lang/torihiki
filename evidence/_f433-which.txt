@@ -1,0 +1,7 @@
+/opt/homebrew/bin/kbb
+/opt/homebrew/bin/nbb
+CHANGELOG.md
+LICENSE
+README.md
+bb.edn
+build

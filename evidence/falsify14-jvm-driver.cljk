@@ -1,0 +1,14 @@
+;; falsify-14 JVM driver
+(load-file "evidence/falsify14-multi-aggregate.cljk")
+(require '[torihiki.clearing :as cl])
+
+(println (falsify14-multi-aggregate/header))
+
+(doseq [[label f] [["aggregate-sum" #(falsify14-multi-aggregate/probe-aggregate-sum)]
+                   ["control" #(falsify14-multi-aggregate/probe-control-reversible)]]]
+  (println
+   (try (falsify14-multi-aggregate/line (f))
+     (catch Exception e
+       (falsify14-multi-aggregate/line-threw label e)))))
+
+(println "done")

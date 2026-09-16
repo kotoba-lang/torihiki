@@ -1,0 +1,4 @@
+36:  What changed is not here. `torihiki.clearing/settle-deficit` moves that hole
+37:  into a separate non-negative `:deficit` field, so `:collateral` is a
+113:    (- (reduce + 0 (map #(:sum % 0) leaves)) (long attested))))
+     175 src/torihiki/commit.cljk

@@ -1,0 +1,1 @@
+uzz 32)。スコア 7 軸変更なし (3/3/3/3/2/1/1)。残作業不変 + JVM suite/bench cutover 後呼び出し規約確立。次枠番号 = **429** (新規実測時 suite 137 / parity 40 / bench 33 実行目; falsify-14 優先)。枠記録: evidence/2026-09-12-2016-frame428-partial-genuine.md。
