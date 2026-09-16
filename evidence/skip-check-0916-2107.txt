@@ -1,0 +1,6 @@
+pre-run (script block 21:04): 77.67 74.90 64.20
+direct 21:07: 40.39 61.55 60.92
+HEAD 56a4ad0c8fcff6f10b7cd2ef4ef7f25d5862d23e
+src/script/deps.edn diff vs HEAD: 0 lines
+gate: all windows >=20 -> NOT-RUN (load gate skip)
+frame 472, next frame 473
