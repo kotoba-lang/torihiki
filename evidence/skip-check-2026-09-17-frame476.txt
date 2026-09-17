@@ -1,0 +1,1 @@
+frame476 2026-09-17 05:11 loadgate 27.00/19.07/15.51 -> skip (1-min > 20). Next: nbb suite retry w/ captured streams + CP wc -c.

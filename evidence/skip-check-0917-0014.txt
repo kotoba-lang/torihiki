@@ -1,0 +1,5 @@
+2026-09-17 00:14 skip check frame 474
+uptime x2: 31.58 24.76 19.76 (both measurements identical)
+gate: all windows <20 required; 5-min 24.76 >= 20 -> NOT-RUN
+git diff HEAD --stat -- src/ script/ deps.edn: empty (0 lines)
+/tmp/tori-f451 measurement copy: present

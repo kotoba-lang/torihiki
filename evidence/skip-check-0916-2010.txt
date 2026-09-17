@@ -1,0 +1,5 @@
+skip: load gate (2026-09-16 2010 frame 471)
+pre-run 20:09: 29.86 / 30.46 / 45.29
+direct 20:10:07: 34.30 / 31.72 / 44.44
+direct 20:10:52: 34.04 / 31.71 / 44.36
+all windows >= 20 -> not-run. HEAD 56a4ad0c, src diff 0 lines. next frame 472

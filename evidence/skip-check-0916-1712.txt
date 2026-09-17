@@ -1,0 +1,12 @@
+17:04 pre-run (script block): 123.22 / 98.13 / 84.18 — all >=20
+17:11 direct: 72.86 / 80.64 / 81.64 — all >=20
+gate: all-windows <20 NOT met -> skip, not-run (frame 469)
+HEAD: 56a4ad0c8fcff6f10b7cd2ef4ef7f25d5862d23e (same as frame 467, unchanged)
+git diff HEAD --stat -- src/ script/ deps.edn: 0 lines (code invariant, direct at 17:11)
+git status --porcelain: 5 lines = status/maturity.md (M) + 4 evidence files (frames 467/468 only)
+/tmp/tori-f451 measurement copy present (next genuine frame reuse confirmed)
+citation lines re-read at 56a4ad0c, all unshifted: api.cljk:68/:202, clearing.cljk:157/:410/:560/:711/:726, funding.cljk (140 lines, site :138 present), commit.cljk (175 lines, sites :113/:115 present), bench.cljk:112 (2-arg cancel!)
+terminal backend empty-output fault (known) — outputs via redirect /tmp/tori469-state.txt + read_file
+canonical ref: frame-464 (0906, 0a99c9c2) measured base — suite 144 / parity 45 / fuzz 38 / bench f451 copy cancelled=153,767 3x stable
+frame 468 (14:09 skip, evidence files only) REMEASURE LOG registration was left to this frame — registered together (retroactive)
+next runner: first frame with all-windows <20 runs full gate remeasure (suite 145 / parity 46 / fuzz 39 / bench 37th run); next frame number = 470
