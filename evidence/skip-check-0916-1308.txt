@@ -1,0 +1,9 @@
+13:04 pre-run (script block): 126.88 / 105.17 / 119.90 — all >=20
+13:08 direct #1: 95.06 / 102.93 / 115.39 — all >=20
+13:08 direct #2: 88.58 / 100.40 / 113.97 — all >=20
+gate: all-windows <20 NOT met -> skip, not-run
+HEAD: 56a4ad0c8fcff6f10b7cd2ef4ef7f25d5862d23e (moved from 0a99c9c2, repo-bot-drain evidence landing 12:35)
+git diff 0a99c9c2..HEAD -- src/ script/ deps.edn: 0 lines (code invariant)
+git status --porcelain: 0 lines (clean tree)
+canonical ref: frame-464 (0906, 0a99c9c2) measured base — suite 144 / parity 45 / fuzz 38 / bench f451 cancelled=153,767 3x stable
+frame numbering: 466 = 12:23 parallel skip (evidence only); this frame = 467; next = 468

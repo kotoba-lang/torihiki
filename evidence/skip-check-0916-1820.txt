@@ -1,0 +1,30 @@
+skip-check frame 470 @ 2026-09-16 18:20 JST
+============================================
+reason: load gate fail (all windows >= 20) -> test/parity/fuzz/bench/falsify not-run
+
+readings:
+  pre-run (script block) 18:14: 216.14 / 171.46 / 155.19 (1m/5m/15m)
+  direct 18:20:08:              226.22 / 199.09 / 173.42
+  direct 18:22:57:              184.31 / 195.30 / 176.74
+  18:24 (final):                188.90 / 194.88 / 178.48
+  -> all >= 20, gate "all windows < 20" NOT met
+
+environment (via redirect + read_file workaround; terminal empty-output fault, known high-load type):
+  HEAD: 56a4ad0c8fcff6f10b7cd2ef4ef7f25d5862d23e (direct 18:20; same as frame 467/469)
+  git diff HEAD --stat -- src/ script/ deps.edn: 0 lines (re-verified 18:24)
+  git log -3: 56a4ad0 Merge agent/repo-bot-landed / 38a0caa frames 411/423-466 land / 51aa61e PR #18 cleanup-land
+  working tree: M status/maturity.md + untracked evidence 467/468/469 files only (no src/ changes)
+  /tmp/tori-f451: present (6 entries) - reusable for next genuine frame
+  status/maturity.md: 88 -> 89 lines (frame 470 ledger entry appended; last line verified)
+
+canonical ref maintained: frame-464 (2026-09-16 0906, HEAD 0a99c9c2) measured base
+  suite 144 (50th same-count 357/915 0F/0E both runtimes) / parity 45 (FLAT ROOT b4322bed / STATE ROOT d1ebb9d3)
+  / fuzz digest 38 byte-identical / bench f451 copy n=1M BENCH_EXIT=0 cancelled=153,767 3x stable
+  code-invariance 0a99c9c2..56a4ad0c (frame-467 direct) + this frame diff 0 lines -> citation valid
+
+frame numbering: frame-469 = 1709 + 1712 file pair (single frame, files DIFFERENT per diff check);
+  18:20 slot canonicalized as frame 470, no duplicate. Next frame = 471.
+next genuine gate: suite 145 / parity 46 / fuzz 39 / bench 37th run.
+
+discoveries 0, new hypotheses 0, NEXT unmeasured 0 (fix not started - cron code-change prohibition).
+scores unchanged 3/3/3/3/2/1/1 (falsifications 16, f8-f17 OPEN).

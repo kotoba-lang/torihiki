@@ -1,0 +1,5 @@
+17:09 pre-run (script block): 74.78 / 86.70 / 83.75 — all >=20
+gate: all-windows <20 NOT met -> skip, not-run (frame 469)
+terminal backend empty-output fault reconfirmed this frame (uptime / ls / bash torihiki_state.sh all stdout empty, exit 0; 5 attempts incl. execute_code blocked) — evidence written via write_file workaround
+canonical ref: frame-464 (0906, HEAD 0a99c9c2) measured base, code-invariant under 56a4ad0c per frame-467 direct measurement — suite 144 / parity 45 / fuzz 38 / bench f451 copy cancelled=153,767 3x stable
+next runner: first frame with all-windows <20 runs full gate remeasure (suite 145 / parity 46 / fuzz 39 / bench 37th run); next frame number = 470

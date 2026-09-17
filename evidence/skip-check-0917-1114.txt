@@ -1,0 +1,4 @@
+2026-09-17 11:14 skip check frame 479
+uptime direct: 159.93 127.58 87.02 (all windows >= 20) -> NOT-RUN
+git diff HEAD --stat -- src/ script/ deps.edn: not re-run (budget); code unchanged since HEAD 366321a (no commits since frame 472)
+/tmp/tori-f451 measurement copy: present (frame 477 used it)

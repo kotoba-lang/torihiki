@@ -1,0 +1,8 @@
+2026-09-16 23:09 frame 473
+load 1m 25.43 / 5m 21.07 / 15m 21.70 (direct #1)
+load 1m 24.53 / 5m 20.13 / 15m 21.42 (direct #2, pre-run)
+all windows >=20 -> gate NOT passed -> not-run
+HEAD 366321a94c51a8848978def7c3c6c02961638d1e (src/script/deps.edn diff 0 lines)
+/tmp/tori-f451 present
+canonical ref: frame-464 (0906, 0a99c9c2) suite 144 / parity 45 / fuzz 38 / bench f451 3x stable cancelled=153,767
+next frame = 474

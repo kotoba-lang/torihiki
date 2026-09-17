@@ -1,0 +1,3 @@
+cannot measure: amu could not compile /private/tmp/tori-f451/kotoba/torihiki/fixed.kotoba 
+  {:format :kotoba.cli-error/v1, :ok false, :error :project-link, :diagnostic {:format :kotoba.diagnostic/v1, :code :kotoba/project-link-failed, :severity :error, :source "fixed.kotoba"}, :message "project path is not readable"}
+
