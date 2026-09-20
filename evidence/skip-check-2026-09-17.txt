@@ -1,0 +1,1 @@
+frame 478 (2026-09-17 ~23:10 JST): SKIP — terminal tool outage (empty output for all shell commands), NOT load gate (load 12.15 < 20). Canonical reference stays frame 477 bench 3-run green series + frame 476 suite145. No measurement this frame. Measurement-run counter unchanged.

@@ -1,0 +1,10 @@
+== skip-check-0919-2311 (frame 508) ==
+pre-run 23:09: 14.63 / 20.31 / 21.66
+direct 23:10:28: 15.07 / 19.65 / 21.33
+direct 23:11: 15.52 / 18.95 / 20.94
+=> 15-min >=20 in ALL three measurements -> all-windows-<20 fails -> NOT-RUN (load gate skip)
+HEAD: 694e2ac7aecdc7bf2f5468beba3d35faeab81305
+git diff HEAD --stat -- src/ script/ deps.edn: (empty, 0 lines)
+working tree: status/maturity.md (M) + untracked evidence only
+canonical ref: frame-507 (2104) measured base: suite 152 / parity 52 / fuzz 48 / bench not-run carried
+next frame = 509

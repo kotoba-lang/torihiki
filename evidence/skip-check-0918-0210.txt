@@ -1,0 +1,7 @@
+frame 485 skip check 2026-09-18 02:10 JST
+pre-run load (torihiki_state.sh): 23.33 / 29.52 / 28.26
+direct load 02:10 (uptime): 20.77 / 28.10 / 27.79
+=> all windows >= 20 in both measurements -> load gate FAILED -> not-run
+HEAD: 366321a94c51a8848978def7c3c6c02961638d1e (direct, 02:10)
+canonical ref: frame-484 (2026-09-18 0109) maintained
+next frame: 486

@@ -1,0 +1,5 @@
+load gate check 2026-09-18 05:10:40 JST (frame 487)
+uptime direct: 10.61 / 13.63 / 19.42 (1-min / 5-min / 15-min) — all < 20, gate PASSED
+pre-run (script block): 12.59 / 14.39 / 19.99 — all < 20
+post-run 05:17:49: 40.57 / 33.41 / 26.83 (JIT/rise after run, gate evaluated pre-run)
+HEAD: 366321a94c51a8848978def7c3c6c02961638d1e

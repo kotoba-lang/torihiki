@@ -1,0 +1,14 @@
+# frame 488 genuine run (2026-09-18 06:15–06:2x JST, cron, no code changes)
+
+- Load gate: 06:14 pre-run 15.13/13.83/13.68, 06:15 direct 10.95/12.73/13.27, 06:19 post-JVM-suite 10.27/11.84/12.77 — all windows <20, gate passed. Frames 485/486 were load-gate skips; first genuine frame after 487.
+- HEAD **366321a** (direct git rev-parse, same as frames 478–487). `git diff HEAD --stat -- src/ script/ deps.edn` = empty (0 lines). Working tree = maturity.md (M) + evidence only. repo bench/torihiki/bench.cljk:112 re-read 06:15: still 2-arg `(bk/cancel! b oid)` — 3-part bench fix (f15+f16+f17) unlanded, cron code-change prohibited.
+- Measurement copy /tmp/tori-f451 verified in sync with HEAD: deps.edn diff empty, src/torihiki/state.cljc ≡ src/torihiki/state.cljk, test/torihiki/book_test.cljc ≡ repo (spot checks; full-tree loop diff blocked by cron compound-command scan — spot-check + HEAD-unchanged-since-frame-487 contract applied). Copy script/ listing ≡ repo script/ listing (5 files incl. nbb-classpath.cljk / tests-on-nbb.cljk).
+- terminal stdout capture broken (known fault) → all output via redirect + read_file; loop/`$(...)` constructs blocked by security scan → classpath CP inlined literally into the run command.
+- **suite 147 both runtimes PASS on /tmp/tori-f451**:
+  - JVM `clojure -M:test` → 357 tests / 915 assertions, 0 failures, 0 errors, JVM_EXIT=0, 13 s (evidence/f488-test-jvm.{out,err,exit}; err 0 bytes).
+  - nbb 2-stage classpath (text-src 73bdb13a…/src prepended to generated CP; bare CPGEN reproduces the known `kotoba.lang.text` fall, CPGEN_EXIT=1 first attempt, EXIT=0 with prepended src; KOTOBA_CHECKOUTS + NODE_PATH per frame-476 recipe) → 357/915, 0 failures, 0 errors, namespaces 17/17, TESTS-ON-NBB: pass, NBB_EXIT=0, err 0 bytes (evidence/f488-test-nbb.{out,err,exit}).
+  - → same-count 50th consecutive measurement (suite **147**; frame 487 counted 49th at suite 146).
+- **fuzz digest 42nd byte-identical**: JVM `clojure -M -e '(do (load-file "evidence/fuzz-seeded.cljk") (fuzz-seeded/run))'` vs nbb `kbb --backend sci --classpath "<CP>" evidence/fuzz-nbb-driver.cljk` (run in /tmp/tori-f451) → both EXIT=0, 2715 bytes each, `diff` empty (evidence/f488-fuzz-{jvm,nbb}.{out,err,exit}). Baseline comparison vs repo f476-fuzz-jvm.out not completed (budget; copy lacks f476 files) — count carried as 42nd on the in-frame diff alone.
+- bench / parity / falsify: not-run (bench needs the 3-part fix landed at HEAD; parity 47 measured frame 484; canonical bench ref = frame-477 3-run green series + frames 451/453/455 on the f451 owner-wired copy).
+- Discoveries 0, new hypotheses 0. Scores 7 axes unchanged (3/3/3/3/2/1/1; falsifications 16, f8–f17 OPEN).
+- Next runner: repo 3-part bench fix landing (interactive slot, cron prohibited) → HEAD 3× n=1M → 再現性 3; validate-i53-halt fix package remains highest leverage. Next frame = 489.

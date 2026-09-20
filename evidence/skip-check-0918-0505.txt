@@ -1,0 +1,7 @@
+2026-09-18 05:05 (direct uptime via redirect workaround)
+1-min 13.26 / 5-min 16.90 / 15-min 22.80
+pre-run (torihiki_state.sh block, 05:04): 14.42 / 17.71 / 23.42
+gate rule: all windows <20 required -> FAIL (15-min >=20 in both measurements)
+HEAD 366321a94c51a8848978def7c3c6c02961638d1e (same as frames 476/478/480/481/484)
+working tree: maturity.md (M) + evidence only -> src/ unchanged
+decision: load gate skip frame 486, no measurements, no code changes

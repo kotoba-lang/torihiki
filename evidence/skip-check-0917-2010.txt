@@ -1,0 +1,4 @@
+2026-09-17 20:09/20:10 uptime: 15.58 17.46 29.77 / 14.37 16.99 29.17
+15-min >= 20 (両測定) -> load gate fail -> all new measurements not-run
+HEAD 366321a, src/script/deps.edn diff 0 lines
+frame 481, next = 482
