@@ -1,0 +1,5 @@
+load samples (JST, uptime direct — terminal stdout 空 fault ため redirect 迂回):
+20:10 (pre-run script): 53.75 / 61.99 / 52.30
+20:11:17: 51.33 / 59.64 / 52.07
+20:12:29: 45.93 / 56.31 / 51.45
+→ 全 window ≥20 が全サンプルで成立 (最低値でも 1-min 45.93 ≫ 20)。gate「全 window <20」不成立 → test/parity/fuzz/bench/falsify 新規実測 not-run。

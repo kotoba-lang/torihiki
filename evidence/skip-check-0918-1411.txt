@@ -1,0 +1,6 @@
+frame 493 load gate samples (2026-09-18 JST, redirect+read_file 迂回実測; terminal stdout 空出力 fault 継続)
+14:11:22  vm.loadavg { 12.35 21.94 22.00 }  -> 5m/15m >=20 FAIL
+14:13:xx  vm.loadavg { 14.74 20.48 21.44 }  -> 5m/15m >=20 FAIL
+14:13:xx  vm.loadavg { 18.62 20.69 21.45 }  -> 1m 18.62 / 5m/15m >=20 FAIL
+14:15:52  vm.loadavg { 11.34 17.84 20.29 }  -> 15m 20.29 >=20 FAIL
+全サンプルで「全 window <20」不成立 → 新規実測 not-run (test/parity/fuzz/bench/falsify)

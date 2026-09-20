@@ -1,0 +1,6 @@
+1d0
+< #'fuzz-seeded/run
+20c19
+< FJ_EXIT=0
+---
+> FN_EXIT=0

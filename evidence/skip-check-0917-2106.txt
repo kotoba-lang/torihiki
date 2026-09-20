@@ -1,0 +1,9 @@
+skip-check-0917-2106 (frame 482)
+21:04 pre-run (torihiki_state.sh block): 1-min 44.87 / 5-min 27.44 / 15-min 21.97  [all >=20]
+21:06 uptime direct #1: 52.28 / 33.74 / 24.84  [all >=20]
+21:06 uptime direct #2: 59.28 / 37.29 / 26.47  [all >=20, rising]
+Verdict: "all windows <20" fails in every measurement -> load gate NOT passed -> test/parity/fuzz/bench/falsify new measurements not-run.
+HEAD 366321a94c51a8848978def7c3c6c02961638d1e (direct, 21:06)
+git diff HEAD --stat -- src/ script/ deps.edn: 0 lines (empty)
+working tree: status/maturity.md (M) + untracked evidence only; /tmp/tori-f451 present
+repo bench/torihiki/bench.cljk:112 direct read: "(let [q (bk/cancel! b oid)]" (2-arg, 3-part fix unlanded)

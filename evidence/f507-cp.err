@@ -1,0 +1,10 @@
+----- Error --------------------------------------
+Message:  Could not find namespace: kotoba.lang.text
+file:///Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/org-babashka-nbb/lib/nbb_impl_main.js:14
+$APP.dD),$APP.nY);return h.v?h.v():h.call(null)}):null).then(function(h){$APP.k($APP.k(d)?h!=null:d)&&$APP.ez.o($APP.v([h],0));return h}).catch(function(h){$APP.Bla(h,b);$APP.k($APP.fz.h(b))&&console.error(h);throw Error($APP.Ik(h));})})):console.error("Usage: "+$APP.G.h("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")};$APP.w2=new $APP.C(null,"nrepl-server","nrepl-server",557025430);pTa=new $APP.C(null,"socket-repl","socket-repl",1039210136);$APP.x2=new $APP.C(null,"script","script",-1304443801);
+                                                                                                                                                                                                                       ^
+
+Error: Could not find namespace: kotoba.lang.text
+    at file:///Users/junkawasaki/github/com-junkawasaki/orgs/kotoba-lang/org-babashka-nbb/lib/nbb_impl_main.js:14:216
+
+Node.js v26.0.0

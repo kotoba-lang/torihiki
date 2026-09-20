@@ -1,0 +1,2 @@
+2026-09-19 02:09 JST frame 496: loadgate skip (load 21.28/21.44/22.33 > 20). No measurement run. Evidence: 2026-09-19-0209-frame496-loadgate-skip.md. Note: terminal tool returned empty output all session.
+2026-09-19 05:11 JST frame 497: loadgate skip (load 42.86/44.49/43.21 > 20). No measurement run. Evidence: 2026-09-19-0511-frame497-loadgate-skip.md. Note: terminal foreground output empty again (echo empty); worked around via terminal(background=true) + file redirect + read_file.
