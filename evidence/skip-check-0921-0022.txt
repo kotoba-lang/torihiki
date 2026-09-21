@@ -1,0 +1,10 @@
+frame 521 load gate skip check (cron, 2026-09-21 JST)
+pre-run script (00:14):  0:14  up 2 days,  8:25,  2 users, load averages: 89.62 88.31 79.68
+direct 1 (00:19):        0:19  up 2 days,  8:30,  2 users, load averages: 67.46 88.01 83.12
+direct 2 (00:22, ~90s 間隔): 0:22  up 2 days,  8:32,  2 users, load averages: 61.39 77.30 79.47
+→ 全 window 1-min/5-min/15-min で <20 不成立 (全 >=20) → load gate 失敗, 新規実測 not-run
+HEAD: 6552005c7cc96b02b62c5613974b3ccf0de5e5d6 (frame-512 ledger commit, 前 frame 520 と同一)
+git diff HEAD --stat -- src/ script/ deps.edn bench/ = 0 bytes (直接実測, コード不変)
+working tree: M status/maturity.md + untracked evidence backlog のみ (git status --porcelain 直接実測)
+測定 copy 現存: /tmp/tori-f495 /tmp/tori-f499 /tmp/tori-f506 /tmp/tori-f513 (ls -d 直接実測)
+terminal stdout 空出力 fault 継続 — redirect 経由取得 (本ファイル + /tmp/f521_{a,b,c}.txt)

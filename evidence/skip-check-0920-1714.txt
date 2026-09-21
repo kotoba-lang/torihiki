@@ -1,0 +1,8 @@
+frame 517 load gate skip check (2026-09-20 17:14 JST)
+pre-run (torihiki_state.sh block, 17:04): load averages 19.84 40.49 57.74
+direct (17:10): load averages 28.95 26.30 43.84
+all windows >= 20 in both measurements -> gate FAIL -> new measurements not-run
+HEAD 6552005c7cc96b02b62c5613974b3ccf0de5e5d6 (git rev-parse HEAD direct)
+git diff 694e2ac7..HEAD -- src/ script/ deps.edn = 0 bytes (code unchanged since frame 503 base; frame-513 citations valid)
+repo bench/torihiki/bench.cljk:112 re-read: (bk/cancel! b oid) 2-arg unlanded
+terminal empty-output fault (known): outputs via redirect + read_file

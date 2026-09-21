@@ -1,0 +1,13 @@
+frame 519 load gate check (2026-09-20 20:22 JST)
+terminal empty-output fault (known high-load type); values via python driver redirect -> read_file
+20:09 pre-run torihiki_state.sh : 24.73 23.36 27.90
+20:13 uptime/sysctl direct : 17.30 20.79 25.65 (5-min & 15-min >=20 -> FAIL)
+20:21 uptime/sysctl direct (2nd spaced measurement): 1-min 30.60 / 5-min 26.06 / 15-min 25.57 -> all >=20, re-escalating
+verdict: all windows >=20 at both spaced measurements -> "all <20" FAILS -> not-run (loadgate skip)
+top proc: python 94.1% CPU (pid 76207) + WindowServer 49% -> host busy, no measurement slot feasible
+HEAD 6552005c7cc96b02b62c5613974b3ccf0de5e5d6 (frame-512 ledger commit) direct; git diff HEAD --stat -- src/ script/ deps.edn bench/ = 0 bytes (code unchanged)
+OPEN-red 9 sites re-read at 6552005: api.cljk:68/:202, clearing.cljk:711/:726, funding.cljk:138, liquidation.cljk:195, commit.cljk:113/:115, bench.cljk:112 (2-arg) - all valid
+/tmp measurement copies: tori-f495, tori-f499 present (tori-f506, tori-f513 ABSENT at 20:13 check)
+canonical base: frame-513 (09:0x) suite 155 (59th) / parity 52 / fuzz 52 byte-identical / bench known-red
+scores unchanged 3/3/3/3/2/1/1 (falsifications 18, f8-f18 OPEN per frame-518 ledger)
+next frame = 520 (new-measurement: suite 156 / parity 53 / fuzz 53 / bench 40th)

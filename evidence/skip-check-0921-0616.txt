@@ -1,0 +1,11 @@
+frame 522 load gate skip check (cron, 2026-09-21 JST)
+pre-run script (06:14):  6:14  up 2 days, 14:25,  3 users, load averages: 33.43 27.56 23.51
+direct 1 (06:19):        6:19  up 2 days, 14:30,  3 users, load averages: 15.09 24.10 23.18
+direct 2 (06:21, ~90s 間隔): 6:21  up 2 days, 14:32,  3 users, load averages: 10.96 19.74 21.58
+direct 3 (06:48):        6:48  up 2 days, 14:59,  3 users, load averages: 22.84 29.25 29.09
+→ 06:21 で 15-min のみ >=20, 06:48 で全 window 再逆 >=20 → load gate 失敗, 新規実測 not-run
+HEAD: 6552005c7cc96b02b62c5613974b3ccf0de5e5d6 (frame-512 ledger commit, 前 frame 521 と同一)
+git diff HEAD --stat -- src/ script/ deps.edn bench/ = 0 bytes (直接実測, コード不変)
+working tree: M status/maturity.md + untracked evidence backlog のみ (git status --porcelain 直接実測)
+測定 copy 現存: /tmp/tori-f495 /tmp/tori-f499 /tmp/tori-f506 /tmp/tori-f513 (ls -d 直接実測)
+terminal stdout 空出力 fault 継続 — redirect 経由取得 (本ファイル + /tmp/f492_*.txt)
