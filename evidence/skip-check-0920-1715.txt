@@ -1,0 +1,12 @@
+frame 517 load gate check (2026-09-20 17:15 JST)
+terminal empty-output fault (known high-load type); values via python driver redirect -> read_file
+17:15 sysctl -n vm.loadavg : { 29.90 29.24 40.47 }
+17:15 uptime : 17:15  up 2 days,  1:25, 5 users, load averages: 29.90 29.24 40.47
+pre-run torihiki_state.sh (17:09): 27.03 25.73 44.50
+verdict: 1-min 29.90 >=20, 5-min 29.24 >=20, 15-min 40.47 >=20 -> all windows >=20 -> "all <20" FAILS -> not-run (loadgate skip)
+HEAD 6552005 (frame-512 ledger commit) direct; git diff HEAD --stat -- src/ script/ deps.edn = 0 bytes; git diff 6552005c --stat -- src/ script/ deps.edn = 0 bytes
+OPEN-red 8 sites re-read at 6552005: api.cljk:68/:202, clearing.cljk:711/:726, funding.cljk:138, liquidation.cljk:195, commit.cljk:113/:115, bench.cljk:112 (2-arg) - all valid
+/tmp/tori-f506 PRESENT, /tmp/tori-f495 PRESENT, /tmp/tori-f451 ABSENT
+canonical base: frame-513 (09:0x) suite 155 (59th) / parity 52 / fuzz 52 byte-identical / bench known-red
+scores unchanged 3/3/3/3/2/1/1 (falsifications 16, f8-f17 OPEN)
+next frame = 518 (new-measurement: suite 156 / parity 53 / fuzz 53 / bench 40th)
