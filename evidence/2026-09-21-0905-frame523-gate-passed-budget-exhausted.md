@@ -1,0 +1,12 @@
+# frame 523 (2026-09-21 09:05 JST, cron) — genuine-gate-passed budget-exhausted (no code changes)
+
+- Load gate passed: pre-run 09:04 uptime direct 1-min **8.38** / 5-min **7.58** / 15-min **8.81** all windows <20 (first all-<20 pre-run since frame 521). torihiki_state.sh stdout empty (chronic fault) — mitigated by reading script (13 lines verified) + redirect→read_file workaround.
+- Runtime budget exhausted before any measurement → suite 156 / parity 53 / fuzz 53 / bench 40th / falsify-19 NOT-RUN.
+- HEAD **6552005c** direct (git log -1, frame-512 ledger commit; frames 513–522 identical), `git diff 694e2ac..HEAD -- src/ script/ deps.edn` = 0 bytes → code unchanged, canonical citations valid.
+- Working tree: status/maturity.md (M) + untracked evidence backlog only; src/ unchanged.
+- Measurement copies /tmp/tori-f495, f499, f506, f513 present (frame-522 direct check).
+- Canonical base maintained: **frame 513** (suite 155 both runtimes PASS 357/915 same-count 59th / parity 52 / fuzz digest 52 byte-identical / bench known-red bench.cljk:112 2-arg, 3-part fix unlanded).
+- **maturity.md header staleness noted (citation hygiene)**: header lines 11/13 still cite frame-513 counts via stale framing, and the OPEN-red section + one NEXT parenthetical still say "falsify-14 未実測" — falsify-14 (merkle aggregate, commit.cljk:115/:113) was CONFIRMED at frame 452 (verdict evidence/2026-09-15-0506-frame452-falsify14-verdict-merkle-aggregate-overflow.md); the frame-407 deficit-aggregation hypothesis shape is a distinct residual candidate, mislabeled as "falsify-14 carry". Header count-of-falsifications (15/16/18 inconsistencies across sections) also stale vs frame-518 ledger base (18 measured, f8–f18 OPEN). Scores unaffected.
+- Discoveries 0 measurements / 1 citation-hygiene note. New hypotheses 0. Scores unchanged **3/3/3/3/2/1/1** (falsifications 18, f8–f18 OPEN).
+- NEXT unchanged (all code-change work, interactive frames only): validate-i53-halt fix package (api i53/notional/balance-domain gates + accum sum gates 7 sites incl. commit aggregate + fx/mul-rate pre-bound + REDUCING product bound + rate cap + settle-deficit delta clamp) → 3-part bench fix landing (f15+f16+f17; engine soundness confirmed by falsify-18) → HEAD 3× n=1M cancelled>0 → reproducibility 3 → fuzz suite permanent.
+- Next frame = **524** (suite 156 / parity 53 / fuzz 53 / bench 40th on first measurement window).

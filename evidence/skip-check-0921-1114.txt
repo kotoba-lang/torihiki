@@ -1,0 +1,20 @@
+=== frame 524 load gate check (2026-09-21 11:14:18, direct sysctl vm.loadavg + uptime) ===
+LOADAVG: 33.17 32.97 31.74
+UPTIME: 11:14  up 2 days, 19:25, 3 users, load averages: 33.17 32.97 31.74
+PRE-RUN (cron script block, 11:09): 19.57 21.97 28.46
+GATE: all windows >=20 at direct measurement -> SKIP (not-run)
+
+HEAD: e819d69 (direct 11:14; same as frame 523)
+git diff HEAD --stat -- src/ script/ deps.edn: 0 bytes
+git status --porcelain: 2 lines (M status/maturity.md; ?? evidence/2026-09-21-0905-frame523-gate-passed-budget-exhausted.md)
+
+OPEN-red citations re-read at e819d69 (all valid):
+  api.cljk:68     = (not (and (integer? qty) (pos? qty))) :bad-quantity
+  api.cljk:202    = (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+  clearing.cljk:711 = (update-in [:accounts acct :deficit] (fnil + 0) (fx/check :deficit (- c))))
+  clearing.cljk:726 = true (update-in [:accounts acct :collateral] (fnil + 0) (- amount repaid)))))
+  funding.cljk:138  = (update :funding-residue (fnil + 0) p))))))
+  liquidation.cljk:195 = (update :insurance-fund (fnil + 0) fee))
+  commit.cljk:113   = (- (reduce + 0 (map #(:sum % 0) leaves)) (long attested))))
+  commit.cljk:115   = (defn reserves
+  bench.cljk:112    = (let [q (bk/cancel! b oid)]   [2-arg, 3-part fix unlanded]
