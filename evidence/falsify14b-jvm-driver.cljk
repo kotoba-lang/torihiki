@@ -1,0 +1,19 @@
+;; falsify-14b JVM driver (frame 535) — owns the try/catch.
+(println (falsify14b-multi-deficit/header))
+
+(defn- fmt-snap [[h s]]
+  (str " k" (:k s)
+       " d4 " (:d4 s) " d6 " (:d6 s)
+       " c4 " (:c4 s) " c6 " (:c6 s)
+       " root " (:root s)))
+
+(defn- fmt-probe [r]
+  (str "probe " (:probe r)
+       (reduce (fn [acc [h s]] (str acc (fmt-snap [h s]))) "" (:snaps r))))
+
+(println
+ (try (fmt-probe (falsify14b-multi-deficit/probe-multi-account-accum))
+   (catch Exception e
+     (falsify14b-multi-deficit/line-threw "multi-account-deficit-accum" e))))
+
+(println "done")

@@ -1,0 +1,78 @@
+;; falsify-14b (frame 535, 2026-09-22) — multi-account :deficit accumulation
+;; through the REAL sweep.
+;;
+;; falsify-12 probe C measured ONE account (4) accumulating a double-
+;; irreversible :deficit at k3 (27021570002997003, JVM) vs nbb's rounded
+;; 27021570002997004, root JVM 97e35070... vs nbb 065f44e4....
+;;
+;; The unmeasured multi-account aggregation path (frame-407 registered
+;; hypothesis shape, carried in ledger as "falsify-14 carry"): two accounts
+;; (4 and 6) seeded with the same in-domain loss through the same real
+;; end-of-block sweep. Each per-account :deficit walks the same k1/k2/k3
+;; trajectory, but the aggregate state-root carries BOTH simultaneously-
+;; diverging values — falsify-14b measures whether the multi-account
+;; aggregate root still diverges across runtimes (prediction: yes) and
+;; whether per-account values match falsify-12 single-account values
+;; exactly (prediction: yes — no aggregation interference from the
+;; second account).
+
+(ns falsify14b-multi-deficit
+  (:require [torihiki.state :as st]
+            [torihiki.clearing :as cl]))
+
+(def i53-max 9007199254740991)
+;; same in-domain, double-exact, ODD seeded loss as falsify-12 probe C
+(def d 9007190000000001)
+
+(defn fresh []
+  (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                    :book-opts {:n-levels 65536 :cap 65536 :ev-cap 65536}}))
+
+(defn- deficit [ex acct]
+  (get-in ex [:clearing :accounts acct :deficit] 0))
+(defn- coll [ex acct]
+  (get-in ex [:clearing :accounts acct :collateral] 0))
+
+(defn- snap [ex k]
+  {:k k
+   :d4 (deficit ex 4) :d6 (deficit ex 6)
+   :c4 (coll ex 4) :c6 (coll ex 6)
+   :root (str (st/state-root ex))})
+
+(defn- fresh-marked []
+  (-> (fresh)
+      (assoc-in [:marks 1] 1)
+      (assoc-in [:oracle 1] 1)))
+
+(defn- reseed-both [ex]
+  (-> ex
+      (assoc-in [:clearing :accounts 4 :collateral] (- d))
+      (assoc-in [:clearing :accounts 4 :positions 1]
+                {:size 1000 :entry-notional 1000000 :isolated nil})
+      (assoc-in [:clearing :accounts 6 :collateral] (- d))
+      (assoc-in [:clearing :accounts 6 :positions 1]
+                {:size 1000 :entry-notional 1000000 :isolated nil})))
+
+(defn probe-multi-account-accum
+  "Two accounts (4 and 6) accumulate the same in-domain :deficit through
+  the real end-of-block sweep, 3 blocks. Per-block snapshot: per-account
+  deficit/collateral + aggregate state-root."
+  []
+  (let [states (loop [ex (reseed-both (fresh-marked)), h 1, acc []]
+                 (let [ex' (st/apply-block ex {:height h :ts (* 100 h) :txs []})
+                       acc' (conj acc [h (snap ex' h)])]
+                   (if (= h 3)
+                     acc'
+                     (recur (reseed-both ex') (inc h) acc))))]
+    {:probe "multi-account-deficit-accum 2x d=9007190000000001 (acc 4+6)"
+     :snaps states}))
+
+(defn line-threw
+  [probe e]
+  (str "probe " probe
+       " -> threw msg=" (ex-message e)
+       " where=" (pr-str (or (:where (ex-data e)) nil))
+       " value=" (pr-str (:value (ex-data e)))))
+
+(defn header []
+  "falsify-14b: multi-account :deficit aggregation through the real sweep")
