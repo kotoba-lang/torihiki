@@ -126,8 +126,10 @@ $ kbb -M:bench 10000000
   latency                 317 ns/op
 ```
 
-Reference: HyperCore is documented at roughly **200,000 orders/sec**. That run
-is **15.8x** that figure.
+That run was once set beside HyperCore's documented **~200,000 orders/sec**
+as "15.8x". It is not the same axis: this is the book alone, and Hyperliquid's
+figure is its whole execution layer. The comparison that is on the same axis
+is [Against Hyperliquid](#against-hyperliquid), below.
 
 ### That number did not reproduce on 2026-08-04, on UNMODIFIED code
 
@@ -157,14 +159,93 @@ gates nothing, so it can only rot in one direction — silently. It rotted.
 ### What the workload is
 
 A steady-state mix (43% cancels, 45% passive quotes, 12% aggressive orders that
-cross, book holding ~840k resting orders). It does **not** include consensus,
-networking, signature verification, or persistence, and those are what will
-actually set a live chain's block rate. What it establishes is that the
-execution layer is not the bottleneck, which is the only claim it should be
-used for.
+cross, book holding ~840k resting orders). It does **not** include margin,
+fees, consensus, networking, signature verification, or persistence. What it
+establishes is that the BOOK is not the bottleneck — and, measured below, it
+is not: the state machine around it is.
 
-Reproduce with `kbb -M:bench <n-operations>`, and note what else the
-machine is doing while you do.
+### The benchmark could not run for three weeks
+
+`bench.cljk` called `bk/cancel!` with the two-argument signature the book had
+dropped, so every run died with an ArityException (41 consecutive red runs in
+the maturity ledger). The first repair passed owner and oid in swapped order,
+which ran clean and cancelled **nothing** — a book that only grows, reported as
+a throughput. It now keeps the placer's id beside each ringed order, and a run
+of 1,000+ operations in which no cancel succeeds exits 1 with
+`REFUSED: no cancel succeeded`. Measured 2026-09-23 at 1,000,000 operations:
+450,909 placed, **153,767 cancelled**, 137,348 ops/sec (load average 15–18).
+The swapped-argument version, re-created on a copy, refuses as it should.
+
+## Against Hyperliquid
+
+Hyperliquid documents (hypercore/overview, read 2026-09-23):
+
+> Mainnet currently supports approximately 200k orders/sec. [...] The current
+> bottleneck is execution.
+
+> For an order placed from a geographically co-located client, end-to-end
+> latency has a median 0.2 seconds and 99th percentile 0.9 seconds.
+
+The quotes, their source and which torihiki figure each may be compared with
+are data: `bench/torihiki/hyperliquid-reference.edn`.
+
+Since the bottleneck it names is execution, the comparable torihiki figure is
+the whole state machine, not the book. `torihiki.hyperliquid` (alias
+`:bench-hl`) drives `apply-block` — validation, margin, fees, the liquidation
+sweep — over a workload the engine itself generates (cancels name orders that
+are actually resting), then replays it from genesis in four stages:
+
+| stage | txs/sec | block p50 | block p99 | vs 200k |
+|---|---|---|---|---|
+| execution (unsigned replay) | 24,292 | 77.8 ms | 120.5 ms | 0.12x |
+| + Ed25519 verify, sequential | 1,819 | 1,076 ms | 1,205 ms | 0.01x |
+| + Ed25519 verify, parallel pre-pass | 7,011 | 239 ms | 536 ms | 0.04x |
+| + parallel verify + state root every block | 4,506 | 373 ms | 748 ms | 0.02x |
+
+2026-09-23, 80,000 txs in 40 blocks of 2,000 over 64 accounts (29,784 cancels,
+40,658 quotes, 9,558 IOC takers; 14,204 book events; 0 rejected), 10 cores,
+JDK 21, load average 8–18 from other sessions — the same caveat as the book
+figure above: an A/B on one machine is trustworthy, the absolutes are not
+until re-run on a quiet one.
+
+What the table says:
+
+- **Execution alone is ~1/8 of Hyperliquid's figure.** The book is ~5x faster
+  than the state machine around it, so the gap is in margin, fees and the
+  per-block sweep, not in matching.
+- **Signature verification dominates everything else.** JDK 21's Ed25519
+  verify measured 469 µs per call against 9.4 µs to build the signed payload.
+  Validity of a signature does not depend on state — the payload is built from
+  the envelope alone — so a replica may verify a block's signatures in parallel
+  before applying it and let `torihiki.auth` look the verdicts up; the
+  state-dependent checks (bound key, expected nonce) still run in block order.
+  That pre-pass is 3.9x, and it ends on the same state root as sequential
+  verification or the run refuses.
+- **Latency is not comparable yet, only bounded.** Per-block compute
+  (p50 373 ms with the root) is a lower bound on torihiki's end-to-end
+  latency; consensus and network are not in it. The end-to-end number comes
+  from `torihiki-node`'s `script/latency_probe.cljk` against a deployed chain,
+  and on 2026-09-23 there was none to measure: validator-v3 had not committed a
+  block past height 5805 in over 20 minutes (tip uncertified, w1 and w3 listed
+  as equivocators), and the single sequencer refuses every current client's
+  signature because it still runs code-version 12.
+
+The run refuses (exit 1, reason printed) rather than report a number it did
+not earn: a replay whose root differs from generation, any `:bad-signature`,
+authentication changing which transactions were rejected, the parallel
+pre-pass ending on a different root, no fills, no cancels, or more than 5% of
+transactions rejected. Each refusal was fired once on a deliberately broken
+copy, by its own reason; the unbroken copy exits 0.
+
+### Running either benchmark
+
+Both need the JVM, and `kbb -M:bench` does not reach it: kbb runs deps.edn
+aliases on its SCI host and resolves no git coordinates, so it stops at
+`Could not find namespace: kotoba.lang.text`. The runs above were made the way
+the maturity loop makes its own — on a copy of `src/`, `bench/`, `resources/`
+and `deps.edn` with `.cljk` renamed to `.cljc`, running the `:bench` and
+`:bench-hl` aliases on the JVM. `:bench-hl` takes
+`[n-blocks block-size n-accounts]` (default `40 2000 64`).
 
 ## Design
 
@@ -622,8 +703,10 @@ kbb -M:test                                    # the JVM
 KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
   kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" \
       script/tests-on-nbb.cljk                     # ClojureScript, no JVM
-kbb -M:bench 3000000                           # throughput
 ```
+
+The two benchmarks (`:bench`, `:bench-hl`) run on the JVM only; see
+[Running either benchmark](#running-either-benchmark).
 
 Measured 2026-08-31 at `96ac270`, both printing **325 tests / 847
 assertions, 0 failures**.
@@ -641,7 +724,7 @@ and **0** in ClojureScript -- so on the runtime that deploys, four assertions
 about reading a deposit out of a log were passing over a memo of nul bytes.
 `decode-deposit-data` itself was correct there all along and is now checked
 by a fixture that encodes real bytes, under a floor that fails first and says
-so. `kbb -M:bench` still needs the JVM; nothing else does.
+so. The benchmarks still need the JVM; nothing else does.
 
 `script/nbb-classpath.cljk` builds the classpath from the `deps.edn` pins
 rather than from sibling checkouts, which sit at whatever commit `west` last

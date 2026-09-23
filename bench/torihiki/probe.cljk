@@ -28,7 +28,7 @@
     (dotimes [i n]
       (aset oids i (long (bk/place! b (bit-and i 1) (+ 30000 (rem (* i 7) 500)) 5 0 1))))
     (let [t1 (System/nanoTime)]
-      (dotimes [i n] (bk/cancel! b (aget oids i)))
+      (dotimes [i n] (bk/cancel! b (aget oids i) 1))
       (let [t2 (System/nanoTime)]
         (println (format "  place x%-9d      %8.1f ms   %7.0f ns/op" n (ms t0 t1) (/ (double (- t1 t0)) n)))
         (println (format "  cancel x%-8d      %8.1f ms   %7.0f ns/op" n (ms t1 t2) (/ (double (- t1 t2)) n)))))))

@@ -95,24 +95,34 @@
         ;; makes most cancels miss, which silently turns the mix back into a
         ;; book that only grows
         ring (long-array 1048576 -1)
+        ;; Who placed each ringed order. `cancel!` is `[b oid owner]` and
+        ;; refuses an owner that did not place the order, so a cancel has to
+        ;; present the PLACER's id — not one derived from its own tape index.
+        ;; Both mistakes happened here: the call kept a two-argument signature
+        ;; the book had dropped (every run died with an ArityException), and
+        ;; the first repair passed owner and oid in swapped order, which ran
+        ;; clean and cancelled nothing (maturity ledger falsify-15/16/17).
+        ring-owner (long-array 1048576 -1)
         ring-mask 1048575]
+    ;; An order id may be 0 (slot 0, generation 0), so "no id" is -1, not 0.
     (loop [i 0 w 0 placed 0 cancelled 0]
       (if (>= i (long n))
         [b n placed cancelled]
         (if (zero? (aget kind i))
-          (let [oid (bk/place! b (aget side i) (aget level i) (aget qty i) 0
-                               (bit-and i 1023))]
-            (if (pos? oid)
+          (let [owner (bit-and i 1023)
+                oid (bk/place! b (aget side i) (aget level i) (aget qty i) 0 owner)]
+            (if (neg? oid)
+              (recur (inc i) w placed cancelled)
               (do (aset ring (bit-and w ring-mask) (long oid))
-                  (recur (inc i) (inc w) (inc placed) cancelled))
-              (recur (inc i) w placed cancelled)))
+                  (aset ring-owner (bit-and w ring-mask) (long owner))
+                  (recur (inc i) (inc w) (inc placed) cancelled))))
           (let [slot (bit-and (- w 1 (bit-and i 524287)) ring-mask)
                 oid (aget ring slot)]
-            (if (pos? oid)
-              (let [q (bk/cancel! b oid)]
+            (if (neg? oid)
+              (recur (inc i) w placed cancelled)
+              (let [q (bk/cancel! b oid (aget ring-owner slot))]
                 (aset ring slot -1)
-                (recur (inc i) w placed (if (pos? q) (inc cancelled) cancelled)))
-              (recur (inc i) w placed cancelled))))))))
+                (recur (inc i) w placed (if (pos? q) (inc cancelled) cancelled))))))))))
 
 (defn- fmt [^double x]
   (format "%,.0f" x))
@@ -141,5 +151,14 @@
       (println "  THROUGHPUT      " (str (fmt ops-per-sec) " ops/sec"))
       (println "  latency         " (format "%.0f ns/op" ns-per-op))
       (println)
-      (println "  reference: HyperCore is documented at ~200,000 orders/sec")
-      (println (format "  ratio vs that reference: %.1fx" (/ ops-per-sec 200000.0))))))
+      ;; This number is the BOOK alone — no margin, fees, signatures or state
+      ;; root. Hyperliquid's ~200k orders/sec is its whole execution layer, so
+      ;; the comparable figure is `torihiki.hyperliquid`, not this one.
+      (println "  book only: not comparable to Hyperliquid's execution figure")
+      (println "  (see torihiki.hyperliquid for the state-machine comparison)")
+      ;; A run that cancelled nothing measured a book that only grows — the
+      ;; workload this benchmark says it is not. It printed a throughput for
+      ;; that workload for weeks; now it refuses to.
+      (when (and (>= (long ops) 1000) (zero? (long cancelled)))
+        (println "REFUSED: no cancel succeeded — the tape did not exercise cancellation")
+        (System/exit 1)))))
