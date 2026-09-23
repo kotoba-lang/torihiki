@@ -1,0 +1,668 @@
+(ns torihiki.book
+  (:export [new-book place cancel reduce-to cancel-all reset-events
+            best next-occupied level-qty resting-count last-price mid
+            event-count fill-at ret hwm oid-of
+            order-live order-owner order-qty order-side order-level
+            level-order-count level-order-oid level-order-owner level-order-qty impact-price
+            layout-total]))
+
+;; The limit order book, in Kotoba, compiled by `amu --jvm-free` to native.
+;;
+;; The `.cljk` of the same name is the ORACLE and stays (superproject Q9:
+;; `:oracle-retained-until-soak`, no deletion before soak, cutover is a
+;; consumer choosing this one). Same algorithm, same ids, same fills:
+;; price-time priority, a four-level bit ladder over prices, a five-level bit
+;; ladder over free slots (lowest free slot first, so the free set is a
+;; function of the live book), order id = slot * 2^20 + generation.
+;;
+;; ## One vector, and why
+;;
+;; The `.cljk` book is a record of thirty-odd arrays. Here it is ONE
+;; `:vector-i64` with a header of offsets, because a function takes at most
+;; five parameters (kotoba-sema `max-parameters`) and a book operation touches
+;; up to eleven fields. That limit is a TEMPORARY constraint of the ABI, not a
+;; property of the book; when it is raised the fields can be separate vectors
+;; again, and nothing below depends on them sharing one.
+;;
+;; ## How the writes are admitted
+;;
+;; Every write is `vector-assoc!`, lowered to a store in place. kotoba-sema
+;; admits that only when the handle is dead afterwards, decided in evaluation
+;; order (kotoba-sema 3fdaefb6): reads first, then one consuming use. So every
+;; function here that writes is a LEAF of one shape --
+;;
+;;     read every value it needs from `b`
+;;     (-> b (vector-assoc! i x) (vector-assoc! j y) ...)
+;;
+;; -- and a store that only happens on some paths is aimed at the scratch word
+;; (header index 0) on the others, so every path makes the same stores and
+;; ends in one. A leaf never returns `b` itself: a bare handle is an escape.
+;;
+;; Functions that do not write (`place`, `cancel`, `sweep`, ...) are
+;; COMPOSITES: they read `b`, hand it to a leaf, and never look at the old
+;; name again. kotoba-sema does not check composites -- a function with no
+;; `vector-assoc!` of its own is outside the gate, the documented hole in
+;; `kotoba.sema-test/a-caller-that-reads-after-handing-over-is-still-admitted`
+;; -- so that discipline is this file's, and the differential run (the same
+;; module with `vector-assoc`, which copies) is what checks it.
+;;
+;; ## Surface, and where it differs from the `.cljk`
+;;
+;; Versioned API decision, v1 (2026-09-23):
+;;
+;; - Mutators return the BOOK. What the `.cljk` returned alongside (an order
+;;   id, a cancelled quantity) is left in the result register; read it with
+;;   `ret`. `place` takes `side + 2 * flags` as ONE argument for the same
+;;   five-parameter reason.
+;; - Refusals are values, not throws (Kotoba forbids untracked control
+;;   effects): `place` leaves -2 for a bad quantity or level (the `.cljk`
+;;   threw), -3 when the order slab is full (threw), -4 if a level bit is set
+;;   over an empty queue (the `.cljk` cleared the bit and continued; it
+;;   cannot happen, and continuing past a broken invariant is not better).
+;; - Views that returned maps return scalars: `fill-at`, `level-order-oid`,
+;;   `order-owner` and friends.
+;; - NOT here: `snapshot` / `restore`. They build and read nested data and are
+;;   the next increment; this module is the matching engine and its views.
+;;   `fills`, `level-orders`, `order-of` are expressible through the scalar
+;;   views above.
+
+;; ── header ──────────────────────────────────────────────────────────────────
+
+(def h-scratch 0)
+(def h-n 1)
+(def h-cap 2)
+(def h-evcap 3)
+(def h-w0 4)
+(def h-w1 5)
+(def h-w2 6)
+(def c-resting 11)
+(def c-evcount 12)
+(def c-last 13)
+(def c-hwm 14)
+(def c-ret 15)
+(def c-acc 16)
+
+;; Field k (0..19) starts at the offset stored in header word 20 + k.
+(def o-fb0 20)
+(def o-fb1 21)
+(def o-fb2 22)
+(def o-fb3 23)
+(def o-fb4 24)
+(def o-lh 25)
+(def o-lt 26)
+(def o-lq 27)
+(def o-bm0 28)
+(def o-bm1 29)
+(def o-bm2 30)
+(def o-bm3 31)
+(def o-own 32)
+(def o-qty 33)
+(def o-lev 34)
+(def o-side 35)
+(def o-next 36)
+(def o-prev 37)
+(def o-gen 38)
+(def o-ev 39)
+(def header-size 48)
+
+(def bid 0)
+(def ask 1)
+(def gen-mod 1048576)
+(def word 4294967295)
+
+;; ── arithmetic ──────────────────────────────────────────────────────────────
+
+(defn bit [k :i64] :i64 (i64-shift-left 1 k))
+
+(defn mask32 [k :i64] :i64 (if (>= k 32) word (- (bit k) 1)))
+
+(defn min2 [a :i64 b :i64] :i64 (if (< a b) a b))
+
+(defn clear-bit [w :i64 k :i64] :i64 (bit-and (bit-and w (bit-not (bit k))) word))
+
+;; Lowest set bit of a 32-bit word, or -1.
+(defn lsb [w :i64] :i64
+  (if (= w 0) -1
+    (let [p (bit-and w (- 0 w))]
+      (+ (+ (if (= (bit-and p 4294901760) 0) 0 16)
+            (if (= (bit-and p 4278255360) 0) 0 8))
+         (+ (+ (if (= (bit-and p 4042322160) 0) 0 4)
+               (if (= (bit-and p 3435973836) 0) 0 2))
+            (if (= (bit-and p 2863311530) 0) 0 1))))))
+
+;; Highest set bit of a 32-bit word, or -1.
+(defn msb [w :i64] :i64
+  (if (= w 0) -1
+    (let [a (if (>= w 65536) 16 0) w1 (i64-shift-right w a)
+          b (if (>= w1 256) 8 0) w2 (i64-shift-right w1 b)
+          c (if (>= w2 16) 4 0) w3 (i64-shift-right w2 c)
+          d (if (>= w3 4) 2 0) w4 (i64-shift-right w3 d)
+          e (if (>= w4 2) 1 0)]
+      (+ (+ a b) (+ (+ c d) e)))))
+
+;; ── layout ──────────────────────────────────────────────────────────────────
+
+(defn words [x :i64] :i64 (+ 1 (quot (- x 1) 32)))
+
+;; Size of field k in the order the header lists them.
+(defn fsize [n :i64 cap :i64 evcap :i64 k :i64] :i64
+  (let [w0 (quot n 32) w1 (words w0) w2 (words w1)
+        fw0 (quot cap 32) fw1 (words fw0) fw2 (words fw1) fw3 (words fw2)]
+    (cond (= k 0) fw0
+          (= k 1) fw1
+          (= k 2) fw2
+          (= k 3) fw3
+          (= k 4) 1
+          (< k 8) (* 2 n)
+          (= k 8) (* 2 w0)
+          (= k 9) (* 2 w1)
+          (= k 10) (* 2 w2)
+          (= k 11) 2
+          (< k 19) cap
+          :else (* 6 evcap))))
+
+(defn foff [n :i64 cap :i64 evcap :i64 k :i64] :i64
+  (if (= k 0) header-size
+    (+ (foff n cap evcap (- k 1)) (fsize n cap evcap (- k 1)))))
+
+(defn layout-total [n :i64 cap :i64 evcap :i64] :i64
+  (foff n cap evcap 20))
+
+;; ── construction (leaves) ───────────────────────────────────────────────────
+
+;; Reads n / cap / ev-cap back from the header `header` wrote.
+(defn put-offsets [b :vector-i64 k :i64] :vector-i64
+  (if (> k 19)
+    (vector-assoc! b h-scratch 0)
+    (put-offsets (vector-assoc! b (+ 20 k) (foff (vector-at b h-n) (vector-at b h-cap)
+                                                 (vector-at b h-evcap) k))
+                 (+ k 1))))
+
+(defn header [b :vector-i64 n :i64 cap :i64 evcap :i64] :vector-i64
+  (let [w0 (quot n 32) w1 (words w0) w2 (words w1)]
+    (-> b
+        (vector-assoc! h-n n)
+        (vector-assoc! h-cap cap)
+        (vector-assoc! h-evcap evcap)
+        (vector-assoc! h-w0 w0)
+        (vector-assoc! h-w1 w1)
+        (vector-assoc! h-w2 w2)
+        (vector-assoc! c-last -1))))
+
+(defn fill [b :vector-i64 from :i64 to :i64 v :i64] :vector-i64
+  (if (>= from to)
+    (vector-assoc! b h-scratch 0)
+    (fill (vector-assoc! b from v) (+ from 1) to v)))
+
+;; Word i of a free-ladder level advertises min(32, remaining - 32i) children.
+(defn fill-mask [b :vector-i64 at :i64 count :i64 remaining :i64] :vector-i64
+  (if (<= count 0)
+    (vector-assoc! b h-scratch 0)
+    (fill-mask (vector-assoc! b at (mask32 remaining)) (+ at 1) (- count 1) (- remaining 32))))
+
+;; `n` a multiple of 32 no greater than 2^20, `cap` a multiple of 32 no
+;; greater than 2^25 -- the `.cljk` throws otherwise; here the caller is the
+;; state machine, which fixes them at genesis.
+(defn new-book [n :i64 cap :i64 evcap :i64] :vector-i64
+  (let [fw0 (quot cap 32) fw1 (words fw0) fw2 (words fw1) fw3 (words fw2)
+        lh (foff n cap evcap 5)
+        f0 (foff n cap evcap 0)
+        f1 (foff n cap evcap 1)
+        f2 (foff n cap evcap 2)
+        f3 (foff n cap evcap 3)
+        f4 (foff n cap evcap 4)
+        b0 (header (vector-alloc (layout-total n cap evcap)) n cap evcap)
+        b1 (put-offsets b0 0)
+        b2 (fill b1 lh (+ lh (* 4 n)) -1)
+        b3 (fill b2 f0 (+ f0 fw0) word)
+        b4 (fill-mask b3 f1 fw1 fw0)
+        b5 (fill-mask b4 f2 fw2 fw1)
+        b6 (fill-mask b5 f3 fw3 fw2)]
+    (fill-mask b6 f4 1 fw3)))
+
+;; ── views ───────────────────────────────────────────────────────────────────
+
+(defn ret [b :vector-i64] :i64 (vector-at b c-ret))
+(defn resting-count [b :vector-i64] :i64 (vector-at b c-resting))
+(defn last-price [b :vector-i64] :i64 (vector-at b c-last))
+(defn event-count [b :vector-i64] :i64 (vector-at b c-evcount))
+(defn hwm [b :vector-i64] :i64 (vector-at b c-hwm))
+
+(defn best [b :vector-i64 side :i64] :i64
+  (let [w0 (vector-at b h-w0) w1 (vector-at b h-w1) w2 (vector-at b h-w2)
+        bm0 (vector-at b o-bm0) bm1 (vector-at b o-bm1)
+        bm2 (vector-at b o-bm2) bm3 (vector-at b o-bm3)
+        top (vector-at b (+ bm3 side))]
+    (if (= side bid)
+      (let [r3 (msb top)]
+        (if (< r3 0) -1
+          (let [i2 (+ (* r3 32) (msb (vector-at b (+ bm2 (+ (* side w2) r3)))))
+                i1 (+ (* i2 32) (msb (vector-at b (+ bm1 (+ (* side w1) i2)))))]
+            (+ (* i1 32) (msb (vector-at b (+ bm0 (+ (* side w0) i1))))))))
+      (let [r3 (lsb top)]
+        (if (< r3 0) -1
+          (let [i2 (+ (* r3 32) (lsb (vector-at b (+ bm2 (+ (* side w2) r3)))))
+                i1 (+ (* i2 32) (lsb (vector-at b (+ bm1 (+ (* side w1) i2)))))]
+            (+ (* i1 32) (lsb (vector-at b (+ bm0 (+ (* side w0) i1)))))))))))
+
+(defn mid [b :vector-i64] :i64
+  (let [bb (best b bid) ba (best b ask)]
+    (if (or (< bb 0) (< ba 0)) -1 (+ bb ba))))
+
+(defn level-qty [b :vector-i64 side :i64 level :i64] :i64
+  (vector-at b (+ (vector-at b o-lq) (+ (* side (vector-at b h-n)) level))))
+
+(defn next-bid [b :vector-i64 base :i64 l :i64] :i64
+  (if (< l 0) -1
+    (let [wi (i64-shift-right l 5)
+          masked (bit-and (vector-at b (+ base wi)) (- (bit (+ 1 (bit-and l 31))) 1))]
+      (if (= masked 0)
+        (next-bid b base (- (* wi 32) 1))
+        (+ (* wi 32) (msb masked))))))
+
+(defn next-ask [b :vector-i64 base :i64 l :i64 n :i64] :i64
+  (if (>= l n) -1
+    (let [wi (i64-shift-right l 5)
+          masked (bit-and (bit-and (vector-at b (+ base wi))
+                                   (bit-not (- (bit (bit-and l 31)) 1)))
+                          word)]
+      (if (= masked 0)
+        (next-ask b base (* (+ wi 1) 32) n)
+        (+ (* wi 32) (lsb masked))))))
+
+;; The next occupied level strictly beyond `level`, walking away from the top
+;; of book. One read per 32 ticks of empty ladder.
+(defn next-occupied [b :vector-i64 side :i64 level :i64] :i64
+  (let [base (+ (vector-at b o-bm0) (* side (vector-at b h-w0)))]
+    (if (= side bid)
+      (next-bid b base (- level 1))
+      (next-ask b base (+ level 1) (vector-at b h-n)))))
+
+(defn oid-of [b :vector-i64 slot :i64] :i64
+  (+ (* slot gen-mod) (vector-at b (+ (vector-at b o-gen) slot))))
+
+(defn order-live [b :vector-i64 oid :i64] :i64
+  (let [slot (quot oid gen-mod)
+        g (- oid (* slot gen-mod))]
+    (if (or (< oid 0) (>= slot (vector-at b h-cap))) 0
+      (if (and (= g (vector-at b (+ (vector-at b o-gen) slot)))
+               (> (vector-at b (+ (vector-at b o-qty) slot)) 0))
+        1 0))))
+
+(defn order-field [b :vector-i64 oid :i64 field :i64] :i64
+  (if (= 0 (order-live b oid)) -1
+    (vector-at b (+ (vector-at b field) (quot oid gen-mod)))))
+
+(defn order-owner [b :vector-i64 oid :i64] :i64 (order-field b oid o-own))
+(defn order-qty [b :vector-i64 oid :i64] :i64 (order-field b oid o-qty))
+(defn order-side [b :vector-i64 oid :i64] :i64 (order-field b oid o-side))
+(defn order-level [b :vector-i64 oid :i64] :i64 (order-field b oid o-lev))
+
+;; Fill i, field f: 0 maker-owner, 1 taker-owner, 2 maker-oid, 3 level,
+;; 4 qty, 5 taker-side. Only the first ev-cap fills of a block are kept;
+;; `event-count` keeps counting past them, as the `.cljk` does.
+(defn fill-at [b :vector-i64 i :i64 f :i64] :i64
+  (vector-at b (+ (vector-at b o-ev) (+ (* f (vector-at b h-evcap)) i))))
+
+(defn queue-count [b :vector-i64 nx :i64 slot :i64 acc :i64] :i64
+  (if (< slot 0) acc (queue-count b nx (vector-at b (+ nx slot)) (+ acc 1))))
+
+(defn level-order-count [b :vector-i64 side :i64 level :i64] :i64
+  (queue-count b (vector-at b o-next)
+               (vector-at b (+ (vector-at b o-lh) (+ (* side (vector-at b h-n)) level)))
+               0))
+
+(defn queue-at [b :vector-i64 nx :i64 slot :i64 idx :i64] :i64
+  (if (or (< slot 0) (= idx 0)) slot (queue-at b nx (vector-at b (+ nx slot)) (- idx 1))))
+
+;; The slot of order idx (0 = head, time priority) at a level, or -1 past
+;; the end of the queue.
+(defn level-slot [b :vector-i64 side :i64 level :i64 idx :i64] :i64
+  (queue-at b (vector-at b o-next)
+            (vector-at b (+ (vector-at b o-lh) (+ (* side (vector-at b h-n)) level)))
+            idx))
+
+(defn level-order-oid [b :vector-i64 side :i64 level :i64 idx :i64] :i64
+  (let [slot (level-slot b side level idx)] (if (< slot 0) -1 (oid-of b slot))))
+
+(defn level-order-owner [b :vector-i64 side :i64 level :i64 idx :i64] :i64
+  (let [slot (level-slot b side level idx)]
+    (if (< slot 0) -1 (vector-at b (+ (vector-at b o-own) slot)))))
+
+(defn level-order-qty [b :vector-i64 side :i64 level :i64 idx :i64] :i64
+  (let [slot (level-slot b side level idx)]
+    (if (< slot 0) -1 (vector-at b (+ (vector-at b o-qty) slot)))))
+
+;; ── small leaves ────────────────────────────────────────────────────────────
+
+(defn set-ret [b :vector-i64 v :i64] :vector-i64
+  (vector-assoc! b c-ret v))
+
+(defn reset-events [b :vector-i64] :vector-i64
+  (vector-assoc! b c-evcount 0))
+
+(defn acc-reset [b :vector-i64] :vector-i64
+  (vector-assoc! b c-acc 0))
+
+(defn acc-add [b :vector-i64 x :i64] :vector-i64
+  (vector-assoc! b c-acc (+ (vector-at b c-acc) x)))
+
+;; ── remove a resting order (leaf) ───────────────────────────────────────────
+;;
+;; Unlink it from its level's FIFO (clearing the level's ladder bits when the
+;; queue empties), take its quantity off the level, bump the slot's
+;; generation, mark the slot free, and count it out. Leaves the removed
+;; quantity in the result register. Used by a cancel and by a fill that takes
+;; the whole order -- the `.cljk`'s unlink! + lvl-qty + release-slot!.
+
+(defn remove-order [b :vector-i64 slot :i64] :vector-i64
+  (let [n (vector-at b h-n)
+        w0 (vector-at b h-w0) w1 (vector-at b h-w1) w2 (vector-at b h-w2)
+        lh (vector-at b o-lh) lt (vector-at b o-lt) lq (vector-at b o-lq)
+        bm0 (vector-at b o-bm0) bm1 (vector-at b o-bm1)
+        bm2 (vector-at b o-bm2) bm3 (vector-at b o-bm3)
+        oq (vector-at b o-qty) lev (vector-at b o-lev) sd (vector-at b o-side)
+        nx (vector-at b o-next) pv (vector-at b o-prev) gn (vector-at b o-gen)
+        fb0 (vector-at b o-fb0) fb1 (vector-at b o-fb1) fb2 (vector-at b o-fb2)
+        fb3 (vector-at b o-fb3) fb4 (vector-at b o-fb4)
+        q (vector-at b (+ oq slot))
+        level (vector-at b (+ lev slot))
+        side (vector-at b (+ sd slot))
+        k (+ (* side n) level)
+        p (vector-at b (+ pv slot))
+        nn (vector-at b (+ nx slot))
+        empties (and (< p 0) (< nn 0))
+        ;; ladder-clear, each parent only once its child word empties
+        i1 (i64-shift-right level 5) i2 (i64-shift-right i1 5) i3 (i64-shift-right i2 5)
+        k0 (+ bm0 (+ (* side w0) i1))
+        v0 (clear-bit (vector-at b k0) (bit-and level 31))
+        c1 (and empties (= v0 0))
+        k1 (+ bm1 (+ (* side w1) i2))
+        v1 (clear-bit (vector-at b k1) (bit-and i1 31))
+        c2 (and c1 (= v1 0))
+        k2 (+ bm2 (+ (* side w2) i3))
+        v2 (clear-bit (vector-at b k2) (bit-and i2 31))
+        c3 (and c2 (= v2 0))
+        k3 (+ bm3 side)
+        v3 (clear-bit (vector-at b k3) (bit-and i3 31))
+        ;; release: the next generation, and the slot back in the free ladder
+        g1 (+ (vector-at b (+ gn slot)) 1)
+        gen (if (>= g1 gen-mod) 0 g1)
+        j1 (i64-shift-right slot 5) j2 (i64-shift-right j1 5)
+        j3 (i64-shift-right j2 5) j4 (i64-shift-right j3 5)
+        f0 (bit-or (vector-at b (+ fb0 j1)) (bit (bit-and slot 31)))
+        f1 (bit-or (vector-at b (+ fb1 j2)) (bit (bit-and j1 31)))
+        f2 (bit-or (vector-at b (+ fb2 j3)) (bit (bit-and j2 31)))
+        f3 (bit-or (vector-at b (+ fb3 j4)) (bit (bit-and j3 31)))
+        f4 (bit-or (vector-at b fb4) (bit (bit-and j4 31)))
+        lqk (vector-at b (+ lq k))
+        resting (vector-at b c-resting)]
+    (-> b
+        ;; unlink
+        (vector-assoc! (if (< p 0) (+ lh k) (+ nx p)) nn)
+        (vector-assoc! (if (< nn 0) (+ lt k) (+ pv nn)) p)
+        (vector-assoc! (if empties k0 h-scratch) v0)
+        (vector-assoc! (if c1 k1 h-scratch) v1)
+        (vector-assoc! (if c2 k2 h-scratch) v2)
+        (vector-assoc! (if c3 k3 h-scratch) v3)
+        ;; level quantity
+        (vector-assoc! (+ lq k) (- lqk q))
+        ;; release
+        (vector-assoc! (+ gn slot) gen)
+        (vector-assoc! (+ oq slot) 0)
+        (vector-assoc! (+ fb0 j1) f0)
+        (vector-assoc! (+ fb1 j2) f1)
+        (vector-assoc! (+ fb2 j3) f2)
+        (vector-assoc! (+ fb3 j4) f3)
+        (vector-assoc! fb4 f4)
+        (vector-assoc! c-resting (- resting 1))
+        (vector-assoc! c-ret q))))
+
+;; ── a fill against the head of a level (leaf) ───────────────────────────────
+;;
+;; Record the fill, set the last price, and -- when the maker is only partly
+;; taken -- shrink it in place and take the traded quantity off the level. A
+;; maker taken whole is removed by `remove-order` afterwards, which takes its
+;; (whole) quantity off the level itself.
+
+(defn emit-fill [b :vector-i64 head :i64 traded :i64 owner :i64 tside :i64] :vector-i64
+  (let [n (vector-at b h-n) evcap (vector-at b h-evcap) ev (vector-at b o-ev)
+        cnt (vector-at b c-evcount)
+        oq (vector-at b o-qty) lq (vector-at b o-lq)
+        avail (vector-at b (+ oq head))
+        maker (vector-at b (+ (vector-at b o-own) head))
+        level (vector-at b (+ (vector-at b o-lev) head))
+        side (vector-at b (+ (vector-at b o-side) head))
+        oid (+ (* head gen-mod) (vector-at b (+ (vector-at b o-gen) head)))
+        k (+ (* side n) level)
+        lqk (vector-at b (+ lq k))
+        partial (< traded avail)
+        keep (< cnt evcap)]
+    (-> b
+        (vector-assoc! (if keep (+ ev cnt) h-scratch) maker)
+        (vector-assoc! (if keep (+ ev (+ evcap cnt)) h-scratch) owner)
+        (vector-assoc! (if keep (+ ev (+ (* 2 evcap) cnt)) h-scratch) oid)
+        (vector-assoc! (if keep (+ ev (+ (* 3 evcap) cnt)) h-scratch) level)
+        (vector-assoc! (if keep (+ ev (+ (* 4 evcap) cnt)) h-scratch) traded)
+        (vector-assoc! (if keep (+ ev (+ (* 5 evcap) cnt)) h-scratch) tside)
+        (vector-assoc! c-evcount (+ cnt 1))
+        (vector-assoc! c-last level)
+        (vector-assoc! (if partial (+ oq head) h-scratch) (- avail traded))
+        (vector-assoc! (if partial (+ lq k) h-scratch) (- lqk traded)))))
+
+;; ── rest an order (leaf) ────────────────────────────────────────────────────
+;;
+;; Take the LOWEST free slot (five word reads down the free ladder), clear it
+;; in the ladder, raise the high-water mark if it is new, write the order,
+;; append it to its level's FIFO (setting the level's ladder bits if the queue
+;; was empty), add its quantity to the level, and count it in. Leaves the new
+;; order id in the result register. The caller has already checked that a
+;; free slot exists (`rest-order`).
+
+(defn rest-into [b :vector-i64 sf :i64 level :i64 qty :i64 owner :i64] :vector-i64
+  (let [side (bit-and sf 1)
+        n (vector-at b h-n)
+        w0 (vector-at b h-w0) w1 (vector-at b h-w1) w2 (vector-at b h-w2)
+        fb0 (vector-at b o-fb0) fb1 (vector-at b o-fb1) fb2 (vector-at b o-fb2)
+        fb3 (vector-at b o-fb3) fb4 (vector-at b o-fb4)
+        r4 (lsb (vector-at b fb4))
+        s3 (+ (* r4 32) (lsb (vector-at b (+ fb3 r4))))
+        s2 (+ (* s3 32) (lsb (vector-at b (+ fb2 s3))))
+        s1 (+ (* s2 32) (lsb (vector-at b (+ fb1 s2))))
+        slot (+ (* s1 32) (lsb (vector-at b (+ fb0 s1))))
+        ;; free-clear: each parent only once its child word empties
+        u0 (clear-bit (vector-at b (+ fb0 s1)) (bit-and slot 31))
+        d1 (= u0 0)
+        u1 (clear-bit (vector-at b (+ fb1 s2)) (bit-and s1 31))
+        d2 (and d1 (= u1 0))
+        u2 (clear-bit (vector-at b (+ fb2 s3)) (bit-and s2 31))
+        d3 (and d2 (= u2 0))
+        u3 (clear-bit (vector-at b (+ fb3 r4)) (bit-and s3 31))
+        d4 (and d3 (= u3 0))
+        u4 (clear-bit (vector-at b fb4) (bit-and r4 31))
+        hwm (vector-at b c-hwm)
+        ;; link at the tail
+        lh (vector-at b o-lh) lt (vector-at b o-lt) lq (vector-at b o-lq)
+        nx (vector-at b o-next) pv (vector-at b o-prev)
+        k (+ (* side n) level)
+        t (vector-at b (+ lt k))
+        fresh (< t 0)
+        ;; ladder-set, only when the level was empty
+        bm0 (vector-at b o-bm0) bm1 (vector-at b o-bm1)
+        bm2 (vector-at b o-bm2) bm3 (vector-at b o-bm3)
+        i1 (i64-shift-right level 5) i2 (i64-shift-right i1 5) i3 (i64-shift-right i2 5)
+        k0 (+ bm0 (+ (* side w0) i1))
+        k1 (+ bm1 (+ (* side w1) i2))
+        k2 (+ bm2 (+ (* side w2) i3))
+        k3 (+ bm3 side)
+        v0 (bit-or (vector-at b k0) (bit (bit-and level 31)))
+        v1 (bit-or (vector-at b k1) (bit (bit-and i1 31)))
+        v2 (bit-or (vector-at b k2) (bit (bit-and i2 31)))
+        v3 (bit-or (vector-at b k3) (bit (bit-and i3 31)))
+        lqk (vector-at b (+ lq k))
+        resting (vector-at b c-resting)
+        own (vector-at b o-own) oq (vector-at b o-qty)
+        sd (vector-at b o-side) lev (vector-at b o-lev)
+        oid (+ (* slot gen-mod) (vector-at b (+ (vector-at b o-gen) slot)))]
+    (-> b
+        (vector-assoc! (+ fb0 s1) u0)
+        (vector-assoc! (if d1 (+ fb1 s2) h-scratch) u1)
+        (vector-assoc! (if d2 (+ fb2 s3) h-scratch) u2)
+        (vector-assoc! (if d3 (+ fb3 r4) h-scratch) u3)
+        (vector-assoc! (if d4 fb4 h-scratch) u4)
+        (vector-assoc! (if (>= slot hwm) c-hwm h-scratch) (+ slot 1))
+        (vector-assoc! (+ own slot) owner)
+        (vector-assoc! (+ oq slot) qty)
+        (vector-assoc! (+ sd slot) side)
+        (vector-assoc! (+ lev slot) level)
+        (vector-assoc! (+ nx slot) -1)
+        (vector-assoc! (+ pv slot) t)
+        (vector-assoc! (if fresh (+ lh k) (+ nx t)) slot)
+        (vector-assoc! (+ lt k) slot)
+        (vector-assoc! (if fresh k0 h-scratch) v0)
+        (vector-assoc! (if fresh k1 h-scratch) v1)
+        (vector-assoc! (if fresh k2 h-scratch) v2)
+        (vector-assoc! (if fresh k3 h-scratch) v3)
+        (vector-assoc! (+ lq k) (+ lqk qty))
+        (vector-assoc! c-resting (+ resting 1))
+        (vector-assoc! c-ret oid))))
+
+;; ── shrink in place (leaf) ──────────────────────────────────────────────────
+
+(defn reduce-leaf [b :vector-i64 slot :i64 new-qty :i64] :vector-i64
+  (let [oq (vector-at b o-qty) lq (vector-at b o-lq)
+        q (vector-at b (+ oq slot))
+        k (+ (* (vector-at b (+ (vector-at b o-side) slot)) (vector-at b h-n))
+             (vector-at b (+ (vector-at b o-lev) slot)))
+        lqk (vector-at b (+ lq k))
+        removed (- q new-qty)]
+    (-> b
+        (vector-assoc! (+ oq slot) new-qty)
+        (vector-assoc! (+ lq k) (- lqk removed))
+        (vector-assoc! c-ret removed))))
+
+;; ── composites ──────────────────────────────────────────────────────────────
+;;
+;; No `vector-assoc!` below this line. Each reads `b`, hands it to a leaf or to
+;; another composite, and does not mention the name it handed over again.
+
+(defn crosses [tside :i64 limit :i64 bl :i64] :i64
+  (cond (< bl 0) 0
+        (= tside bid) (if (<= bl limit) 1 0)
+        :else (if (>= bl limit) 1 0)))
+
+(defn rest-order [b :vector-i64 sf :i64 level :i64 qty :i64 owner :i64] :vector-i64
+  (if (< (lsb (vector-at b (vector-at b o-fb4))) 0)
+    (set-ret b -3)
+    (rest-into b sf level qty owner)))
+
+;; Take from the best opposing level until the order stops crossing or is
+;; done, then rest the remainder unless it is IOC. Tail recursion, so the
+;; loop is a loop.
+(defn sweep [b :vector-i64 sf :i64 level :i64 remaining :i64 owner :i64] :vector-i64
+  (let [side (bit-and sf 1)
+        ioc (bit-and (i64-shift-right sf 1) 1)
+        opp (- 1 side)
+        bl (best b opp)]
+    (if (and (> remaining 0) (= 1 (crosses side level bl)))
+      (let [head (vector-at b (+ (vector-at b o-lh) (+ (* opp (vector-at b h-n)) bl)))]
+        (if (< head 0)
+          (set-ret b -4)
+          (let [avail (vector-at b (+ (vector-at b o-qty) head))
+                traded (min2 remaining avail)
+                b1 (emit-fill b head traded owner side)
+                b2 (if (= traded avail) (remove-order b1 head) b1)]
+            (sweep b2 sf level (- remaining traded) owner))))
+      (if (or (= remaining 0) (= ioc 1))
+        (set-ret b -1)
+        (rest-order b sf level remaining owner)))))
+
+;; `sf` is side + 2 * flags (flags: 1 IOC, 2 post-only, 4 reduce-only, which
+;; the book ignores as the `.cljk` does). The result register ends as the
+;; resting order id, or -1 when nothing rested (filled, IOC remainder
+;; dropped, or post-only refused), -2 for a bad quantity or level, -3 when
+;; the order slab is full.
+(defn place [b :vector-i64 sf :i64 level :i64 qty :i64 owner :i64] :vector-i64
+  (let [side (bit-and sf 1)
+        post-only (bit-and (i64-shift-right sf 2) 1)]
+    (cond (or (<= qty 0) (or (< level 0) (>= level (vector-at b h-n)))) (set-ret b -2)
+          (and (= post-only 1) (= 1 (crosses side level (best b (- 1 side))))) (set-ret b -1)
+          :else (sweep b sf level qty owner))))
+
+(defn slot-valid [b :vector-i64 oid :i64 owner :i64] :i64
+  (if (= 0 (order-live b oid)) 0
+    (if (= owner (vector-at b (+ (vector-at b o-own) (quot oid gen-mod)))) 1 0)))
+
+;; Cancel a resting order `owner` placed. Result register: the cancelled
+;; quantity, or 0 when the id names no live order of theirs.
+(defn cancel [b :vector-i64 oid :i64 owner :i64] :vector-i64
+  (if (= 1 (slot-valid b oid owner))
+    (remove-order b (quot oid gen-mod))
+    (set-ret b 0)))
+
+;; Shrink a resting order without losing its place. Result register: the
+;; quantity removed, or 0 when nothing was done (not theirs, not live,
+;; new-qty not strictly between 0 and the current quantity).
+(defn reduce-to [b :vector-i64 oid :i64 owner :i64 new-qty :i64] :vector-i64
+  (if (and (= 1 (slot-valid b oid owner))
+           (and (> new-qty 0) (< new-qty (order-qty b oid))))
+    (reduce-leaf b (quot oid gen-mod) new-qty)
+    (set-ret b 0)))
+
+(defn cancel-queue [b :vector-i64 slot :i64 owner :i64] :vector-i64
+  (if (< slot 0)
+    (set-ret b 0)
+    (let [nxt (vector-at b (+ (vector-at b o-next) slot))]
+      (if (= owner (vector-at b (+ (vector-at b o-own) slot)))
+        (let [b1 (remove-order b slot)
+              b2 (acc-add b1 (ret b1))]
+          (cancel-queue b2 nxt owner))
+        (cancel-queue b nxt owner)))))
+
+(defn cancel-side [b :vector-i64 side :i64 level :i64 owner :i64] :vector-i64
+  (if (< level 0)
+    (set-ret b 0)
+    ;; the next level is read BEFORE this one is emptied: emptying clears its
+    ;; bit, and the walk would then start from a level that no longer exists
+    (let [nxt (next-occupied b side level)
+          head (vector-at b (+ (vector-at b o-lh) (+ (* side (vector-at b h-n)) level)))]
+      (cancel-side (cancel-queue b head owner) side nxt owner))))
+
+;; Cancel everything `owner` has resting. Result register: the total removed.
+(defn cancel-all [b :vector-i64 owner :i64] :vector-i64
+  (let [b1 (acc-reset b)
+        b2 (cancel-side b1 bid (best b1 bid) owner)
+        b3 (cancel-side b2 ask (best b2 ask) owner)]
+    (set-ret b3 (vector-at b3 c-acc))))
+
+;; ── impact price ────────────────────────────────────────────────────────────
+;;
+;; The average price a market order of `notional` would pay on `side`, or -1
+;; when the book cannot absorb the whole size (all-or-nothing, as the `.cljk`
+;; explains). The walk's four accumulators live in a small register vector
+;; because a function takes five parameters.
+
+(defn impact-go [b :vector-i64 r :vector-i64 side :i64 level :i64] :i64
+  (let [left (vector-at r 0) cost (vector-at r 1)
+        filled (vector-at r 2) deepest (vector-at r 3)]
+    (cond
+      (<= left 0) (if (> filled 0) (quot cost filled) -1)
+      (< level 0) (if (and (> filled 0) (< left deepest)) (quot cost filled) -1)
+      :else
+      (let [q (level-qty b side level)
+            nxt (next-occupied b side level)]
+        (if (= q 0)
+          (impact-go b (vector-assoc! r 0 left) side nxt)
+          (let [take-q (if (= level 0) q (min2 q (quot left level)))]
+            (if (<= take-q 0)
+              (if (> filled 0) (quot cost filled) -1)
+              (let [spent (* level take-q)]
+                (impact-go b (-> r
+                                 (vector-assoc! 0 (- left spent))
+                                 (vector-assoc! 1 (+ cost spent))
+                                 (vector-assoc! 2 (+ filled take-q))
+                                 (vector-assoc! 3 level))
+                           side nxt)))))))))
+
+(defn impact-price [b :vector-i64 side :i64 notional :i64] :i64
+  (impact-go b (vector-assoc! (vector-alloc 4) 0 notional) side (best b side)))

@@ -1,0 +1,94 @@
+(ns torihiki.book-bench
+  (:require [torihiki.book :as bk])
+  (:export [run]))
+
+;; `torihiki.bench` (bench/torihiki/bench.cljk, the JVM one) on the Kotoba
+;; book, compiled by amu to native. Same workload op for op: the same 48-bit
+;; LCG from the same seed, the same mix (43% cancels of recently placed
+;; orders, 12% aggressive, 45% passive quotes near the mid), the same ring of
+;; placed ids, the same book (65,536 ticks, 2,097,152 slots, ev-cap 1). So
+;; the counts it reports are a parity check against the `.cljk` book as well
+;; as a workload: at 1,000,000 operations the JVM bench measured 450,909
+;; placed, 153,767 cancelled, 223,196 resting.
+;;
+;;   (run n which): which 0 placed, 1 cancelled, 2 resting, 3 last price
+;;
+;; Timed from outside -- a guest has no clock without a capability, and the
+;; loader's own wall time with `n` minus the same with 0 is the operations.
+
+(def ring-size 1048576)
+(def ring-mask 1048575)
+(def c-base 2097152)
+(def mid-level 32768)
+
+(defn m [x :i64 d :i64] :i64 (- x (* (quot x d) d)))
+
+;; x * 25214903917 + 11, low 48 bits -- the JVM's `unchecked-multiply` wraps
+;; and keeps exactly these bits. Split into 24-bit halves so no partial
+;; product leaves i64: 25214903917 = 1502 * 2^24 + 15525485.
+(defn lcg [s :i64] :i64
+  (let [sh (i64-shift-right s 24)
+        sl (bit-and s 16777215)
+        lo (* sl 15525485)
+        mid (bit-and (+ (* sh 15525485) (* sl 1502)) 16777215)]
+    (bit-and (+ (+ lo (* mid 16777216)) 11) 281474976710655)))
+
+(defn fill-ring [r :vector-i64 i :i64] :vector-i64
+  (if (>= i ring-size)
+    (vector-assoc! r 0 (vector-at r 0))
+    (fill-ring (vector-assoc! r i -1) (+ i 1))))
+
+(defn run-tape [b :vector-i64 r :vector-i64 i :i64 s :i64] :i64
+  (if (= i (vector-at r (+ c-base 3)))
+    ;; read here rather than in a helper: handing `r` to another function
+    ;; would be an escape, and `r` is written in place on every other path
+    (let [which (vector-at r (+ c-base 4))]
+      (cond (= which 0) (vector-at r (+ c-base 1))
+            (= which 1) (vector-at r (+ c-base 2))
+            (= which 2) (bk/resting-count b)
+            :else (bk/last-price b)))
+    (let [s1 (lcg s) s2 (lcg s1) s3 (lcg s2)
+          roll (m (i64-shift-right s1 16) 100)
+          spread (m (i64-shift-right s2 16) 40)
+          sd (m (i64-shift-right s3 16) 2)
+          w (vector-at r c-base)
+          placed (vector-at r (+ c-base 1))
+          cancelled (vector-at r (+ c-base 2))]
+      (if (< roll 43)
+        ;; cancel an order placed earlier, as its placer
+        (let [slot (bit-and (- (- w 1) (bit-and i 524287)) ring-mask)
+              oid (vector-at r slot)]
+          (if (< oid 0)
+            (run-tape b (vector-assoc! r c-base w) (+ i 1) s3)
+            (let [b1 (bk/cancel b oid (vector-at r (+ ring-size slot)))
+                  q (bk/ret b1)]
+              (run-tape b1
+                        (-> r
+                            (vector-assoc! slot -1)
+                            (vector-assoc! (+ c-base 2) (if (> q 0) (+ cancelled 1) cancelled)))
+                        (+ i 1) s3))))
+        (let [aggressive (< roll 55)
+              level (cond aggressive (if (= sd 0) (+ mid-level 30) (- mid-level 30))
+                          (= sd 0) (- (- mid-level 1) spread)
+                          :else (+ (+ mid-level 1) spread))
+              qty (if aggressive
+                    (+ 1 (m (i64-shift-right s3 20) 12))
+                    (+ 1 (m (i64-shift-right s3 20) 20)))
+              owner (bit-and i 1023)
+              b1 (bk/place b sd level qty owner)
+              oid (bk/ret b1)]
+          (if (< oid 0)
+            (run-tape b1 (vector-assoc! r c-base w) (+ i 1) s3)
+            (run-tape b1
+                      (-> r
+                          (vector-assoc! (bit-and w ring-mask) oid)
+                          (vector-assoc! (+ ring-size (bit-and w ring-mask)) owner)
+                          (vector-assoc! c-base (+ w 1))
+                          (vector-assoc! (+ c-base 1) (+ placed 1)))
+                      (+ i 1) s3)))))))
+
+(defn run [n :i64 which :i64] :i64
+  (let [r (-> (vector-alloc (+ c-base 8))
+              (vector-assoc! (+ c-base 3) n)
+              (vector-assoc! (+ c-base 4) which))]
+    (run-tape (bk/new-book 65536 2097152 1) (fill-ring r 0) 0 12345)))
