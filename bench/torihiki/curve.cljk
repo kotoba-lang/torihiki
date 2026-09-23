@@ -7,6 +7,9 @@
         [kind side level qty :as tape] (bench/gen-tape n)
         b (bk/new-book {:n-levels 65536 :cap 2097152 :ev-cap 1})
         ring (long-array 4096 -1)
+        ;; who placed each ringed order: `cancel!` refuses an owner that did
+        ;; not place it, so the cancel has to present the placer's id
+        ring-owner (long-array 4096 -1)
         chunk 250000]
     (loop [i 0 w 0 t-chunk (System/nanoTime)]
       (when (< i n)
@@ -14,11 +17,13 @@
                    (let [oid (bk/place! b (aget ^ints side i) (aget ^ints level i)
                                         (aget ^ints qty i) 0 (bit-and i 1023))]
                      (if (pos? oid)
-                       (do (aset ring (bit-and w 4095) (long oid)) (inc w))
+                       (do (aset ring (bit-and w 4095) (long oid))
+                           (aset ring-owner (bit-and w 4095) (long (bit-and i 1023)))
+                           (inc w))
                        w))
                    (let [s (bit-and (- w 1 (bit-and i 2047)) 4095)
                          oid (aget ring s)]
-                     (when (pos? oid) (bk/cancel! b oid) (aset ring s -1))
+                     (when (pos? oid) (bk/cancel! b oid (aget ring-owner s)) (aset ring s -1))
                      w))]
           (if (zero? (rem (inc i) chunk))
             (let [t (System/nanoTime)]

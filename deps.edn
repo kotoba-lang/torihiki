@@ -39,4 +39,11 @@
   ;; must stay runnable or the claim rots.
   :bench {:extra-paths ["bench"]
           :jvm-opts ["-Xmx4g" "-XX:+UseParallelGC"]
-          :main-opts ["-m" "torihiki.bench"]}}}
+          :main-opts ["-m" "torihiki.bench"]}
+  ;; The Hyperliquid comparison: the whole state machine (validation, margin,
+  ;; fees, liquidation sweep), then signatures, then the state root, each timed
+  ;; per block and set beside the figures in bench/torihiki/hyperliquid-reference.edn.
+  ;; Refuses (exit 1) rather than print a number it did not earn.
+  :bench-hl {:extra-paths ["bench"]
+             :jvm-opts ["-Xmx6g" "-XX:+UseParallelGC"]
+             :main-opts ["-m" "torihiki.hyperliquid"]}}}

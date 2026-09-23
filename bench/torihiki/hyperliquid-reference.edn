@@ -1,0 +1,45 @@
+;; What Hyperliquid says about its own performance, and which torihiki number
+;; each figure may be compared with.
+;;
+;; Every value is quoted from the source, with the date it was read. A figure
+;; that is not in the source is not here: Hyperliquid documents no block time
+;; and no finality time, so neither appears, and nothing compares against them.
+;;
+;; `:torihiki/axis` names the measurement in `torihiki.hyperliquid` that stands
+;; on the same axis. `:comparable` says how far that comparison goes; a
+;; comparison that only bounds one side is labelled as a bound, never as a ratio.
+{:source/url "https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/overview"
+ :source/read-on "2026-09-23"
+ :source/consensus "HyperBFT, a variant of HotStuff consensus"
+
+ :figures
+ [{:id :throughput
+   :value 200000
+   :unit :orders-per-second
+   :quote "Mainnet currently supports approximately 200k orders/sec."
+   ;; The same page: "The current bottleneck is execution." So the figure is
+   ;; set by the execution layer, and torihiki's execution layer — the whole
+   ;; state machine, not the bare book — is the thing to set beside it.
+   :bottleneck-quote "The current bottleneck is execution."
+   :torihiki/axis [:execution :execution+auth :execution+pauth :execution+pauth+root]
+   :comparable :same-layer
+   :caveat "Hyperliquid's order mix, market count, account count and hardware are not published; torihiki's are printed with the run."}
+
+  {:id :latency-median
+   :value 0.2
+   :unit :seconds
+   :quote "For an order placed from a geographically co-located client, end-to-end latency has a median 0.2 seconds and 99th percentile 0.9 seconds."
+   :measured-between "sending request and receiving committed response"
+   :torihiki/axis :block-apply-p50
+   ;; torihiki measures only the replica's compute for one block. Consensus
+   ;; rounds and the network are absent, so this is a LOWER bound on
+   ;; torihiki's end-to-end latency, not a figure beside Hyperliquid's.
+   :comparable :lower-bound-only}
+
+  {:id :latency-p99
+   :value 0.9
+   :unit :seconds
+   :quote "For an order placed from a geographically co-located client, end-to-end latency has a median 0.2 seconds and 99th percentile 0.9 seconds."
+   :measured-between "sending request and receiving committed response"
+   :torihiki/axis :block-apply-p99
+   :comparable :lower-bound-only}]}
