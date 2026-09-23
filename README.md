@@ -247,6 +247,9 @@ and `deps.edn` with `.cljk` renamed to `.cljc`, running the `:bench` and
 `:bench-hl` aliases on the JVM. `:bench-hl` takes
 `[n-blocks block-size n-accounts]` (default `40 2000 64`).
 
+The native book bench needs no JVM at all -- see
+[The book, native, without a JVM](#the-book-native-without-a-jvm).
+
 ## Design
 
 ### The book (`torihiki.book`)
@@ -615,6 +618,67 @@ through `amu`'s own shipped `browser-host.mjs`, not a host written for the
 test, which would be a stub of the thing under test -- and every export is
 compared against the `.cljc`. **The native artifact compiles and was not
 run**, so nothing here claims it agrees.
+
+### The book, native, without a JVM
+
+`kotoba/torihiki/book.kotoba` is the matching engine -- place, cancel,
+reduce-to, cancel-all, best, next-occupied, impact-price and the read views --
+compiled by `amu --jvm-free` to aarch64 machine code and run under amu's
+`kexe_loader`. `kotoba/torihiki/book_bench.kotoba` drives it with the JVM
+bench's workload op for op (same LCG, seed, mix and ring):
+
+```bash
+AMU_BIN=<kotoba-lang/amu>/bin/amu kbb --backend sci script/native-bench.cljk 10000000
+```
+
+| | placed | cancelled | resting |
+|---|---|---|---|
+| `.cljk` book, 1,000,000 ops (JVM bench) | 450,909 | 153,767 | 223,196 |
+| Kotoba book, native, same tape | 450,909 | 153,767 | 223,196 |
+| `.cljk` book, 10,000,000 ops (JVM bench, same day) | 4,501,961 | 2,918,203 | 839,431 |
+| Kotoba book, native, same tape | 4,501,961 | 2,918,203 | 839,431 |
+
+2026-09-23, 10 cores, load average 15-37 from other sessions: **10,000,000
+operations in 1.56 s net, 156 ns/op, 6.4M ops/sec**, best of 3 (the three
+were within 1%). The generator runs inside the timed loop here, where the JVM
+bench builds its tape before the clock starts, so the comparison leans against
+the native side. The JVM bench on the same machine the same hour measured
+146,816 ops/sec at 1,000,000 and 95,721 at 10,000,000.
+
+The 10,000,000-op figures at the top of this README say 4,501,960 placed, one
+fewer: that bench counted a placement only when the id was POSITIVE, and the
+first order into slot 0 at generation 0 has id 0. The current bench counts it,
+and so does this one. Book only, like the JVM bench -- not the axis
+Hyperliquid's figure is on (see [Against Hyperliquid](#against-hyperliquid)).
+
+The script refuses to print a time (exit 1) unless the native run reproduces
+the `.cljk` counts at 1,000,000 operations, and answers exit 2 when it cannot
+run at all. Both were fired: a seed moved by one (449,978 placed), and an amu
+whose gate predates the change below.
+
+What it took, and why it is one vector:
+
+- **Every write is `vector-assoc!`, a store in place.** kotoba-sema admits
+  that only when the handle is dead afterwards. It used to COUNT uses, so a
+  book -- which reads several fields and then writes -- could not be written
+  at all (superproject ADR-2609010500's second wall). It now decides in
+  evaluation order: reads before the store are fine, anything after it is
+  refused (kotoba-sema 3fdaefb6 and ed3bb7c5, which also closed two ways a
+  read after a store had been admitted: inside `when`, and inside `->`).
+- **One `:vector-i64` with a header of offsets**, because a function takes at
+  most five parameters and one book operation touches up to eleven fields.
+  That is the first wall of ADR-2609010500 and it still stands.
+- The other two walls do not bind on native: tail recursion is a loop
+  (100,000,000 iterations in 0.12 s), and the item limit is a per-run budget
+  (`KEXE_VECTOR_ITEMS`; one vector may hold 2^24 items).
+- Checked two ways beyond the counts: the same module with every
+  `vector-assoc!` turned into the copying `vector-assoc` gives identical
+  results on a small book (12 comparisons, cancels exercised), which is what
+  checks the functions the gate does not.
+
+Not here yet: `snapshot` / `restore`, and everything above the book
+(clearing, funding, liquidation, auth, the state root). The `.cljk` book
+stays the engine and the oracle (Q9); nothing calls the Kotoba one yet.
 
 ### Two differences, both intended
 

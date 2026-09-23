@@ -1,0 +1,110 @@
+;; The Kotoba book, compiled by amu to native code and timed -- no JVM on the
+;; path: amu compiles on its Node route (--jvm-free), the loader is amu's
+;; tools/kexe_loader.c built with cc, and this script runs on kbb.
+;;
+;;   kbb --backend sci script/native-bench.cljk [n-operations]
+;;   AMU_BIN=<amu>/bin/amu kbb --backend sci script/native-bench.cljk 10000000
+;;
+;; The amu it uses must carry kotoba-sema at or after ed3bb7c5 (the
+;; vector-assoc! gate decided in evaluation order, threads expanded); an older
+;; one refuses book.kotoba at compile time, and this script says so.
+;;
+;; It refuses (exit 1) to print a time for a book that does not agree with
+;; the `.cljk` one: at 1,000,000 operations the JVM bench (bench.cljk) and
+;; the `.cljk` book give 450,909 placed, 153,767 cancelled, 223,196 resting,
+;; and the native run has to reproduce all three before anything is timed.
+;; Exit 2 when it cannot run at all (no amu, no cc, compile refused) -- that
+;; is not a measurement of anything.
+(ns native-bench
+  (:require ["child_process" :as cp]
+            ["fs" :as fs]
+            ["os" :as os]
+            ["path" :as path]
+            [clojure.string :as str]))
+
+(def repo (path/resolve (path/dirname *file*) ".."))
+
+(def amu
+  (or (some-> js/process .-env .-AMU_BIN)
+      (path/resolve repo ".." "amu" "bin" "amu")))
+
+(def parity {0 450909 1 153767 2 223196})
+
+(defn fail! [code & lines]
+  (doseq [l lines] (println l))
+  (js/process.exit code))
+
+(defn sh
+  "Run a command; return {:status :out :err}."
+  [cmd args env]
+  (let [r (cp/spawnSync cmd (clj->js args)
+                        #js {:encoding "utf8" :maxBuffer (* 64 1024 1024)
+                             :env (js/Object.assign #js {} js/process.env (clj->js env))})]
+    {:status (.-status r) :out (str (.-stdout r)) :err (str (.-stderr r))}))
+
+(def target
+  (let [arch (.-arch js/process) plat (.-platform js/process)]
+    (cond (and (= arch "arm64") (= plat "darwin")) ["aarch64-macos" "aarch64"]
+          (and (= arch "arm64") (= plat "linux")) ["aarch64-linux" "aarch64"]
+          (and (= arch "x64") (= plat "linux")) ["x86_64-linux" "x86_64"]
+          (and (= arch "x64") (= plat "darwin")) ["x86_64-macos" "x86_64"]
+          :else nil)))
+
+(def budgets
+  ;; The book is one vector of ~15.1M items (65,536 ticks, 2,097,152 slots)
+  ;; and the ring another 2.1M; the defaults (65,536 items, fuel 512) are
+  ;; sized for small guests, and every one of these is a per-run budget the
+  ;; loader enforces rather than a limit it decides.
+  {"KEXE_FUEL" "1000000000000000"
+   "KEXE_VECTOR_ITEMS" "33554432"
+   "KEXE_CPU_SECONDS" "3600"
+   "KEXE_WALL_SECONDS" "3600"})
+
+(defn now [] (.now js/performance))
+
+(let [n (or (some-> (first *command-line-args*) js/parseInt) 10000000)
+      _ (when-not target (fail! 2 (str "UNMEASURED: no native target for " (.-arch js/process) "/" (.-platform js/process))))
+      [tgt isa] target
+      _ (when-not (fs/existsSync amu) (fail! 2 (str "UNMEASURED: no amu at " amu " (set AMU_BIN)")))
+      dir (fs/mkdtempSync (path/join (os/tmpdir) "torihiki-native-bench-"))
+      kexe (path/join dir "bench.kexe")
+      bin (path/join dir "bench.bin")
+      loader (path/join dir "loader")
+      c (sh amu ["compile" (path/join repo "kotoba" "torihiki" "book_bench.kotoba")
+                 "--source-path" (path/join repo "kotoba")
+                 "--jvm-free" "--target" tgt "--output" kexe] {})
+      _ (when-not (= 0 (:status c))
+          (fail! 2 "UNMEASURED: amu refused book_bench.kotoba"
+                 (subs (str (:out c) (:err c)) 0 (min 600 (count (str (:out c) (:err c)))))))
+      x (sh amu ["extract-native" kexe "--symbol" "run" "--output" bin] {})
+      offset (second (re-find #":offset (\d+)" (:out x)))
+      _ (when-not offset (fail! 2 "UNMEASURED: extract-native printed no :offset" (:out x) (:err x)))
+      l (sh "cc" ["-O2" "-o" loader (path/resolve (path/dirname amu) ".." "tools" "kexe_loader.c")] {})
+      _ (when-not (= 0 (:status l)) (fail! 2 "UNMEASURED: cc could not build kexe_loader.c" (:err l)))
+      run (fn [n which]
+            (let [t0 (now)
+                  r (sh loader [bin offset "2" isa "-" (str n) (str which)] budgets)
+                  t1 (now)
+                  v (str/trim (:out r))]
+              (when-not (and (= 0 (:status r)) (re-matches #"-?\d+" v))
+                (fail! 2 (str "UNMEASURED: the loader answered " (pr-str v) " " (:err r))))
+              {:value (js/parseInt v) :ms (- t1 t0)}))]
+  (println (str "target " tgt ", amu " amu))
+  ;; parity before any time is printed
+  (doseq [[which want] parity]
+    (let [got (:value (run 1000000 which))]
+      (when-not (= got want)
+        (fail! 1 (str "REFUSED: at 1,000,000 operations counter " which " is " got
+                      ", the .cljk book gives " want " -- not the same book, so not timed")))))
+  (println "parity   1,000,000 ops: 450,909 placed / 153,767 cancelled / 223,196 resting (= .cljk)")
+  (let [base (apply min (map (fn [_] (:ms (run 0 1))) (range 3)))
+        runs (mapv (fn [_] (run n 1)) (range 3))
+        best (apply min (map :ms runs))
+        ops-ms (- best base)]
+    (println (str "startup  " (.toFixed base 1) " ms (n = 0, best of 3)"))
+    (println (str "run      " n " ops in " (.toFixed best 1) " ms (best of 3), "
+                  (.toFixed ops-ms 1) " ms net"))
+    (println (str "         " (.toFixed (/ (* 1e6 ops-ms) n) 1) " ns/op, "
+                  (.toLocaleString (js/Math.round (/ n (/ ops-ms 1000)))) " ops/sec"))
+    (println "         book only -- not comparable to Hyperliquid's execution figure")
+    (println (str "MEASURED\tnative-book\t" tgt "\t" n "\t" (.toFixed ops-ms 3) "\t" (:value (first runs))))))
