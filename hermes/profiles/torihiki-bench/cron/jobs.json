@@ -1,0 +1,26 @@
+{
+  "jobs": [
+    {
+      "base_url": null,
+      "context_from": null,
+      "deliver": "local",
+      "enabled": true,
+      "enabled_toolsets": null,
+      "id": "bff39f6e718a",
+      "model": "qwen3.8-27b-whitehacker",
+      "name": "torihiki-bench-iteration",
+      "no_agent": false,
+      "prompt": "torihiki maturity bench iteration: run `clojure -M:test` and optionally `clojure -M:bench` in ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki, record results (failures, assertions, throughput) as evidence under evidence/. Host load > 20 → not-run evidence only. No code changes.",
+      "provider": "kotoba",
+      "schedule": {
+        "kind": "cron",
+        "expr": "14 0-23/6 * * *",
+        "display": "14 0-23/6 * * *"
+      },
+      "script": "torihiki_state.sh",
+      "skill": null,
+      "skills": [],
+      "workdir": null
+    }
+  ]
+}
