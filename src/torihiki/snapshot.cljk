@@ -67,7 +67,7 @@
   node that is already in trouble. EDN carries them as themselves."
   (:require [kotoba.lang.text]
             [torihiki.book :as bk]
-            #?(:clj [clojure.edn :as edn] :cljs [cljs.reader :as edn])))
+            #?(:clj [kotoba.lang.edn :as edn] :cljs [cljs.reader :as edn])))
 
 (def ^:const format-version
   "Bumped when the shape changes. A restore that silently accepted an older

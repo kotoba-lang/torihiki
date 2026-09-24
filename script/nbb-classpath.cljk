@@ -30,7 +30,7 @@
 ;; reads like a code error rather than a missing dependency -- and if it were
 ;; short in a way that still loaded, it would run a subset and report a pass.
 (ns nbb-classpath
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [kotoba.lang.text :as str]
             [nbb.core :refer [*file*]]
             ["fs" :as fs]
