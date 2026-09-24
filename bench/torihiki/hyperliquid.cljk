@@ -43,17 +43,17 @@
 
   Each refusal prints its reason and exits 1. A clean run prints one
   `MEASURED` line per stage so the evidence carries its own denominator."
-  (:require [kotoba.lang.edn :as edn]
+  (:require [kotoba.bytes :as kbytes] [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
             [torihiki.auth :as auth]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.fixed :as fx]
             [torihiki.state :as st])
-  (:import [java.nio.charset StandardCharsets]
+  (:import
            [java.security KeyFactory KeyPair KeyPairGenerator Signature]
            [java.security.spec X509EncodedKeySpec]
-           [java.util Arrays Base64 HashMap]))
+           [java.util Arrays HashMap]))
 
 (set! *warn-on-reflection* true)
 
@@ -157,9 +157,9 @@
   (let [g (KeyPairGenerator/getInstance "Ed25519")]
     (into {} (for [a (range 100 (+ 100 n-accounts))] [a (.generateKeyPair g)]))))
 
-(defn- b64 ^String [^bytes b] (.encodeToString (Base64/getEncoder) b))
+(defn- b64 ^String [^bytes b] (kbytes/base64-encode b))
 
-(defn- utf8 ^bytes [^String s] (.getBytes s StandardCharsets/UTF_8))
+(defn- utf8 ^bytes [^String s] (kbytes/utf8-bytes s))
 
 (defn- sign-blocks
   "Wrap every transaction in a signed envelope with the account's next nonce."
@@ -190,7 +190,7 @@
     (fn [^String pub ^String payload sig]
       (let [pk (or (.get cache pub)
                    (let [k (.generatePublic kf (X509EncodedKeySpec.
-                                                (.decode (Base64/getDecoder) pub)))]
+                                                (kbytes/base64-decode-bytes pub)))]
                      (.put cache pub k)
                      k))]
         ;; Total, like the state machine it serves: the JDK THROWS
