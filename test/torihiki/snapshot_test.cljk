@@ -8,7 +8,7 @@
   the canonical bytes are equal, that the order ids are equal, and that the
   NEXT allocation is equal — the last one being the part a structural
   comparison cannot see."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.book :as bk]
             [torihiki.snapshot :as snap]
             [torihiki.state :as st]

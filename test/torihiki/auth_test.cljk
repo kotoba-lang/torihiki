@@ -1,6 +1,6 @@
 (ns torihiki.auth-test
   "Before this existed, `:account` was a number a client asserted."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.auth :as auth]

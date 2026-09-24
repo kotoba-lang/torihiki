@@ -1,7 +1,7 @@
 (ns torihiki.trigger-test
   "Stop-loss and take-profit: the orders a trader needs most at the moment the
   market is least cooperative."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.trigger :as trg]

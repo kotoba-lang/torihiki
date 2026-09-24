@@ -1,7 +1,7 @@
 (ns torihiki.oracle-test
   "The mark is anchored to the oracle so a thin book cannot liquidate people.
   That defence is only as good as the oracle."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.clearing :as cl]
             [torihiki.oracle :as orc]
             [torihiki.api :as api]

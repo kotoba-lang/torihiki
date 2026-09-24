@@ -3,7 +3,7 @@
   who cannot sign for the account they are shown — and the symptom, a
   rejection naming the account, looks like a permissions problem rather than
   an arithmetic one."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.address :as addr]))
 
 (def ^:const key-a "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=")

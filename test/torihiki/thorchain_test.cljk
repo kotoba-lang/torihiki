@@ -1,5 +1,5 @@
 (ns torihiki.thorchain-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [torihiki.keccak :as kc]
             [torihiki.thorchain :as tc]))
