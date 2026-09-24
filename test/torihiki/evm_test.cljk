@@ -1,5 +1,5 @@
 (ns torihiki.evm-test
-  (:require [kotoba.lang.text] [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.lang.text] [kotoba.test :refer [deftest is testing]]
             [torihiki.evm :as evm]
             [torihiki.clearing :as cl]
             [torihiki.state :as st]))

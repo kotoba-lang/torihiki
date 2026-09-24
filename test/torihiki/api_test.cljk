@@ -1,7 +1,7 @@
 (ns torihiki.api-test
   "The property that matters most here is not that bad input is refused — it
   is that refusing it cannot stop the chain."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.api :as api]

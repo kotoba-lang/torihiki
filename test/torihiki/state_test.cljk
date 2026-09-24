@@ -1,7 +1,7 @@
 (ns torihiki.state-test
   "The tests that matter for a chain: two replays of the same block must reach
   the same state root, and any difference in the block must change it."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.fixed :as fx]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]

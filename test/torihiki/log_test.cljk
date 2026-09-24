@@ -1,5 +1,5 @@
 (ns torihiki.log-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [chain.core :as chain]
             [ipld.core :as ipld]
             [torihiki.book :as bk]

@@ -1,5 +1,5 @@
 (ns torihiki.book-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.book :as bk]
             [torihiki.slab :as slab]))
 

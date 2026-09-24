@@ -1,7 +1,7 @@
 (ns torihiki.mark-test
   "The attack this namespace exists to stop: move the mark with one small
   fill, then collect somebody else's liquidated position."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.fixed :as fx]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]

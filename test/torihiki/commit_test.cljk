@@ -1,6 +1,6 @@
 (ns torihiki.commit-test
   "The tree, and the claim that it is a refinement of what came before."
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [torihiki.state :as st]
             [torihiki.commit :as cm]
             [torihiki.parity :as par]

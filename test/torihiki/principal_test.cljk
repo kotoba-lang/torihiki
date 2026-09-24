@@ -1,5 +1,5 @@
 (ns torihiki.principal-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [torihiki.principal :as pr]
             [torihiki.address :as addr]
             [torihiki.state :as st]
