@@ -6,7 +6,7 @@
 ;; owner, and the owner is then refused :wrong-key permanently. WITH
 ;; derive-account, the thief's claim is refused :not-your-account.
 (ns falsify1
-  (:require [clojure.pprint :refer [pprint]]
+  (:require [kotoba.pprint :refer [pprint]]
             [torihiki.clearing :as cl]
             [torihiki.state :as st]
             [torihiki.auth :as auth]
@@ -63,17 +63,17 @@
   ;; transactions, which it saw in the mempool (pending binding).
   (let [ex (apply-block* (fresh) 1 (into [thief-claim] (owner-txs 2 5)) {})]
     (println "\n[A] no derive-fn, leader front-runs the pending binding:")
-    (clojure.pprint/pprint (summarize ex))
+    (kotoba.pprint/pprint (summarize ex))
     ;; Permanence: the owner retries in a later block with fresh nonces.
     (let [ex2 (apply-block* ex 2 (owner-txs 10 3) {})]
       (println "    owner retries next block:")
-      (clojure.pprint/pprint (select-keys (summarize ex2) [:rejected-reasons :binding]))))
+      (kotoba.pprint/pprint (select-keys (summarize ex2) [:rejected-reasons :binding]))))
 
   ;; Scenario B — derive-fn supplied: a key may only bind the id derived from it.
   (let [ex (apply-block* (fresh) 1 (into [thief-claim] (owner-txs 1 5))
                          {:derive-account derive-account})]
     (println "\n[B] derive-fn supplied, same leader behaviour:")
-    (clojure.pprint/pprint (summarize ex)))
+    (kotoba.pprint/pprint (summarize ex)))
 
   ;; Determinism: the scenario re-run produces the same outcome (replica parity).
   (let [runs (repeatedly 3 #(apply-block* (fresh) 1
