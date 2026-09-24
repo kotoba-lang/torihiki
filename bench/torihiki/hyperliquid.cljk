@@ -43,7 +43,7 @@
 
   Each refusal prints its reason and exits 1. A clean run prints one
   `MEASURED` line per stage so the evidence carries its own denominator."
-  (:require [clojure.edn :as edn]
+  (:require [kotoba.lang.edn :as edn]
             [clojure.java.io :as io]
             [torihiki.auth :as auth]
             [torihiki.book :as bk]
