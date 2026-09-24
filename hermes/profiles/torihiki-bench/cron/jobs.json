@@ -7,11 +7,11 @@
       "enabled": true,
       "enabled_toolsets": null,
       "id": "bff39f6e718a",
-      "model": "qwen3.8-27b-whitehacker",
+      "model": "murakumo/free",
       "name": "torihiki-bench-iteration",
       "no_agent": false,
       "prompt": "torihiki maturity bench iteration: run `clojure -M:test` and optionally `clojure -M:bench` in ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki, record results (failures, assertions, throughput) as evidence under evidence/. Host load > 20 → not-run evidence only. No code changes.",
-      "provider": "kotoba",
+      "provider": "murakumo",
       "schedule": {
         "kind": "cron",
         "expr": "14 0-23/6 * * *",

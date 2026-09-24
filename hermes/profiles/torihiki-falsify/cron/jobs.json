@@ -7,11 +7,11 @@
       "enabled": true,
       "enabled_toolsets": null,
       "id": "1e852ac4fd35",
-      "model": "qwen3.8-27b-whitehacker",
+      "model": "murakumo/free",
       "name": "torihiki-falsify-iteration",
       "no_agent": false,
       "prompt": "torihiki maturity falsify iteration: 1 hypothesis, 1 measured verdict, write evidence to ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki/evidence/, no code changes. First run bash ~/.hermes/scripts/torihiki_state.sh and read ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki/status/maturity.md (NEXT section). Host load > 20 → not-run evidence only.",
-      "provider": "kotoba",
+      "provider": "murakumo",
       "schedule": {
         "kind": "cron",
         "expr": "9 2-23/3 * * *",
