@@ -1,0 +1,26 @@
+{
+  "jobs": [
+    {
+      "base_url": null,
+      "context_from": null,
+      "deliver": "local",
+      "enabled": true,
+      "enabled_toolsets": null,
+      "id": "05ac47fecc61",
+      "model": "qwen3.8-27b-whitehacker",
+      "name": "torihiki-maint-watch",
+      "no_agent": false,
+      "prompt": "torihiki red-detection watch: inspect one of (maturity.md freshness, evidence staleness, test suite green, loop stalled 48h, torihiki-node deploy drift) in ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki and report. First run bash ~/.hermes/scripts/torihiki_state.sh. Read-only.",
+      "provider": "kotoba",
+      "schedule": {
+        "kind": "cron",
+        "expr": "23 0-23/6 * * *",
+        "display": "23 0-23/6 * * *"
+      },
+      "script": "torihiki_state.sh",
+      "skill": null,
+      "skills": [],
+      "workdir": null
+    }
+  ]
+}

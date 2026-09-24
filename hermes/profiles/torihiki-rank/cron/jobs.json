@@ -1,0 +1,26 @@
+{
+  "jobs": [
+    {
+      "base_url": null,
+      "context_from": null,
+      "deliver": "local",
+      "enabled": true,
+      "enabled_toolsets": null,
+      "id": "084dd54c1445",
+      "model": "qwen3.8-27b-whitehacker",
+      "name": "torihiki-rank-iteration",
+      "no_agent": false,
+      "prompt": "torihiki maturity rank iteration: re-measure the 7-axis scores of ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki against status/maturity.md, update scores with cited evidence, propose the highest-leverage NEXT. First run bash ~/.hermes/scripts/torihiki_state.sh. No code changes.",
+      "provider": "kotoba",
+      "schedule": {
+        "kind": "cron",
+        "expr": "4 1-23/4 * * *",
+        "display": "4 1-23/4 * * *"
+      },
+      "script": "torihiki_state.sh",
+      "skill": null,
+      "skills": [],
+      "workdir": null
+    }
+  ]
+}
