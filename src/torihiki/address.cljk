@@ -28,7 +28,7 @@
   derived id landing on one would be a key claiming a role, which is a
   different kind of mistake from claiming somebody's account and a worse one."
   (:refer-clojure :exclude [derive])
-  (:require [kotoba.bytes.sha256 :as sha]))
+  (:require [kotoba.bytes :as kbytes] [kotoba.bytes.sha256 :as sha]))
 
 (def ^:const floor
   "Ids below this are reserved for roles configured at genesis."
@@ -39,7 +39,7 @@
   35184372088832)
 
 (defn- bytes-of [s]
-  #?(:clj (mapv #(bit-and (int %) 0xff) (.getBytes ^String s "UTF-8"))
+  #?(:clj (mapv #(bit-and (int %) 0xff) (kbytes/utf8-bytes ^String s))
      :cljs (vec (.encode (js/TextEncoder.) s))))
 
 (defn derive
