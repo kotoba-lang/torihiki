@@ -81,7 +81,7 @@ validators that one party runs is a custodial bridge with extra steps.
 ### D0. Honest baseline (days)
 
 - `/head` already states "devnet faucet" when `:bridge-authority` is nil.
-  Extend it with the six flags above, all `false`.
+  Extend it with the eight flags above (six phases), all `false`.
 - `torihiki-terminal`: default to the BFT validator; remove the silent
   fallback to the sequencer, or show a banner "single sequencer, not
   consensus" when it is used.
