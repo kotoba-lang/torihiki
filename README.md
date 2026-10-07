@@ -7,8 +7,10 @@ replacement for Hyperliquid's closed HyperCore.
 design; the deployment is not yet a decentralized exchange. `torihiki-node`
 runs it as one sequencer and as a four-replica BFT set whose four keys one
 party holds; collateral is a faucet grant; nothing can be withdrawn to another
-chain. Every node serves eight flags at `/head` (`:decentralization`) and
-`/.well-known/torihiki`, all false until their gates pass in production — see
+chain. Every node carries eight flags for `/head` (`:decentralization`) and
+`/.well-known/torihiki` (torihiki-node#38 — merged, not yet deployed: the
+running devnet is stalled and a Durable Object does not pick up a deploy), all
+false until their gates pass in production — see
 [`docs/decentralization-roadmap.md`](docs/decentralization-roadmap.md). Until
 D1–D4 are true, do not describe this as decentralized.
 
