@@ -435,6 +435,28 @@
       (not (integer? account)) :bad-account
       :else nil)
 
+    (:validator-register :validator-rotate-key)
+    (cond
+      (not (integer? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
+      :else nil)
+
+    :validator-retire
+    (cond
+      (not (integer? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      :else nil)
+
+    :equivocation-evidence
+    (cond
+      (not (integer? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      (not (integer? (:evidence-height t))) :missing-field
+      (not (integer? (:view t))) :missing-field
+      (not (every? #(string? (get t %)) [:hash-a :sig-a :hash-b :sig-b])) :missing-field
+      :else nil)
+
     :unknown-tx))
 
 ;; ── read models ─────────────────────────────────────────────────────────────

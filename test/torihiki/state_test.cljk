@@ -1206,7 +1206,13 @@
                (funded [62] 1000000)
                (st/apply-tx {:tx :bond :account 62 :validator 7 :amount 500000})
                (st/apply-tx {:tx :unbond :account 62 :validator 7 :amount 500000}))]
-    (is (= 0 (cl/bonded (:clearing ex) 62)) "the stake still counts as weight")
+    (is (= 0 (cl/stake-of (:clearing ex) 7)) "the stake still counts as weight")
+    ;; ...but it is still answerable: reserved, not free, until collected.
+    ;; It used to come back free the moment it left the bond, so a validator
+    ;; could unbond and withdraw before anybody could slash it.
+    (is (= 500000 (cl/bonded (:clearing ex) 62)) "unbonding collateral is not reserved")
+    (is (= 500000 (cl/free-collateral (:clearing ex) 62 (:marks ex) (:markets ex)))
+        "unbonding collateral could be withdrawn before the delay")
     (is (= 500000 (reduce + 0 (map :amount (get-in ex [:clearing :unbonding 62]))))
         "the unbonding was not queued")
     ;; too early

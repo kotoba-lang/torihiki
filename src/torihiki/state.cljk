@@ -33,6 +33,7 @@
             [torihiki.api :as api]
             [torihiki.auth :as auth]
             [torihiki.principal :as pr]
+            [torihiki.validators :as vals]
             [torihiki.keccak :as kc]
             [kotoba.bytes :as b]
             [kotoba.bytes.sha256 :as sha]
@@ -74,6 +75,7 @@
       ;; naming it would land somewhere nobody meant.
       (throw (ex-info "torihiki.state: duplicate market id"
                       {:ids (mapv :id ms)})))
+    (vals/init
     {:markets (into {} (map (juxt :id identity)) ms)
      :books (into {} (map (fn [m] [(:id m) (bk/new-book (or book-opts {}))])) ms)
      :clearing (assoc (cl/new-state)
@@ -150,7 +152,11 @@
      :withdrawals {}
      :withdraw-seq 0
      :height 0
-     :ts 0}))
+     :ts 0}
+    ;; The validator set, when the chain is configured with one
+    ;; (`torihiki.validators`). Absent, nothing is added and the root of every
+    ;; existing chain is unchanged.
+    (:validators _cfg))))
 
 ;; ── transactions ────────────────────────────────────────────────────────────
 
@@ -592,12 +598,16 @@
 
 (defmethod apply-tx :bond
   [ex {:keys [account validator amount]}]
-  ;; Delegated stake. `validator` is any account — a publisher, a witness, or
-  ;; somebody else's name for one — because this chain does not have a
-  ;; registry of validators to check against, and inventing one here would put
-  ;; the validator set in two places.
-  (update ex :clearing cl/bond account validator amount
-          (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
+  ;; Delegated stake. `validator` is any account — a publisher, a witness's
+  ;; operator, or somebody else's name for one. On a chain configured with a
+  ;; validator set (`torihiki.validators`), the stake bonded to a witness's
+  ;; operator account is that witness's weight at the next epoch boundary, and
+  ;; what a proved equivocation takes. Bonding to an account that operates no
+  ;; witness is still allowed: publishers are weighted by the same bonds.
+  (if (vals/jailed-operator? ex validator)
+    ex
+    (update ex :clearing cl/bond account validator amount
+            (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex)))))
 
 (defmethod apply-tx :unbond
   [ex {:keys [account validator amount]}]
@@ -609,6 +619,24 @@
   ;; account every block to find the few that have something matured. The
   ;; money never moved, so waiting costs the holder nothing but the ask.
   (update ex :clearing cl/collect-unbonded account (:height ex 0)))
+
+;; ── the validator set (torihiki.validators) ─────────────────────────────────
+;;
+;; Each signed by the OPERATOR account; `torihiki.auth` has already checked
+;; that. Refusals are no-ops for the same reason as everywhere else here.
+
+(defmethod apply-tx :validator-register [ex t] (vals/register ex t))
+(defmethod apply-tx :validator-rotate-key [ex t] (vals/rotate-key ex t))
+(defmethod apply-tx :validator-retire [ex t] (vals/retire ex t))
+
+(defmethod apply-tx :equivocation-evidence
+  [ex t]
+  ;; Anybody may submit it: the proof is the votes, not the submitter. The
+  ;; verifier is the node's (`apply-block` opts `:vote-verify-fn`), because the
+  ;; vote format belongs to consensus; with none, nothing is slashed.
+  (if (vals/evidence-valid? ex t (::vote-verify-fn ex))
+    (vals/slash ex t)
+    ex))
 
 (defmethod apply-tx :principal-claim
   ;; The owner half of the handshake. `torihiki.auth` has already established
@@ -1142,9 +1170,12 @@
   positions at risk, so it is the thing to index first when it stops being
   cheap. Paying it every block is what makes it unconditional."
   ([ex block] (apply-block ex block nil))
-  ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id derive-account]
+  ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id derive-account vote-verify-fn]
                                 :as _opts}]
-   (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected []))
+   (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected [])
+                ;; For `:equivocation-evidence` only, and removed before the
+                ;; block returns: a function is not state.
+                (cond-> vote-verify-fn (assoc ::vote-verify-fn vote-verify-fn)))
          applied
          (reduce
           (fn [e [i entry]]
@@ -1187,7 +1218,11 @@
      ;; holder refused costs the account.
      (-> (reduce fire-twaps applied (sort (keys (:books applied))))
          (as-> ex' (reduce sweep-liquidations ex' (sort (keys (:books ex')))))
-         (pr/mature-rotations height)))))
+         (pr/mature-rotations height)
+         ;; Last: the set that runs the next epoch is decided by the state the
+         ;; boundary block ENDS in, so a bond or a slash in that block counts.
+         (vals/turn-epoch height)
+         (dissoc ::vote-verify-fn)))))
 
 ;; ── state root ──────────────────────────────────────────────────────────────
 ;;
@@ -1319,6 +1354,82 @@
   claim's age is what an operator uses to decide whether a payout is late."
   [id w]
   (enc-ints [enc-tag-withdrawal id (:account w) (:amount w) (:height w 0)]))
+
+;; ── the validator set ──────────────────────────────────────────────────────
+
+(def ^:const enc-tag-validator 23)
+
+(defn- encode-validator
+  "One registered validator. The consensus key is the whole of its authority
+  over the chain's order, so it is committed, and so is the key queued to
+  replace it — a replica that disagreed about a pending rotation would accept
+  different votes one epoch later."
+  [w v]
+  (-> (enc-string w)
+      (into (enc-string (:pubkey v)))
+      (into (enc-string (or (:pending-pubkey v) "")))
+      (into (enc-ints [enc-tag-validator (:account v 0) (:registered v 0)
+                       (if (:jailed? v) 1 0) (if (:retiring? v) 1 0)
+                       (or (:retired-at v) -1)]))))
+
+(defn- encode-epoch
+  "An epoch: its number, its first height, and its members in name order with
+  the key and the stake each held when it was installed."
+  [e]
+  (reduce (fn [acc {:keys [witness pubkey account stake]}]
+            (-> acc (into (enc-string witness)) (into (enc-string pubkey))
+                (into (enc-ints [enc-tag-validator account stake]))))
+          (enc-ints [enc-tag-validator (if e 1 0) (:n e 0) (:from e 0) (count (:set e))])
+          (:set e)))
+
+(declare pad-id)
+
+(declare validator-leaves*)
+
+(defn- validator-leaves
+  "Section 09. Empty means absent, like 07 and 08: a chain configured without
+  validators encodes exactly as it did before.
+
+  Emitted in id order, which is the order the tree sorts leaves into — a
+  section whose flat bytes ran in another order would commit the flat digest
+  and the tree to different sequences."
+  [ex]
+  (some->> (validator-leaves* ex) seq (sort-by :id)))
+
+(defn- validator-leaves*
+  [ex]
+  (when (vals/enabled? ex)
+    (let [{:keys [epoch-length min-stake max-validators]} (:validator-params ex)
+          vs (:validators ex {})
+          sl (:slashed ex {})
+          refused (:epoch-refused ex)]
+      (concat
+       [{:id "09:00" :bytes (enc-ints [enc-tag-validator epoch-length min-stake max-validators
+                                       (count vs) (count sl)
+                                       (if refused 1 0) (:height refused 0) (:qualified refused 0)])}
+        {:id "09:01" :bytes (encode-epoch (:epoch ex))}
+        {:id "09:02" :bytes (encode-epoch (:prev-epoch ex))}]
+       (for [w (sort (keys vs))]
+         {:id (str "09:03:" w) :bytes (encode-validator w (get vs w))})
+       ;; Every bond and every unbonding, by whom and to whom. The account
+       ;; leaf commits only totals, which was enough while a bond was a
+       ;; number; with a validator set, WHICH operator a bond backs decides
+       ;; the set and what a slash takes, so two replicas agreeing on totals
+       ;; could still install different sets.
+       (let [c (:clearing ex)]
+         (for [a (sort (distinct (concat (keys (:bonds c {})) (keys (:unbonding c {})))))]
+           {:id (str "09:09:" (pad-id a))
+            :bytes (let [bs (sort (get-in c [:bonds a] {}))
+                         us (sort-by (juxt :at :validator :amount) (get-in c [:unbonding a] []))]
+                     (-> (enc-ints [enc-tag-validator a (count bs) (count us)])
+                         (into (mapcat (fn [[v amt]] (enc-ints [enc-tag-validator v amt])) bs))
+                         (into (mapcat (fn [{:keys [validator amount at]}]
+                                         (enc-ints [enc-tag-validator validator amount at])) us))))}))
+       (for [[w h v :as k] (sort (keys sl))]
+         {:id (str "09:04:" w ":" (pad-id h) ":" (pad-id v))
+          :bytes (let [{:keys [by amount height]} (get sl k)]
+                   (-> (enc-string w)
+                       (into (enc-ints [enc-tag-validator h v by amount height]))))})))))
 
 (def ^:const enc-tag-inbound 20)
 
@@ -1888,7 +1999,8 @@
            {:id "08:00" :bytes (enc-ints [enc-tag-evm (count cs)])}
            (for [addr (sort (keys cs))]
              {:id (str "08:01:" addr)
-              :bytes (encode-evm addr (get cs addr))}))))))))
+              :bytes (encode-evm addr (get cs addr))}))))
+      (validator-leaves ex)))))
 
 (defn canonical-bytes
   "The exact byte sequence `flat-root` digests. Exposed because a state root
