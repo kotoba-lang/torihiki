@@ -80,15 +80,24 @@
             ex (-> ex
                    (assoc-in [:protocol :seq] id)
                    (assoc-in [:protocol :proposals id]
+                             ;; It must pass with its notice intact, so it stops
+                             ;; taking votes `notice` blocks before it would
+                             ;; activate, or at its ttl, whichever is first.
                              {:version v :activation activation :by account
-                              :votes #{} :expires (+ h (:ttl params))}))]
+                              :votes #{} :expires (min (+ h (:ttl params))
+                                                       (- activation (:notice params)))}))]
         ;; The proposer's own vote.
         (vote ex {:account account :proposal id})))))
 
 (defn vote
   [ex {:keys [account proposal]}]
   (let [p (get-in ex [:protocol :proposals proposal])]
-    (if (or (nil? p) (not (member? ex account)))
+    (if (or (nil? p) (not (member? ex account))
+            ;; Past its last block for votes. Checked here rather than left to
+            ;; `expire`, which runs after the block's transactions and would
+            ;; let one more block of votes in. A vote that passes it this late
+            ;; would schedule a version with less notice than was promised.
+            (> (:height ex 0) (:expires p)))
       ex
       (let [votes (conj (:votes p) account)]
         (if (vals/supermajority? ex votes)

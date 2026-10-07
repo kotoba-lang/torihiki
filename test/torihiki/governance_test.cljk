@@ -56,9 +56,10 @@
     (is (nil? (get-in ex [:protocol :scheduled])))))
 
 (deftest proposals-lapse
+  ;; ttl 500, but it stops at activation 200 - notice 100.
   (let [ex (block (chain) 1 [propose])]
-    (is (some? (get-in (block ex 501 []) [:protocol :proposals 1])))
-    (is (nil? (get-in (block ex 502 []) [:protocol :proposals 1])))))
+    (is (some? (get-in (block ex 100 []) [:protocol :proposals 1])))
+    (is (nil? (get-in (block ex 101 []) [:protocol :proposals 1])))))
 
 (deftest governance-is-under-the-root-and-signed
   (let [ex (chain)]
@@ -69,3 +70,12 @@
       (is (not= (p (vote 100)) (p (assoc (vote 100) :proposal 2))))
       (is (not= (p propose) (p (assoc propose :version 3))))
       (is (not= (p propose) (p (assoc propose :activation 999)))))))
+
+(deftest a-late-pass-cannot-skip-the-notice
+  ;; Review of #37: notice was checked only at propose time, and ttl is longer
+  ;; than notice, so a vote arriving after the activation height scheduled an
+  ;; upgrade for the very next block.
+  (let [ex (block (chain) 1 [propose (vote 101)])]
+    (is (= 100 (get-in ex [:protocol :proposals 1 :expires])) "activation 200 - notice 100")
+    (is (some? (get-in (block ex 100 [(vote 102)]) [:protocol :scheduled])) "on its last block")
+    (is (nil? (get-in (block ex 101 [(vote 102)]) [:protocol :scheduled])) "after it")))

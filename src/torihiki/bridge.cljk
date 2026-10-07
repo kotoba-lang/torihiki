@@ -63,7 +63,9 @@
 (def withdrawal-type
   "Withdrawal(bytes32 chain,uint64 claim,address dest,uint256 amount,uint64 epoch)")
 (def validator-set-type
-  "ValidatorSet(bytes32 chain,uint64 epoch,address[] signers,uint64[] powers)")
+  "ValidatorSet(bytes32 chain,uint64 fromEpoch,uint64 epoch,address[] signers,uint64[] powers)")
+(def action-type
+  "Action(bytes32 chain,uint64 epoch,string kind,uint64 claim,uint256 value,uint64 nonce)")
 
 (defn domain-separator
   "`{:evm-chain-id :contract}` — the chain the contract lives on and its
@@ -93,16 +95,32 @@
                                      (uint-word epoch))))))
 
 (defn validator-set-digest
-  "What the current set signs to name its successor. `signers` must already be
-  in ascending address order — the contract refuses anything else, so a set
-  signed in another order is a set nobody can install."
-  [domain {:keys [chain epoch signers powers]}]
+  "What the current set (contract epoch `from-epoch`) signs to name its
+  successor for `epoch`. `signers` must already be in ascending address order —
+  the contract refuses anything else, so a set signed in another order is a
+  set nobody can install."
+  [domain {:keys [chain from-epoch epoch signers powers]}]
   (hex (typed-digest domain
                      (keccak (concat (keccak-str validator-set-type)
                                      (keccak-str chain)
+                                     (uint-word from-epoch)
                                      (uint-word epoch)
                                      (keccak (mapcat address-word signers))
                                      (keccak (mapcat uint-word powers)))))))
+
+(defn action-digest
+  "What the current set signs for a quorum action: `kind` is \"invalidate\",
+  \"unpause\", \"deposit-cap\" or \"cancel-set\"; `nonce` is the contract's
+  `nonceOf(kind)`."
+  [domain {:keys [chain epoch kind claim value nonce]}]
+  (hex (typed-digest domain
+                     (keccak (concat (keccak-str action-type)
+                                     (keccak-str chain)
+                                     (uint-word epoch)
+                                     (keccak-str kind)
+                                     (uint-word claim)
+                                     (uint-word value)
+                                     (uint-word nonce))))))
 
 ;; ── events ──────────────────────────────────────────────────────────────────
 
@@ -190,10 +208,11 @@
 
                       (ours? l contract t-out)
                       (let [claim (word->int (nth ts 1 nil))
-                            dest (topic->address (nth ts 2 nil))]
-                        (when (and claim dest (string? txh))
+                            dest (topic->address (nth ts 2 nil))
+                            amount (word->int (word 0))]
+                        (when (and claim dest amount (string? txh))
                           {:tx :withdraw-attest :account me
-                           :claim claim :txid txh :dest dest}))
+                           :claim claim :txid txh :dest dest :amount amount}))
 
                       (ours? l contract t-inv)
                       (let [claim (word->int (nth ts 1 nil))]

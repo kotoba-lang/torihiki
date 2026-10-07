@@ -68,8 +68,14 @@ contract TorihikiBridge {
     /// bridge earns trust with bounded loss.
     uint256 public depositCap;
     uint64 public depositSeq;
-    /// Replay protection for quorum actions that are not keyed by a claim.
-    uint64 public actionNonce;
+    /// Replay protection for quorum actions, one counter per action kind, so
+    /// two actions signed at the same moment cannot cancel each other.
+    mapping(bytes32 => uint64) public actionNonce;
+    /// After a quorum unpause, a single locker cannot pause again until this
+    /// time. Otherwise one faulty validator re-pauses after every unpause and
+    /// the quorum can never finalize the set change that would remove it.
+    uint256 public pauseDisabledUntil;
+    uint256 private locked = 1;
 
     struct Withdrawal {
         address dest;
@@ -93,6 +99,7 @@ contract TorihikiBridge {
     event Paused(address indexed by);
     event Unpaused();
     event DepositCapChanged(uint256 cap);
+    event ValidatorSetCancelled(uint64 indexed epoch);
 
     // ── errors ─────────────────────────────────────────────────────────────────
 
@@ -111,6 +118,8 @@ contract TorihikiBridge {
     error StaleEpoch();
     error BadSet();
     error NotASigner();
+    error PauseCooldown();
+    error Reentrant();
 
     // ── EIP-712 ────────────────────────────────────────────────────────────────
 
@@ -118,10 +127,12 @@ contract TorihikiBridge {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 public constant WITHDRAWAL_TYPEHASH =
         keccak256("Withdrawal(bytes32 chain,uint64 claim,address dest,uint256 amount,uint64 epoch)");
+    /// `fromEpoch` is the set doing the signing: a proposal signed by an earlier
+    /// set, held back and submitted later, does not verify against this one.
     bytes32 public constant VALIDATOR_SET_TYPEHASH =
-        keccak256("ValidatorSet(bytes32 chain,uint64 epoch,address[] signers,uint64[] powers)");
+        keccak256("ValidatorSet(bytes32 chain,uint64 fromEpoch,uint64 epoch,address[] signers,uint64[] powers)");
     bytes32 public constant ACTION_TYPEHASH =
-        keccak256("Action(bytes32 chain,string kind,uint64 claim,uint256 value,uint64 nonce)");
+        keccak256("Action(bytes32 chain,uint64 epoch,string kind,uint64 claim,uint256 value,uint64 nonce)");
 
     constructor(
         IERC20 token_,
@@ -166,6 +177,7 @@ contract TorihikiBridge {
                 abi.encode(
                     VALIDATOR_SET_TYPEHASH,
                     torihikiChain,
+                    epoch,
                     epoch_,
                     keccak256(abi.encodePacked(signers_)),
                     keccak256(abi.encodePacked(powers_))
@@ -179,7 +191,27 @@ contract TorihikiBridge {
         view
         returns (bytes32)
     {
-        return _digest(keccak256(abi.encode(ACTION_TYPEHASH, torihikiChain, keccak256(bytes(kind)), claim, value, nonce)));
+        return _digest(
+            keccak256(abi.encode(ACTION_TYPEHASH, torihikiChain, epoch, keccak256(bytes(kind)), claim, value, nonce))
+        );
+    }
+
+    modifier nonReentrant() {
+        if (locked != 1) revert Reentrant();
+        locked = 2;
+        _;
+        locked = 1;
+    }
+
+    /// Check a quorum action and consume its kind's nonce.
+    function _action(string memory kind, uint64 claim, uint256 value, bytes[] calldata sigs) internal {
+        bytes32 k = keccak256(bytes(kind));
+        _requireQuorum(actionDigest(kind, claim, value, actionNonce[k]), sigs);
+        actionNonce[k]++;
+    }
+
+    function nonceOf(string calldata kind) external view returns (uint64) {
+        return actionNonce[keccak256(bytes(kind))];
     }
 
     // ── reading ────────────────────────────────────────────────────────────────
@@ -201,9 +233,12 @@ contract TorihikiBridge {
     /// @notice Escrow `amount` for torihiki account `account`.
     /// @dev Credited by the balance delta, not by `amount`, so a token that takes a
     ///      fee in transfer cannot make the escrow promise more than it holds.
-    function deposit(uint64 account, uint256 amount) external {
+    function deposit(uint64 account, uint256 amount) external nonReentrant {
         if (paused) revert IsPaused();
-        if (account == 0) revert BadAccount();
+        // torihiki account ids are i53, like every other number in its engine; a
+        // deposit to an id it cannot represent would be skipped by every
+        // validator and never credited.
+        if (account == 0 || account > MAX_AMOUNT) revert BadAccount();
         if (amount == 0 || amount > MAX_AMOUNT) revert BadAmount();
         uint256 before = token.balanceOf(address(this));
         if (before + amount > depositCap) revert CapExceeded();
@@ -230,7 +265,7 @@ contract TorihikiBridge {
 
     /// @notice Pay a requested withdrawal once its dispute period has passed.
     ///         Anybody may call it; the destination was fixed by the signatures.
-    function finalizeWithdrawal(uint64 claim) external {
+    function finalizeWithdrawal(uint64 claim) external nonReentrant {
         if (paused) revert IsPaused();
         Withdrawal storage w = withdrawals[claim];
         if (w.requestedAt == 0) revert NotRequested();
@@ -241,14 +276,17 @@ contract TorihikiBridge {
         emit Withdrawn(claim, w.dest, w.amount);
     }
 
-    /// @notice Cancel a pending withdrawal (2/3). The recovery path after a locker
-    ///         pauses on a request the validators did not mean to sign.
+    /// @notice Cancel a claim (2/3): a pending request the validators did not mean
+    ///         to sign, or a claim that was never requested and never will be —
+    ///         whose id is then burned so it cannot be requested later. Either way
+    ///         `WithdrawalInvalidated` is what lets torihiki refund the owner.
     function invalidateWithdrawal(uint64 claim, bytes[] calldata sigs) external {
         Withdrawal storage w = withdrawals[claim];
-        if (w.requestedAt == 0) revert NotRequested();
         if (w.finalized || w.invalidated) revert AlreadyDone();
-        _requireQuorum(actionDigest("invalidate", claim, 0, actionNonce), sigs);
-        actionNonce++;
+        _action("invalidate", claim, 0, sigs);
+        if (w.requestedAt == 0) {
+            w.requestedAt = uint64(block.timestamp);
+        }
         w.invalidated = true;
         emit WithdrawalInvalidated(claim);
     }
@@ -258,21 +296,26 @@ contract TorihikiBridge {
     /// @notice Any single current validator can stop every outflow.
     function pause() external {
         if (powerOf[msg.sender] == 0) revert NotASigner();
+        if (block.timestamp < pauseDisabledUntil) revert PauseCooldown();
         paused = true;
         emit Paused(msg.sender);
     }
 
     /// @notice Only a 2/3 quorum can start it again.
+    ///         It also restarts the dispute window of a pending set change (time
+    ///         spent paused is not time anybody could object in), and stops single
+    ///         lockers for two dispute periods, so the quorum can finalize the set
+    ///         change that removes a locker who keeps pausing.
     function unpause(bytes[] calldata sigs) external {
-        _requireQuorum(actionDigest("unpause", 0, 0, actionNonce), sigs);
-        actionNonce++;
+        _action("unpause", 0, 0, sigs);
         paused = false;
+        if (pendingSet.requestedAt != 0) pendingSet.requestedAt = uint64(block.timestamp);
+        pauseDisabledUntil = block.timestamp + 2 * uint256(disputePeriod);
         emit Unpaused();
     }
 
     function setDepositCap(uint256 cap, bytes[] calldata sigs) external {
-        _requireQuorum(actionDigest("deposit-cap", 0, cap, actionNonce), sigs);
-        actionNonce++;
+        _action("deposit-cap", 0, cap, sigs);
         depositCap = cap;
         emit DepositCapChanged(cap);
     }
@@ -297,6 +340,15 @@ contract TorihikiBridge {
         pendingSet.signers = newSigners;
         pendingSet.powers = newPowers;
         emit ValidatorSetRequested(newEpoch, newSigners, newPowers);
+    }
+
+    /// @notice Drop a pending set change (2/3), e.g. one a locker paused on.
+    function cancelValidatorSet(bytes[] calldata sigs) external {
+        if (pendingSet.requestedAt == 0) revert NotRequested();
+        _action("cancel-set", pendingSet.epoch, 0, sigs);
+        uint64 e = pendingSet.epoch;
+        delete pendingSet;
+        emit ValidatorSetCancelled(e);
     }
 
     function finalizeValidatorSet() external {
