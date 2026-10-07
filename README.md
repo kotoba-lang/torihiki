@@ -1,7 +1,16 @@
 # torihiki (取引)
 
-A deterministic, fully on-chain exchange state machine — the open replacement
-for Hyperliquid's closed HyperCore.
+A deterministic exchange state machine, built to run fully on-chain — the open
+replacement for Hyperliquid's closed HyperCore.
+
+**Deployment status: devnet, single operator.** The engine is the on-chain
+design; the deployment is not yet a decentralized exchange. `torihiki-node`
+runs it as one sequencer and as a four-replica BFT set whose four keys one
+party holds; collateral is a faucet grant; nothing can be withdrawn to another
+chain. Every node serves eight flags at `/head` (`:decentralization`) and
+`/.well-known/torihiki`, all false until their gates pass in production — see
+[`docs/decentralization-roadmap.md`](docs/decentralization-roadmap.md). Until
+D1–D4 are true, do not describe this as decentralized.
 
 **Tier**: `T2` **Role**: `library` **Status**: execution layer implemented and
 benchmarked; verifiable single-sequencer log implemented; snapshot/restore
