@@ -27,13 +27,16 @@
          (br/withdrawal-digest domain {:chain "torihiki-1" :claim 42
                                        :dest "0x1111111111111111111111111111111111111111"
                                        :amount 123456789 :epoch 3})))
-  (is (= "0x68d432fa4a88fac010b2c5fdc2ddf1142beba66da80cda5b8a1d1f11fb3ac032"
-         (br/validator-set-digest domain {:chain "torihiki-1" :epoch 7
+  (is (= "0x5c271e23b0968b0dce1af42f37b5aaa69f5383a4b144a00216182b4b68b5b4a8"
+         (br/validator-set-digest domain {:chain "torihiki-1" :from-epoch 0 :epoch 7
                                           :signers ["0x1000000000000000000000000000000000000001"
                                                     "0x2000000000000000000000000000000000000002"
                                                     "0x3000000000000000000000000000000000000003"
                                                     "0x4000000000000000000000000000000000000004"]
                                           :powers [100 100 100 250]})))
+  (is (= "0x7c224465a85793a4db63475c8766f9152f4f56fd8d618c615bc64a70a5c1ee3f"
+         (br/action-digest domain {:chain "torihiki-1" :epoch 0 :kind "invalidate"
+                                   :claim 42 :value 0 :nonce 3})))
   (testing "every field moves the digest"
     (let [base {:chain "torihiki-1" :claim 42 :dest "0x1111111111111111111111111111111111111111"
                 :amount 123456789 :epoch 3}
@@ -85,7 +88,7 @@
     (is (= [{:tx :deposit-attest :account 100 :txid (br/deposit-txid contract 1)
              :credit 7 :amount 5000000 :asset "USDC"}
             {:tx :withdraw-attest :account 100 :claim 3 :txid "0xw1"
-             :dest "0x1111111111111111111111111111111111111111"}
+             :dest "0x1111111111111111111111111111111111111111" :amount 1}
             {:tx :withdraw-invalidate-attest :account 100 :claim 4 :txid "0xi1"}]
            out))))
 
@@ -180,3 +183,37 @@
   (is (thrown? #?(:clj Exception :cljs js/Error)
                (st/new-exchange {:market mkt :bridge bridge-cfg}))
       "a bridge with nobody to attest for it"))
+
+;; ── review fixes ───────────────────────────────────────────────────────────
+
+(deftest one-liar-cannot-lock-a-deposit-out
+  ;; Deposit ids are sequential, so a validator could attest a fake shape for
+  ;; every future id first. Shapes are counted apart: the lie collects one
+  ;; vote, the truth collects three.
+  (let [ex (block (chain) 1 (concat [(assoc dep :account 103 :amount 999999)]
+                                    (attest [100 101 102] dep)))]
+    (is (= 5000 (get-in ex [:clearing :accounts 7 :collateral])))
+    (is (nil? (:attest-votes ex)) "a decided tally lingered")))
+
+(deftest only-the-contracts-deposits-count
+  (let [other (assoc dep :txid "bridge:0x00000000000000000000000000000000000000aa:1")
+        wrong-asset (assoc dep :asset "DAI")]
+    (is (= 0 (get-in (block (chain) 1 (attest [100 101 102] other)) [:clearing :accounts 7 :collateral] 0)))
+    (is (= 0 (get-in (block (chain) 1 (attest [100 101 102] wrong-asset)) [:clearing :accounts 7 :collateral] 0)))))
+
+(deftest one-liar-cannot-strand-a-refund
+  (let [ex (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000 :dest dest}])
+        inv {:tx :withdraw-invalidate-attest :claim 1 :txid "0xi1"}
+        after (block ex 3 (concat [(assoc inv :account 103 :txid "0xfake")] (attest [100 101 102] inv)))]
+    (is (= 5000 (get-in after [:clearing :accounts 7 :collateral])))))
+
+(deftest an-exit-for-another-amount-settles-nothing
+  (let [ex (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000 :dest dest}])
+        out {:tx :withdraw-attest :claim 1 :txid "0xw1" :dest dest :amount 999}]
+    (is (some? (get-in (block ex 3 (attest [100 101 102] out)) [:withdrawals 1])))))
+
+(deftest a-pending-tally-is-under-the-root
+  (let [ex (block (chain) 1 (attest [100] dep))]
+    (is (some #(re-find #"^09:10:deposit:" (:id %)) (st/canonical-leaves ex)))
+    (is (not= (st/state-root ex) (st/state-root (block (chain) 1 (attest [101] dep)))))))
+

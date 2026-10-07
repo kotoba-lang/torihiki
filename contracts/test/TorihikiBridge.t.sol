@@ -239,7 +239,8 @@ contract TorihikiBridgeTest {
         bridge.unpause(half);
         // invalidate the request, then resume
         bridge.invalidateWithdrawal(1, _sigs(bridge.actionDigest("invalidate", 1, 0, 0), _first(3)));
-        bridge.unpause(_sigs(bridge.actionDigest("unpause", 0, 0, 1), _first(3)));
+        // Nonces are per kind: the invalidate did not consume unpause's.
+        bridge.unpause(_sigs(bridge.actionDigest("unpause", 0, 0, 0), _first(3)));
         vm.expectRevert(TorihikiBridge.AlreadyDone.selector);
         bridge.finalizeWithdrawal(1);
         _eq(usdc.balanceOf(address(bridge)), 500e6, "nothing left the escrow");
@@ -250,6 +251,7 @@ contract TorihikiBridgeTest {
         vm.prank(vm.addr(pks[0]));
         bridge.pause();
         bridge.unpause(s);
+        vm.warp(block.timestamp + 2 * DISPUTE);
         vm.prank(vm.addr(pks[0]));
         bridge.pause();
         // The nonce moved, so the old signatures recover to strangers.
@@ -344,8 +346,77 @@ contract TorihikiBridgeTest {
         uint64[] memory p = new uint64[](4);
         (p[0], p[1], p[2], p[3]) = (100, 100, 100, 250);
         require(
-            fixed_.validatorSetDigest(7, s, p) == 0x68d432fa4a88fac010b2c5fdc2ddf1142beba66da80cda5b8a1d1f11fb3ac032,
+            fixed_.validatorSetDigest(7, s, p) == 0x5c271e23b0968b0dce1af42f37b5aaa69f5383a4b144a00216182b4b68b5b4a8,
             "validator set digest"
         );
+        require(
+            fixed_.actionDigest("invalidate", 42, 0, 3) == 0x7c224465a85793a4db63475c8766f9152f4f56fd8d618c615bc64a70a5c1ee3f,
+            "action digest"
+        );
+    }
+
+    // ── review fixes ───────────────────────────────────────────────────────────
+
+    function test_an_unrequested_claim_can_be_burned_and_never_requested() public {
+        _deposited(500e6);
+        bridge.invalidateWithdrawal(5, _sigs(bridge.actionDigest("invalidate", 5, 0, 0), _first(3)));
+        bytes[] memory s = _sigs(bridge.withdrawalDigest(5, user, 1e6, 0), _first(3));
+        vm.expectRevert(TorihikiBridge.AlreadyRequested.selector);
+        bridge.requestWithdrawal(5, user, 1e6, s);
+    }
+
+    function test_an_account_the_engine_cannot_represent_is_refused() public {
+        vm.prank(user);
+        vm.expectRevert(TorihikiBridge.BadAccount.selector);
+        bridge.deposit(uint64(2 ** 53), 1);
+    }
+
+    function test_a_quorum_unpause_outlasts_a_faulty_locker() public {
+        uint256[] memory next = _sortedKeys(4, 0xB0B);
+        address[] memory a = _addrs(next);
+        uint64[] memory p = _powers(4);
+        bridge.requestValidatorSet(1, a, p, _sigs(bridge.validatorSetDigest(1, a, p), _first(3)));
+        // the locker pauses; the quorum unpauses
+        vm.prank(vm.addr(pks[3]));
+        bridge.pause();
+        vm.warp(block.timestamp + DISPUTE);
+        bridge.unpause(_sigs(bridge.actionDigest("unpause", 0, 0, 0), _first(3)));
+        // the locker cannot pause straight back
+        vm.prank(vm.addr(pks[3]));
+        vm.expectRevert(TorihikiBridge.PauseCooldown.selector);
+        bridge.pause();
+        // time spent paused did not count toward the set's dispute window
+        vm.expectRevert(TorihikiBridge.DisputeWindow.selector);
+        bridge.finalizeValidatorSet();
+        vm.warp(block.timestamp + DISPUTE);
+        bridge.finalizeValidatorSet();
+        _eq(bridge.epoch(), 1, "rotated past the locker");
+    }
+
+    function test_a_pending_set_can_be_cancelled() public {
+        uint256[] memory next = _sortedKeys(4, 0xB0B);
+        address[] memory a = _addrs(next);
+        uint64[] memory p = _powers(4);
+        bridge.requestValidatorSet(1, a, p, _sigs(bridge.validatorSetDigest(1, a, p), _first(3)));
+        bridge.cancelValidatorSet(_sigs(bridge.actionDigest("cancel-set", 1, 0, 0), _first(3)));
+        vm.warp(block.timestamp + DISPUTE);
+        vm.expectRevert(TorihikiBridge.NotRequested.selector);
+        bridge.finalizeValidatorSet();
+    }
+
+    function test_a_set_proposal_signed_for_an_older_set_does_not_verify() public {
+        // rotate once
+        uint256[] memory next = _sortedKeys(4, 0xB0B);
+        address[] memory a = _addrs(next);
+        uint64[] memory p = _powers(4);
+        uint256[] memory third = _sortedKeys(4, 0xD0D);
+        address[] memory b = _addrs(third);
+        // the current set signs a proposal for epoch 2 now, while it is epoch 0
+        bytes[] memory stale = _sigs(bridge.validatorSetDigest(2, b, p), _first(3));
+        bridge.requestValidatorSet(1, a, p, _sigs(bridge.validatorSetDigest(1, a, p), _first(3)));
+        vm.warp(block.timestamp + DISPUTE);
+        bridge.finalizeValidatorSet();
+        vm.expectRevert();
+        bridge.requestValidatorSet(2, b, p, stale);
     }
 }
