@@ -216,6 +216,10 @@
       ;; decorative, since an attacker would use the door that does not check.
       (let [bridge (:bridge-authority ex)]
         (and bridge (not= account bridge))) :not-the-bridge
+      ;; Bridge mode: the contract is the only way in, by quorum attestation
+      ;; (`:deposit-attest`). No account — not even a configured authority —
+      ;; may credit collateral by saying so.
+      (some? (:bridge ex)) :not-the-bridge
       ;; Who the deposit pays. The signer is still the bridge — the
       ;; certificate backing this collateral is the bridge's own Ed25519
       ;; signature over the transaction, which the chain already verifies and
@@ -243,6 +247,12 @@
     (cond
       (not (integer? account)) :bad-account
       (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      ;; Bridge mode: the contract pays an address, so the claim must name
+      ;; one, and a malformed one is refused here rather than signed by every
+      ;; validator and refused by the contract.
+      (and (some? (:bridge ex))
+           (not (and (string? (:dest t)) (re-matches #"0x[0-9a-fA-F]{40}" (:dest t)))))
+      :missing-field
       ;; Not gated: a holder withdrawing their own collateral is the one
       ;; movement that needs no authority beyond the signature, and the
       ;; clearinghouse already refuses to take more than free collateral.
@@ -396,6 +406,25 @@
       (not (map? (:spec t))) :missing-field
       (not (and (integer? (:tick (:spec t))) (pos? (:tick (:spec t))))) :missing-field
       (not (and (integer? (:lot (:spec t))) (pos? (:lot (:spec t))))) :missing-field
+      :else nil)
+
+    ;; It had no case here, so through `apply-block` — the only path a
+    ;; deployed chain has — every exit attestation was refused `:unknown-tx`
+    ;; and no claim could ever settle by quorum. The tests called `apply-tx`
+    ;; directly, which skips this function, and so never saw it.
+    :withdraw-attest
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
+      (not (and (string? (:dest t)) (seq (:dest t)))) :missing-field
+      :else nil)
+
+    :withdraw-invalidate-attest
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       :else nil)
 
     (:withdraw-settle :withdraw-cancel)

@@ -1,0 +1,182 @@
+(ns torihiki.bridge-test
+  "The engine and `TorihikiBridge.sol` agree on what is signed, and bridge mode
+  closes every door collateral used to come in or go out by.
+
+  The digest vectors were produced independently with Foundry's `cast` and are
+  asserted, with the same numbers, by the contract's own test
+  (`contracts/test/TorihikiBridge.t.sol` `test_digest_vectors_match_the_engine`):
+
+      contract 0x00000000000000000000000000000000000B1d6E, EVM chain 8453,
+      torihiki chain \"torihiki-1\"
+      domain       0x86e8580f…5e9f
+      withdrawal   claim 42 → 0x1111…1111, 123456789, epoch 3
+      validatorset epoch 7, signers 0x1000…0001..0x4000…0004, powers 100 100 100 250"
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.bridge :as br]
+            [torihiki.keccak :as kc]
+            [torihiki.state :as st]))
+
+(def domain {:evm-chain-id 8453 :contract "0x00000000000000000000000000000000000B1d6E"})
+
+(deftest digests-match-the-contract-and-cast
+  (is (= "86e8580fdc999a14880ff08ec058559fd4b94b6876f91547e09b22448b6b5e9f"
+         (kc/bytes->hex (br/domain-separator domain))))
+  (is (= "0x8c963d59eb6fe8d941f8f833d737fada5ad2105d1b2cbff97696cdffc1e03223"
+         (br/withdrawal-digest domain {:chain "torihiki-1" :claim 42
+                                       :dest "0x1111111111111111111111111111111111111111"
+                                       :amount 123456789 :epoch 3})))
+  (is (= "0x68d432fa4a88fac010b2c5fdc2ddf1142beba66da80cda5b8a1d1f11fb3ac032"
+         (br/validator-set-digest domain {:chain "torihiki-1" :epoch 7
+                                          :signers ["0x1000000000000000000000000000000000000001"
+                                                    "0x2000000000000000000000000000000000000002"
+                                                    "0x3000000000000000000000000000000000000003"
+                                                    "0x4000000000000000000000000000000000000004"]
+                                          :powers [100 100 100 250]})))
+  (testing "every field moves the digest"
+    (let [base {:chain "torihiki-1" :claim 42 :dest "0x1111111111111111111111111111111111111111"
+                :amount 123456789 :epoch 3}
+          d (br/withdrawal-digest domain base)]
+      (doseq [[k v] [[:chain "torihiki-2"] [:claim 43] [:amount 123456788] [:epoch 4]
+                     [:dest "0x2222222222222222222222222222222222222222"]]]
+        (is (not= d (br/withdrawal-digest domain (assoc base k v))) (str k)))
+      (is (not= d (br/withdrawal-digest (assoc domain :evm-chain-id 1) base)) "EVM chain")
+      (is (not= d (br/withdrawal-digest (assoc domain :contract "0x00000000000000000000000000000000000B1d6F") base))
+          "contract"))))
+
+(deftest topics-match-cast
+  (is (= "0xd6db6a6ee6b9e9d9eb1097e6ebc80baf11a8c2c414c59c8d12524bbee7c9798d"
+         (br/topic br/deposit-event)))
+  (is (= "0x0ff23c4cdc2733f56d8f04d7a351c4332a1cd3334287ed5b2e9c6a28da9d3533"
+         (br/topic br/withdrawn-event))))
+
+;; ── logs → attestations ────────────────────────────────────────────────────
+
+(def contract "0x00000000000000000000000000000000000B1d6E")
+(def bridge-cfg {:contract contract :evm-chain-id 8453 :asset "USDC"})
+
+(defn- w64 [n] (let [h #?(:clj (Long/toHexString n) :cljs (.toString n 16))]
+                 (str (apply str (repeat (- 64 (count h)) "0")) h)))
+(defn- addr-topic [a] (str "0x" (apply str (repeat 24 "0")) (subs a 2)))
+
+(defn- deposit-log [account amount seq & {:keys [block address removed]
+                                           :or {block 100 address contract}}]
+  {:address address :blockNumber (str "0x" #?(:clj (Long/toHexString block) :cljs (.toString block 16)))
+   :removed (boolean removed)
+   :transactionHash "0xd0"
+   :topics [(br/topic br/deposit-event) (str "0x" (w64 account))
+            (addr-topic "0x000000000000000000000000000000000000beef")]
+   :data (str "0x" (w64 amount) (w64 seq))})
+
+(defn- withdrawn-log [claim dest]
+  {:address contract :blockNumber "0x64" :transactionHash "0xw1"
+   :topics [(br/topic br/withdrawn-event) (str "0x" (w64 claim)) (addr-topic dest)]
+   :data (str "0x" (w64 1))})
+
+(deftest logs-become-attestations
+  (let [tip 200
+        out (br/attestations 100 bridge-cfg tip
+                             [(deposit-log 7 5000000 1)
+                              (withdrawn-log 3 "0x1111111111111111111111111111111111111111")
+                              {:address contract :blockNumber "0x64" :transactionHash "0xi1"
+                               :topics [(br/topic br/invalidated-event) (str "0x" (w64 4))]
+                               :data "0x"}])]
+    (is (= [{:tx :deposit-attest :account 100 :txid (br/deposit-txid contract 1)
+             :credit 7 :amount 5000000 :asset "USDC"}
+            {:tx :withdraw-attest :account 100 :claim 3 :txid "0xw1"
+             :dest "0x1111111111111111111111111111111111111111"}
+            {:tx :withdraw-invalidate-attest :account 100 :claim 4 :txid "0xi1"}]
+           out))))
+
+(deftest logs-that-prove-nothing-are-skipped
+  (let [skip? (fn [l] (empty? (br/attestations 100 bridge-cfg 200 [l])))]
+    (is (skip? (deposit-log 7 5 1 :address "0x00000000000000000000000000000000000000aa")) "another contract")
+    (is (skip? (deposit-log 7 5 1 :block 195)) "not deep enough")
+    (is (skip? (deposit-log 7 5 1 :removed true)) "removed by a reorg")
+    (is (skip? (deposit-log 0 5 1)) "account zero")
+    (is (skip? (assoc (deposit-log 7 5 1) :data (str "0x1" (subs (w64 5) 1) (w64 1))))
+        "an amount above i53 would have been truncated")))
+
+;; ── bridge mode in the engine ──────────────────────────────────────────────
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate (fx/bps 3) :maker-fee-rate 0))
+
+(def genesis (vec (for [[i w] (map-indexed vector ["w1" "w2" "w3" "w4"])]
+                    {:witness w :pubkey (str "key-" w) :account (+ 100 i)})))
+
+(defn- chain []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}
+                    :validators {:genesis genesis :epoch-length 1000}
+                    :bridge bridge-cfg}))
+
+(defn- block [ex height txs] (st/apply-block ex {:height height :ts height :txs txs} nil))
+
+(defn- attest [ops t] (mapv #(assoc t :account %) ops))
+
+(def dep {:tx :deposit-attest :txid (br/deposit-txid contract 1) :credit 7 :amount 5000 :asset "USDC"})
+
+(deftest nobody-mints-in-bridge-mode
+  (let [ex (block (chain) 1 [{:tx :deposit :account 7 :amount 5000}])]
+    (is (= :not-the-bridge (:reason (first (:rejected ex)))))
+    (is (= 0 (get-in ex [:clearing :accounts 7 :collateral] 0)))))
+
+(deftest a-deposit-needs-two-thirds-of-the-set
+  (let [two (block (chain) 1 (attest [100 101] dep))
+        three (block (chain) 1 (attest [100 101 102] dep))]
+    (is (= 0 (get-in two [:clearing :accounts 7 :collateral] 0)) "half of the set minted")
+    (is (= 5000 (get-in three [:clearing :accounts 7 :collateral])))
+    (testing "stake alone is not membership"
+      (let [ex (-> (chain)
+                   (assoc-in [:clearing :accounts 900 :collateral] 10)
+                   (assoc-in [:clearing :bonds 900] {900 10})
+                   (block 1 (attest [100 101 900] dep)))]
+        (is (= 0 (get-in ex [:clearing :accounts 7 :collateral] 0))
+            "a bonded stranger's attestation counted")))))
+
+(defn- funded [] (block (chain) 1 (attest [100 101 102] dep)))
+
+(def dest "0x1111111111111111111111111111111111111111")
+
+(deftest a-withdrawal-names-where-the-contract-pays
+  (let [no-dest (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000}])
+        ok (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000 :dest dest}])]
+    (is (= :missing-field (:reason (first (:rejected no-dest)))))
+    (is (= {:account 7 :amount 1000 :height 2 :dest dest} (get-in ok [:withdrawals 1])))
+    (is (= [{:claim 1 :account 7 :amount 1000 :dest dest}] (br/pending-withdrawals ok)))
+    (is (not= (st/state-root ok)
+              (st/state-root (assoc-in ok [:withdrawals 1 :dest] "0x2222222222222222222222222222222222222222")))
+        "the destination is outside the root")))
+
+(deftest a-signed-claim-cannot-be-taken-back
+  (let [ex (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000 :dest dest}])
+        cancelled (block ex 3 [{:tx :withdraw-cancel :account 7 :claim 1}])]
+    (is (some? (get-in cancelled [:withdrawals 1])) "owner cancelled a claim the validators may have signed")
+    (is (= 4000 (get-in cancelled [:clearing :accounts 7 :collateral])))))
+
+(deftest the-exit-settles-on-the-contracts-event
+  (let [ex (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000 :dest dest}])
+        out {:tx :withdraw-attest :claim 1 :txid "0xw1" :dest dest}
+        wrong (block ex 3 (attest [100 101 102] (assoc out :dest "0x2222222222222222222222222222222222222222")))
+        right (block ex 3 (attest [100 101 102] out))]
+    (is (some? (get-in wrong [:withdrawals 1])) "settled by a payment to somebody else")
+    (is (nil? (get-in right [:withdrawals 1])))
+    (is (get-in right [:paid 1 :settled?]))))
+
+(deftest a-cancelled-request-refunds-on-quorum
+  (let [ex (block (funded) 2 [{:tx :withdraw :account 7 :amount 1000 :dest dest}])
+        inv {:tx :withdraw-invalidate-attest :claim 1 :txid "0xi1"}
+        two (block ex 3 (attest [100 101] inv))
+        three (block ex 3 (attest [100 101 102] inv))]
+    (is (some? (get-in two [:withdrawals 1])))
+    (is (nil? (get-in three [:withdrawals 1])))
+    (is (= 5000 (get-in three [:clearing :accounts 7 :collateral])) "refunded")
+    (is (get-in three [:invalidated 1 :refunded?]))
+    (is (some #(= "09:06:0000000000000001" (:id %)) (st/canonical-leaves three)))))
+
+(deftest the-bridge-is-under-the-root
+  (is (some #(= "09:05" (:id %)) (st/canonical-leaves (chain))))
+  (is (thrown? #?(:clj Exception :cljs js/Error)
+               (st/new-exchange {:market mkt :bridge bridge-cfg}))
+      "a bridge with nobody to attest for it"))
