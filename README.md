@@ -590,6 +590,32 @@ What this does **not** do yet is make consensus *read* the set. `torihiki-node`
 still runs a fixed four; switching `inga` to each epoch's set at the boundary
 is the next step.
 
+## The bridge: collateral that came from somewhere
+
+Roadmap D3. `contracts/src/TorihikiBridge.sol` (Foundry, `cd contracts && forge test`)
+escrows the collateral token on an EVM chain under the control of torihiki's own
+validator set, in the shape of Hyperliquid's Bridge2:
+
+- `deposit(account, amount)` escrows and emits `Deposit`. No relayer is trusted:
+  validators attest the event and the engine credits on a supermajority.
+- A withdrawal pays only with EIP-712 signatures from **more than 2/3** of the
+  contract's validator power, and only after `disputePeriod`. Any single
+  validator can `pause()`; only a 2/3 quorum can `unpause`, `invalidateWithdrawal`
+  or raise the deposit cap.
+- The set names its successor (2/3, after the same dispute period). No owner, no
+  admin key, no proxy. Validator keys there are secp256k1 bridge signers.
+
+The engine side is `torihiki.bridge` (the same EIP-712 digests, pinned against
+the contract and against `cast`; contract events → attestations) and **bridge
+mode**: an exchange built with `:bridge {:contract :evm-chain-id :asset}` (which
+requires `:validators`) refuses `:deposit` from everybody, refuses an owner's
+`:withdraw-cancel` (the claim may already be signed — cancelling it would pay
+twice), requires a `:dest` on every withdrawal, and counts attestations only
+from active-set operators holding more than 2/3 of the set's weight.
+
+Not done: the node's watcher/signer/relayer, publishing the reserves equation
+per block, an external audit, and a testnet deployment.
+
 ## Identity, and the authority it costs
 
 An account id is a function of its key (`torihiki.address/derive`), which is
