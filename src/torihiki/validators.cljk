@@ -119,6 +119,23 @@
         have (reduce + 0 (map w (filter #(contains? (set accounts) (:account %)) members)))]
     (and (pos? total) (> (* 3 have) (* 2 total)))))
 
+(defn publisher-weights
+  "`{operator-account weight}` for the active set: who may publish a price and
+  how much each word weighs (roadmap D4). The weight is the stake recorded when
+  the epoch was installed, or one each for a set installed with none."
+  [ex]
+  (let [members (active-set ex)
+        staked? (pos? (reduce + 0 (map :stake members)))]
+    (into {} (map (fn [m] [(:account m) (if staked? (:stake m) 1)])) members)))
+
+(defn publishers
+  "Who may submit a price: the active set's operators when the chain has a
+  validator set, the genesis publisher list otherwise."
+  [ex]
+  (if (enabled? ex)
+    (set (keys (publisher-weights ex)))
+    (:oracle-publishers ex)))
+
 (defn- pubkey-in-use? [ex pubkey]
   (some (fn [[_ v]] (or (= pubkey (:pubkey v)) (= pubkey (:pending-pubkey v))))
         (:validators ex)))

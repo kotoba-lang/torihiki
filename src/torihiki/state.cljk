@@ -1080,7 +1080,16 @@
   [ex {:keys [account market price]}]
   (let [ex (assoc-in ex [:oracle-submissions market account]
                      {:price price :ts (:ts ex)})
-        {:keys [price stale?]} (orc/aggregate
+        {:keys [price stale?]}
+        (if (vals/enabled? ex)
+          ;; The validator set is the publisher set (roadmap D4): its
+          ;; operators speak, weighted by the stake their epoch was installed
+          ;; with, and a price needs more than 2/3 of that weight fresh.
+          (orc/aggregate-weighted (get-in ex [:oracle-submissions market])
+                                  (vals/publisher-weights ex)
+                                  (:ts ex)
+                                  (:max-age (:oracle-params ex)))
+          (orc/aggregate
                                 (get-in ex [:oracle-submissions market])
                                 (:oracle-publishers ex)
                                 (:ts ex)
@@ -1111,7 +1120,7 @@
                                   (cond
                                     any-bonds? (fn [pub] (cl/stake-of c pub))
                                     (:publisher-stake ex) (fn [pub] (get (:publisher-stake ex) pub 0))
-                                    :else nil)))]
+                                    :else nil))))]
     (-> (if stale?
           ;; Keep the last price but say it is stale. Discarding it would
           ;; leave the mark at zero and stop everything; pretending it is
