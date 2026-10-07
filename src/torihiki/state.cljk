@@ -1164,7 +1164,16 @@
   [ex {:keys [account market price]}]
   (let [ex (assoc-in ex [:oracle-submissions market account]
                      {:price price :ts (:ts ex)})
-        {:keys [price stale?]} (orc/aggregate
+        {:keys [price stale?]}
+        (if (vals/enabled? ex)
+          ;; The validator set is the publisher set (roadmap D4): its
+          ;; operators speak, weighted by the stake their epoch was installed
+          ;; with, and a price needs more than 2/3 of that weight fresh.
+          (orc/aggregate-weighted (get-in ex [:oracle-submissions market])
+                                  (vals/publisher-weights ex)
+                                  (:ts ex)
+                                  (:max-age (:oracle-params ex)))
+          (orc/aggregate
                                 (get-in ex [:oracle-submissions market])
                                 (:oracle-publishers ex)
                                 (:ts ex)
@@ -1195,7 +1204,7 @@
                                   (cond
                                     any-bonds? (fn [pub] (cl/stake-of c pub))
                                     (:publisher-stake ex) (fn [pub] (get (:publisher-stake ex) pub 0))
-                                    :else nil)))]
+                                    :else nil))))]
     (-> (if stale?
           ;; Keep the last price but say it is stale. Discarding it would
           ;; leave the mark at zero and stop everything; pretending it is
@@ -1223,6 +1232,33 @@
         (update :clearing fnd/apply-funding market oracle rate)
         (assoc-in [:funding market] fnd/empty-accumulator)
         (assoc-in [:last-funding-rate market] rate))))
+
+(defn- recheck-oracle
+  "Re-judge `market`'s oracle at the end of the block, on a chain whose
+  validator set is the oracle.
+
+  Freshness was judged only when a submission arrived, so a set that simply
+  stopped publishing left the last price marked fresh forever, and
+  liquidation kept closing positions on it — the opposite of what staleness
+  is for. Re-judged every block, the price goes stale `max-age` after the set
+  stops vouching for it; and an epoch turn that changes who may speak, or how
+  much each word weighs, is applied to the submissions already there."
+  [ex market]
+  (if-not (vals/enabled? ex)
+    ex
+    (let [{:keys [price stale?]} (orc/aggregate-weighted
+                                  (get-in ex [:oracle-submissions market])
+                                  (vals/publisher-weights ex)
+                                  (:ts ex)
+                                  (:max-age (:oracle-params ex)))]
+      (cond
+        stale? (assoc-in ex [:oracle-stale market] true)
+        (and (= price (get-in ex [:oracle market]))
+             (false? (get-in ex [:oracle-stale market]))) ex
+        :else (-> ex
+                  (assoc-in [:oracle market] price)
+                  (assoc-in [:oracle-stale market] false)
+                  (reprice! market))))))
 
 (defn sweep-liquidations
   "Liquidate everyone liquidatable on `market`, or do nothing.
@@ -1364,6 +1400,9 @@
      ;; wrong in: refusing a recovery costs a round trip, and applying one the
      ;; holder refused costs the account.
      (-> (reduce fire-twaps applied (sort (keys (:books applied))))
+         ;; Before the sweep, so a price nobody vouches for any more stops
+         ;; liquidation in the very block it stopped being vouched for.
+         (as-> ex' (reduce recheck-oracle ex' (sort (keys (:books ex')))))
          (as-> ex' (reduce sweep-liquidations ex' (sort (keys (:books ex')))))
          (pr/mature-rotations height)
          ;; Last: the set that runs the next epoch is decided by the state the

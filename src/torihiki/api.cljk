@@ -29,7 +29,9 @@
   (:require [torihiki.principal :as pr]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
-            [torihiki.auth :as auth]))
+            [torihiki.auth :as auth]
+            [torihiki.oracle :as orc]
+            [torihiki.validators :as vals]))
 
 (def reasons
   "Every rejection this API can produce. Closed set — see the ns docstring."
@@ -55,6 +57,8 @@
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
 (defn- market-exists? [ex m] (contains? (:markets ex) m))
+
+(defn- publishers [ex] (vals/publishers ex))
 
 (defn- n-levels [ex m] (:n-levels (get-in ex [:books m])))
 
@@ -180,6 +184,10 @@
         ;; moment it is used, because the condition is that there is no price
         ;; yet. The authority opens a market once; after that only publishers
         ;; move it.
+        ;; With a validator set the set IS the oracle, and there is no direct
+        ;; setter at all — not even the bootstrap below, since the set can
+        ;; publish the first price itself.
+        (some? (:validator-params ex)) :oracle-is-aggregated
         (and (seq (:oracle-publishers ex))
              (not (and (zero? (get-in ex [:oracle market] 0))
                        (some? (:bridge-authority ex))
@@ -191,7 +199,7 @@
       (cond
         (not (integer? account)) :bad-account
         (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
-        (not (contains? (:oracle-publishers ex) account)) :not-a-publisher
+        (not (contains? (publishers ex) account)) :not-a-publisher
         :else nil)
 
       :else nil)
@@ -600,7 +608,19 @@
      :maker-fee-rate (get m :maker-fee-rate 0)
      :oracle (get-in ex [:oracle market] 0)
      :oracle-stale (boolean (get-in ex [:oracle-stale market] false))
-     :oracle-publishers (count (:oracle-publishers ex))
+     :oracle-publishers (count (publishers ex))
+     ;; Who disagrees with the published price, and by how much (a rate
+     ;; against `fx/rate-scale`). Monitoring, not enforcement — see
+     ;; `orc/deviation` — but a validator that is persistently far from its
+     ;; peers should be visible to everyone who can read the market, not only
+     ;; to whoever thinks to compute it.
+     :oracle-deviations
+     (let [ref (get-in ex [:oracle market] 0)
+           ps (publishers ex)]
+       (vec (for [[pub {:keys [price ts]}] (sort-by key (get-in ex [:oracle-submissions market] {}))
+                  :when (contains? ps pub)]
+              {:publisher pub :price price :ts ts
+               :deviation (orc/deviation price ref)})))
      :mark (get-in ex [:marks market] 0)
      :last (get-in ex [:last market] 0)
      :funding-rate (get-in ex [:last-funding-rate market] 0)}))

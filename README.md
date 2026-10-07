@@ -590,6 +590,18 @@ What this does **not** do yet is make consensus *read* the set. `torihiki-node`
 still runs a fixed four; switching `inga` to each epoch's set at the boundary
 is the next step.
 
+## The validator set is the oracle
+
+Roadmap D4. On a chain with `:validators`, the publishers are the active set's
+operator accounts — nobody configures them, and a validator that leaves the
+set stops being read at the boundary. `orc/aggregate-weighted` takes the
+stake-weighted median of fresh submissions and publishes only when they hold
+**more than 2/3** of the set's weight; below that the oracle is stale and
+liquidation stops. The direct `:oracle` setter is refused outright. Each
+publisher's deviation from the published price is in `api/market-info`
+(`:oracle-deviations`), so a validator persistently far from its peers is
+visible to anyone reading the market.
+
 ## The bridge: collateral that came from somewhere
 
 Roadmap D3. `contracts/src/TorihikiBridge.sol` (Foundry, `cd contracts && forge test`)
