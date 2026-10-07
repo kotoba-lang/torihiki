@@ -34,6 +34,7 @@
             [torihiki.auth :as auth]
             [torihiki.principal :as pr]
             [torihiki.validators :as vals]
+            [torihiki.governance :as gov]
             [kotoba.lang.text :as str]
             [torihiki.keccak :as kc]
             [kotoba.bytes :as b]
@@ -76,6 +77,7 @@
       ;; naming it would land somewhere nobody meant.
       (throw (ex-info "torihiki.state: duplicate market id"
                       {:ids (mapv :id ms)})))
+    (gov/init
     (vals/init
     {:markets (into {} (map (juxt :id identity)) ms)
      :books (into {} (map (fn [m] [(:id m) (bk/new-book (or book-opts {}))])) ms)
@@ -158,7 +160,9 @@
     ;; (`torihiki.validators`). Absent, nothing is added and the root of every
     ;; existing chain is unchanged.
     (:validators _cfg)
-    (:bridge _cfg))))
+    (:bridge _cfg))
+    ;; Protocol upgrades by vote (`torihiki.governance`), only with a set.
+    (:protocol _cfg))))
 
 ;; ── transactions ────────────────────────────────────────────────────────────
 
@@ -691,6 +695,9 @@
 (defmethod apply-tx :validator-register [ex t] (vals/register ex t))
 (defmethod apply-tx :validator-rotate-key [ex t] (vals/rotate-key ex t))
 (defmethod apply-tx :validator-retire [ex t] (vals/retire ex t))
+
+(defmethod apply-tx :upgrade-propose [ex t] (gov/propose ex t))
+(defmethod apply-tx :upgrade-vote [ex t] (gov/vote ex t))
 
 (defmethod apply-tx :equivocation-evidence
   [ex t]
@@ -1245,6 +1252,9 @@
   ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id derive-account vote-verify-fn]
                                 :as _opts}]
    (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected [])
+                ;; A scheduled protocol version takes effect BEFORE the block's
+                ;; transactions, so every rule in block `at` is the new one.
+                (gov/activate height)
                 ;; For `:equivocation-evidence` only, and removed before the
                 ;; block returns: a function is not state.
                 (cond-> vote-verify-fn (assoc ::vote-verify-fn vote-verify-fn)))
@@ -1293,6 +1303,7 @@
          (pr/mature-rotations height)
          ;; Last: the set that runs the next epoch is decided by the state the
          ;; boundary block ENDS in, so a bond or a slash in that block counts.
+         (gov/expire height)
          (vals/turn-epoch height)
          (dissoc ::vote-verify-fn)))))
 
@@ -1490,6 +1501,22 @@
                                   (into (enc-ints [enc-tag-validator claim (if refunded? 1 0)
                                                    (count attests)])))
                               (sort attests)))})))
+       ;; The protocol version, the one scheduled, and the open proposals:
+       ;; which rules the next block runs under is the most consequential
+       ;; thing a replica could disagree about.
+       (when-let [{:keys [version scheduled proposals seq params]} (:protocol ex)]
+         (cons
+          {:id "09:07" :bytes (enc-ints [enc-tag-validator version (:notice params) (:ttl params)
+                                         (if scheduled 1 0) (:version scheduled 0)
+                                         (:at scheduled 0) (:proposal scheduled 0)
+                                         seq (count proposals)])}
+          (for [id (sort (keys proposals))]
+            {:id (str "09:08:" (pad-id id))
+             :bytes (let [{:keys [version activation by votes expires]} (get proposals id)]
+                      (reduce (fn [acc a] (into acc (enc-ints [enc-tag-validator a])))
+                              (enc-ints [enc-tag-validator id version activation by expires
+                                         (count votes)])
+                              (sort votes)))})))
        (for [[w h v :as k] (sort (keys sl))]
          {:id (str "09:04:" w ":" (pad-id h) ":" (pad-id v))
           :bytes (let [{:keys [by amount height]} (get sl k)]

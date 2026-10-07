@@ -420,6 +420,19 @@
     ;; deployed chain has — every exit attestation was refused `:unknown-tx`
     ;; and no claim could ever settle by quorum. The tests called `apply-tx`
     ;; directly, which skips this function, and so never saw it.
+    :upgrade-propose
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (integer? (:version t)) (pos? (:version t)))) :missing-field
+      (not (and (integer? (:activation t)) (pos? (:activation t)))) :missing-field
+      :else nil)
+
+    :upgrade-vote
+    (cond
+      (not (integer? account)) :bad-account
+      (not (integer? (:proposal t))) :missing-field
+      :else nil)
+
     :withdraw-attest
     (cond
       (not (integer? account)) :bad-account
