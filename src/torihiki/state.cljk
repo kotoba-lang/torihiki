@@ -210,6 +210,36 @@
     (vals/supermajority? ex attesters)
     (>= (count attesters) attest-quorum)))
 
+(defn- tally
+  "Count an attestation for `shape` under `[kind key]`, one vote per attester,
+  each SHAPE counted separately. Returns `[ex' supporters]`, where
+  `supporters` is non-nil only when this vote is the one that carried `shape`
+  past the threshold — and then the tally is gone, because what it decided is
+  recorded by the caller in the place every later attestation checks first.
+
+  Used only with a validator set. The original rule — the first attestation
+  fixes the shape and any other is refused — let one validator attest a fake
+  shape for every predictable future key (deposit ids are sequential) and
+  lock out the real ones for good. Counting shapes apart means a lie only
+  ever collects the liar's own vote."
+  [ex kind key account shape]
+  (let [path [:attest-votes kind key]
+        votes (get-in ex path {})]
+    (if (contains? votes account)
+      [ex nil]
+      (let [votes (assoc votes account shape)
+            supporters (set (keep (fn [[a s]] (when (= s shape) a)) votes))]
+        (if (attested? ex supporters)
+          [(let [ex (update-in ex [:attest-votes kind] dissoc key)
+                 ex (if (empty? (get-in ex [:attest-votes kind]))
+                      (update ex :attest-votes dissoc kind)
+                      ex)]
+             (if (empty? (:attest-votes ex)) (dissoc ex :attest-votes) ex))
+           supporters]
+          [(assoc-in ex path votes) nil])))))
+
+(declare deposit-attest-by-set withdraw-attest-by-set)
+
 (defmethod apply-tx :deposit-attest
   [ex {:keys [account txid credit amount asset]}]
   ;; A validator says it saw money arrive on the other chain.
@@ -242,6 +272,9 @@
   ;; already credited takes no further attestations and pays nothing more,
   ;; which is what stops the same deposit from being replayed by an extra
   ;; validator arriving late.
+  (if (vals/enabled? ex)
+    (deposit-attest-by-set ex {:account account :txid txid :credit credit
+                               :amount amount :asset asset})
   (let [t (get-in ex [:inbound txid])
         bonded? (attester? ex account)
         shape {:credit credit :amount amount :asset asset}
@@ -266,7 +299,30 @@
           (assoc-in ex [:inbound txid] t')
           (-> ex
               (assoc-in [:inbound txid] (assoc t' :credited? true))
-              (update :clearing cl/deposit credit amount)))))))
+              (update :clearing cl/deposit credit amount))))))))
+
+(defn- deposit-attest-by-set
+  "`:deposit-attest` on a chain with a validator set: counted by `tally`. In
+  bridge mode the deposit must also be the contract's — its id carries the
+  contract address and its asset is the bridge's — so an attestation for
+  anything else is not even counted."
+  [ex {:keys [account txid credit amount asset]}]
+  (let [b (:bridge ex)]
+    (cond
+      (not (and (string? txid) (seq txid) (integer? amount) (pos? amount)
+                (integer? credit) (string? asset) (seq asset))) ex
+      (:credited? (get-in ex [:inbound txid])) ex
+      (not (attester? ex account)) ex
+      (and b (not (str/starts-with? txid (str "bridge:" (str/lower (:contract b)) ":")))) ex
+      (and b (not= asset (:asset b))) ex
+      :else
+      (let [shape {:credit credit :amount amount :asset asset}
+            [ex winners] (tally ex :deposit txid account shape)]
+        (if winners
+          (-> ex
+              (assoc-in [:inbound txid] (assoc shape :attests winners :credited? true))
+              (update :clearing cl/deposit credit amount))
+          ex)))))
 
 (defn- account-as-address
   "An account id rendered as a 20-byte address. This chain's identity is an
@@ -347,7 +403,7 @@
       ex)))
 
 (defmethod apply-tx :withdraw-attest
-  [ex {:keys [account claim txid dest]}]
+  [ex {:keys [account claim txid dest] :as t}]
   ;; The exit, said by the validators instead of by one key.
   ;;
   ;; `:withdraw-settle` above is the bridge authority reporting that it paid.
@@ -366,6 +422,8 @@
   ;; and the payment is recorded under `:paid` so a reader can follow the money
   ;; off the chain. `:withdraw-settle` stays for chains that run with a bridge
   ;; and no validator set to ask.
+  (if (vals/enabled? ex)
+    (withdraw-attest-by-set ex t)
   (let [w (get-in ex [:withdrawals claim])
         p (get-in ex [:paid claim])
         bonded? (attester? ex account)
@@ -387,7 +445,33 @@
           (assoc-in ex [:paid claim] p')
           (-> ex
               (assoc-in [:paid claim] (assoc p' :settled? true))
-              (update :withdrawals dissoc claim)))))))
+              (update :withdrawals dissoc claim))))))))
+
+(defn- withdraw-attest-by-set
+  "`:withdraw-attest` on a chain with a validator set, counted by `tally`.
+
+  In bridge mode the payment must be to the claim's own destination and, when
+  the event's amount is reported, for the claim's amount: the contract only
+  pays what was signed, so a mismatch means somebody is describing a
+  different payment."
+  [ex {:keys [account claim txid dest amount]}]
+  (let [w (get-in ex [:withdrawals claim])
+        dest (when (string? dest) (str/lower dest))]
+    (cond
+      (not (and (string? txid) (seq txid) (seq dest))) ex
+      (nil? w) ex
+      (not (attester? ex account)) ex
+      (and (vals/bridge-mode? ex) (not= dest (:dest w))) ex
+      (and (some? amount) (not= amount (:amount w))) ex
+      :else
+      (let [[ex winners] (tally ex :withdraw claim account {:txid txid :dest dest})]
+        (if winners
+          (-> ex
+              (assoc-in [:paid claim] {:txid txid :dest dest :amount (:amount w)
+                                       :account (:account w) :attests winners
+                                       :settled? true})
+              (update :withdrawals dissoc claim))
+          ex)))))
 
 (defmethod apply-tx :withdraw-cancel
   [ex {:keys [account claim]}]
@@ -413,27 +497,25 @@
 
 (defmethod apply-tx :withdraw-invalidate-attest
   [ex {:keys [account claim txid]}]
-  ;; The bridge contract cancelled a requested withdrawal
-  ;; (`WithdrawalInvalidated`), so it will never pay: the claim's collateral
-  ;; goes back to its owner once the validators agree they saw that event.
-  ;; Same quorum, same exactly-once shape as the deposit and the exit.
-  (let [c (get-in ex [:withdrawals claim])
-        t (get-in ex [:invalidated claim])
-        agrees? (or (nil? t) (= txid (:txid t)))]
+  ;; The bridge contract cancelled a claim (`WithdrawalInvalidated`) — a
+  ;; pending request, or one never requested, whose id it burned — so it will
+  ;; never pay: the claim's collateral goes back to its owner once the set
+  ;; agrees it saw that event. Counted by `tally`, shape apart, like the
+  ;; deposit and the exit.
+  (let [c (get-in ex [:withdrawals claim])]
     (cond
       (not (vals/bridge-mode? ex)) ex
       (not (and (string? txid) (seq txid))) ex
       (nil? c) ex
       (not (attester? ex account)) ex
-      (not agrees?) ex
       :else
-      (let [attests (conj (:attests t #{}) account)]
-        (if (not (attested? ex attests))
-          (assoc-in ex [:invalidated claim] {:txid txid :attests attests})
+      (let [[ex winners] (tally ex :invalidate claim account {:txid txid})]
+        (if winners
           (-> ex
-              (assoc-in [:invalidated claim] {:txid txid :attests attests :refunded? true})
+              (assoc-in [:invalidated claim] {:txid txid :attests winners :refunded? true})
               (update :withdrawals dissoc claim)
-              (update :clearing cl/deposit (:account c) (:amount c))))))))
+              (update :clearing cl/deposit (:account c) (:amount c)))
+          ex)))))
 
 (defn- reprice!
   "Recompute the derived mark for `market` from the book and the oracle.
@@ -669,8 +751,10 @@
   ;; operator account is that witness's weight at the next epoch boundary, and
   ;; what a proved equivocation takes. Bonding to an account that operates no
   ;; witness is still allowed: publishers are weighted by the same bonds.
-  (update ex :clearing cl/bond account validator amount
-          (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
+  (if (vals/jailed-operator? ex validator)
+    ex
+    (update ex :clearing cl/bond account validator amount
+            (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex)))))
 
 (defmethod apply-tx :unbond
   [ex {:keys [account validator amount]}]
@@ -1449,9 +1533,19 @@
 
 (declare pad-id)
 
+(declare validator-leaves*)
+
 (defn- validator-leaves
   "Section 09. Empty means absent, like 07 and 08: a chain configured without
-  validators encodes exactly as it did before."
+  validators encodes exactly as it did before.
+
+  Emitted in id order, which is the order the tree sorts leaves into — a
+  section whose flat bytes ran in another order would commit the flat digest
+  and the tree to different sequences."
+  [ex]
+  (some->> (validator-leaves* ex) seq (sort-by :id)))
+
+(defn- validator-leaves*
   [ex]
   (when (vals/enabled? ex)
     (let [{:keys [epoch-length min-stake max-validators]} (:validator-params ex)
@@ -1481,6 +1575,33 @@
                                   (into (enc-ints [enc-tag-validator claim (if refunded? 1 0)
                                                    (count attests)])))
                               (sort attests)))})))
+       ;; Every bond and every unbonding, by whom and to whom. The account
+       ;; leaf commits only totals, which was enough while a bond was a
+       ;; number; with a validator set, WHICH operator a bond backs decides
+       ;; the set and what a slash takes, so two replicas agreeing on totals
+       ;; could still install different sets.
+       (let [c (:clearing ex)]
+         (for [a (sort (distinct (concat (keys (:bonds c {})) (keys (:unbonding c {})))))]
+           {:id (str "09:09:" (pad-id a))
+            :bytes (let [bs (sort (get-in c [:bonds a] {}))
+                         us (sort-by (juxt :at :validator :amount) (get-in c [:unbonding a] []))]
+                     (-> (enc-ints [enc-tag-validator a (count bs) (count us)])
+                         (into (mapcat (fn [[v amt]] (enc-ints [enc-tag-validator v amt])) bs))
+                         (into (mapcat (fn [{:keys [validator amount at]}]
+                                         (enc-ints [enc-tag-validator validator amount at])) us))))}))
+       ;; Attestations still being counted, per shape. A replica that had
+       ;; counted a different vote would credit a deposit one block apart
+       ;; from its peers.
+       (for [kind (sort (keys (:attest-votes ex {})))
+             k (sort-by str (keys (get-in ex [:attest-votes kind])))]
+         {:id (str "09:10:" (name kind) ":" (if (integer? k) (pad-id k) k))
+          :bytes (let [votes (get-in ex [:attest-votes kind k])]
+                   (reduce (fn [acc [a shape]]
+                             (-> acc (into (enc-ints [enc-tag-validator a]))
+                                 (into (enc-string (pr-str (into (sorted-map) shape))))))
+                           (-> (enc-string (name kind)) (into (enc-string (str k)))
+                               (into (enc-ints [enc-tag-validator (count votes)])))
+                           (sort-by key votes)))})
        (for [[w h v :as k] (sort (keys sl))]
          {:id (str "09:04:" w ":" (pad-id h) ":" (pad-id v))
           :bytes (let [{:keys [by amount height]} (get sl k)]

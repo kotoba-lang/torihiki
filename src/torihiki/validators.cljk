@@ -118,6 +118,17 @@
         total (reduce + 0 (map w members))
         have (reduce + 0 (map w (filter #(contains? (set accounts) (:account %)) members)))]
     (and (pos? total) (> (* 3 have) (* 2 total)))))
+(defn operates-live-witness?
+  "Does `account` operate a witness that has not retired?"
+  [ex account]
+  (some (fn [[_ v]] (and (= account (:account v)) (nil? (:retired-at v))))
+        (:validators ex)))
+
+(defn jailed-operator?
+  "Is `account` the operator of a jailed witness? Bonding to it would only
+  hand collateral to the next slash."
+  [ex account]
+  (some (fn [[_ v]] (and (= account (:account v)) (:jailed? v))) (:validators ex)))
 
 (defn- pubkey-in-use? [ex pubkey]
   (some (fn [[_ v]] (or (= pubkey (:pubkey v)) (= pubkey (:pending-pubkey v))))
@@ -126,6 +137,26 @@
 ;; ── genesis ─────────────────────────────────────────────────────────────────
 
 (declare init*)
+(declare witness-name? pubkey?)
+
+(defn- check-genesis!
+  "A genesis set is trusted by construction, which is exactly why it is
+  checked: nothing after it can correct a set of three, a key shared by two
+  names, or one operator running every member."
+  [genesis {:keys [max-validators]}]
+  (let [ws (map :witness genesis)
+        problem (cond
+                  (< (count genesis) min-set-size) "fewer than four validators"
+                  (< max-validators min-set-size) ":max-validators below four"
+                  (not-every? witness-name? ws) "a malformed witness name"
+                  (not-every? (comp pubkey? :pubkey) genesis) "a malformed consensus key"
+                  (not-every? (comp integer? :account) genesis) "an operator account that is not an integer"
+                  (not (apply distinct? ws)) "a witness name used twice"
+                  (not (apply distinct? (map :pubkey genesis))) "a consensus key used twice"
+                  (not (apply distinct? (map :account genesis))) "an operator account running two witnesses")]
+    (when problem
+      (throw (ex-info (str "torihiki.validators: bad genesis set — " problem)
+                      {:genesis genesis})))))
 
 (defn init
   "Install the genesis set. `genesis` is `[{:witness :pubkey :account} ...]`;
@@ -150,6 +181,7 @@
   (if (nil? params)
     ex
     (let [params (merge default-params (dissoc params :genesis))
+          _ (check-genesis! genesis params)
           vs (into {} (for [{:keys [witness pubkey account]} genesis]
                         [witness {:account account :pubkey pubkey :registered 0}]))]
       (assoc ex
@@ -177,7 +209,11 @@
           (not (witness-name? witness))
           (not (pubkey? pubkey))
           (contains? (:validators ex) witness)
-          (pubkey-in-use? ex pubkey))
+          (pubkey-in-use? ex pubkey)
+          ;; One witness per operator account. The account's stake is the
+          ;; witness's weight, so an account with two witnesses would count
+          ;; its stake twice — and with thirty-two it would be the whole set.
+          (operates-live-witness? ex account))
     ex
     (assoc-in ex [:validators witness]
               {:account account :pubkey pubkey :registered (:height ex 0)})))
@@ -239,6 +275,13 @@
 (defn evidence-key [{:keys [witness evidence-height view]}]
   [witness evidence-height view])
 
+(defn- safe-verify
+  "A verifier that throws must not stop the chain: one malformed proof would
+  halt every replica at the same block. A throw is a no."
+  [f & args]
+  (try (true? (apply f args))
+       (catch #?(:clj Throwable :cljs :default) _ false)))
+
 (defn evidence-valid?
   "Is this a proof of equivocation the chain can act on?
 
@@ -253,8 +296,8 @@
           (integer? view) (not (neg? view))
           (string? hash-a) (string? hash-b) (not= hash-a hash-b)
           (string? sig-a) (string? sig-b)
-          (vote-verify-fn k witness evidence-height view hash-a sig-a)
-          (vote-verify-fn k witness evidence-height view hash-b sig-b)))))
+          (safe-verify vote-verify-fn k witness evidence-height view hash-a sig-a)
+          (safe-verify vote-verify-fn k witness evidence-height view hash-b sig-b)))))
 
 (defn slash
   "Act on a proof already checked by `evidence-valid?`. Exactly once per
@@ -264,8 +307,17 @@
         v (get-in ex [:validators witness])]
     (if (or (nil? v) (contains? (:slashed ex) k))
       ex
-      (let [[clearing total] (slash-account (:clearing ex) (:account v))
-            reward (quot (* total slash-reward-percent) 100)
+      (let [own (+ (get-in ex [:clearing :bonds (:account v) (:account v)] 0)
+                   (reduce + 0 (map :amount (filter #(= (:account v) (:validator %))
+                                                    (get-in ex [:clearing :unbonding (:account v)] [])))))
+            [clearing total] (slash-account (:clearing ex) (:account v))
+            ;; Never to the offender — an operator with little of its own at
+            ;; stake could double-sign on purpose and report itself for a cut
+            ;; of its delegators' money — and never more than the operator
+            ;; itself put up, for the same reason.
+            reward (if (= account (:account v))
+                     0
+                     (min own (quot (* total slash-reward-percent) 100)))
             clearing (cond-> clearing
                        (pos? reward) (cl/deposit account reward)
                        true (update :insurance-fund (fnil + 0) (- total reward)))]
@@ -289,6 +341,11 @@
                            :stake (cl/stake-of clearing (:account v))}))
          (filter #(>= (:stake %) min-stake))
          (sort-by (juxt (comp - :stake) :witness))
+         ;; One per operator account, should a state ever hold two: the
+         ;; account's stake is one weight, not one per name.
+         (reduce (fn [[seen acc] m] (if (seen (:account m)) [seen acc] [(conj seen (:account m)) (conj acc m)]))
+                 [#{} []])
+         second
          (take max-validators)
          (sort-by :witness)
          vec)))
@@ -326,7 +383,7 @@
                                         ;; arrive, and a slash needs to know
                                         ;; whose account to take it from.
                                         (and (:retiring? v) (not (in-set w)))
-                                        [w (assoc v :retired-at height)]
+                                        [w (cond-> v (nil? (:retired-at v)) (assoc :retired-at height))]
                                         (:pending-pubkey v)
                                         [w (-> v (assoc :pubkey (:pending-pubkey v))
                                                (dissoc :pending-pubkey))]
