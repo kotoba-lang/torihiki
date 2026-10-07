@@ -602,6 +602,17 @@ publisher's deviation from the published price is in `api/market-info`
 (`:oracle-deviations`), so a validator persistently far from its peers is
 visible to anyone reading the market.
 
+## Upgrades are voted, not deployed
+
+Roadmap D5 (`torihiki.governance`). On a chain with `:validators`, the
+protocol version is state. An active-set operator proposes
+`{:version v :activation h}` (`v` above the current and scheduled versions,
+`h` at least `:notice` blocks away); operators holding more than 2/3 of the
+set's weight vote; from block `h` on, `gov/active-version` is `v` on every
+replica at once. Proposals lapse after `:ttl`. New rules ship in a binary
+gated on the active version, and a node whose binary does not know it must
+stop (`gov/supported?`) rather than keep producing roots under rules it lacks.
+
 ## The bridge: collateral that came from somewhere
 
 Roadmap D3. `contracts/src/TorihikiBridge.sol` (Foundry, `cd contracts && forge test`)

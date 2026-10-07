@@ -209,7 +209,11 @@
    ;; consensus key it installs — and the rest is the equivocation proof.
    ;; Unsigned, a relay could swap the proof under the submitter's name.
    (:witness tx) (:evidence-height tx) (:view tx)
-   (:hash-a tx) (:sig-a tx) (:hash-b tx) (:sig-b tx)])
+   (:hash-a tx) (:sig-a tx) (:hash-b tx) (:sig-b tx)
+   ;; Governance (`torihiki.governance`): which version, from which height,
+   ;; and which proposal a vote is for. Unsigned, a relay could turn a vote
+   ;; for one upgrade into a vote for another.
+   (:version tx) (:activation tx) (:proposal tx)])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two

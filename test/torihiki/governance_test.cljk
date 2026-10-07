@@ -1,0 +1,81 @@
+(ns torihiki.governance-test
+  "Roadmap D5: the protocol version changes only by an on-chain supermajority,
+  only after notice, on every replica at the same height."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.auth :as auth]
+            [torihiki.governance :as gov]
+            [torihiki.state :as st]))
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate (fx/bps 3) :maker-fee-rate 0))
+
+(def genesis (vec (for [[i w] (map-indexed vector ["w1" "w2" "w3" "w4"])]
+                    {:witness w :pubkey (str "key-" w) :account (+ 100 i)})))
+
+(defn- chain []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}
+                    :validators {:genesis genesis :epoch-length 1000}
+                    :protocol {:notice 100 :ttl 500}}))
+
+(defn- block [ex height txs] (st/apply-block ex {:height height :ts height :txs txs} nil))
+
+(def propose {:tx :upgrade-propose :account 100 :version 2 :activation 200})
+(defn- vote [acct] {:tx :upgrade-vote :account acct :proposal 1})
+
+(deftest a-chain-without-validators-has-no-governance
+  (let [ex (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}})]
+    (is (not (gov/enabled? ex)))
+    (is (= 1 (gov/active-version ex)))))
+
+(deftest an-upgrade-needs-two-thirds-notice-and-its-height
+  (let [ex (block (chain) 1 [propose (vote 101)])]
+    (testing "two of four is not enough"
+      (is (nil? (get-in ex [:protocol :scheduled])))
+      (is (= #{100 101} (get-in ex [:protocol :proposals 1 :votes]))))
+    (let [passed (block ex 2 [(vote 102)])]
+      (is (= {:version 2 :at 200 :proposal 1} (get-in passed [:protocol :scheduled])))
+      (is (empty? (get-in passed [:protocol :proposals])))
+      (is (= 1 (gov/active-version (block passed 199 []))) "not before its height")
+      (is (= 2 (gov/active-version (block passed 200 []))) "from its height on")
+      (testing "a binary that does not know it must stop"
+        (is (gov/supported? (block passed 199 []) 1))
+        (is (not (gov/supported? (block passed 200 []) 1)))))))
+
+(deftest what-cannot-be-proposed
+  (let [ex (chain)
+        try* (fn [t] (get-in (block ex 1 [t]) [:protocol :proposals 1]))]
+    (is (nil? (try* (assoc propose :account 999))) "a stranger proposed")
+    (is (nil? (try* (assoc propose :version 1))) "the current version again")
+    (is (nil? (try* (assoc propose :activation 50))) "without notice")))
+
+(deftest a-stranger-vote-counts-for-nothing
+  (let [ex (block (chain) 1 [propose (vote 101) (vote 999)])]
+    (is (= #{100 101} (get-in ex [:protocol :proposals 1 :votes])))
+    (is (nil? (get-in ex [:protocol :scheduled])))))
+
+(deftest proposals-lapse
+  ;; ttl 500, but it stops at activation 200 - notice 100.
+  (let [ex (block (chain) 1 [propose])]
+    (is (some? (get-in (block ex 100 []) [:protocol :proposals 1])))
+    (is (nil? (get-in (block ex 101 []) [:protocol :proposals 1])))))
+
+(deftest governance-is-under-the-root-and-signed
+  (let [ex (chain)]
+    (is (some #(= "09:07" (:id %)) (st/canonical-leaves ex)))
+    (is (not= (st/state-root ex) (st/state-root (block ex 0 [propose])))
+        "a proposal is outside the root")
+    (let [p (fn [t] (auth/signing-payload "c" 100 0 t))]
+      (is (not= (p (vote 100)) (p (assoc (vote 100) :proposal 2))))
+      (is (not= (p propose) (p (assoc propose :version 3))))
+      (is (not= (p propose) (p (assoc propose :activation 999)))))))
+
+(deftest a-late-pass-cannot-skip-the-notice
+  ;; Review of #37: notice was checked only at propose time, and ttl is longer
+  ;; than notice, so a vote arriving after the activation height scheduled an
+  ;; upgrade for the very next block.
+  (let [ex (block (chain) 1 [propose (vote 101)])]
+    (is (= 100 (get-in ex [:protocol :proposals 1 :expires])) "activation 200 - notice 100")
+    (is (some? (get-in (block ex 100 [(vote 102)]) [:protocol :scheduled])) "on its last block")
+    (is (nil? (get-in (block ex 101 [(vote 102)]) [:protocol :scheduled])) "after it")))
