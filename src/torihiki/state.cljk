@@ -604,8 +604,10 @@
   ;; operator account is that witness's weight at the next epoch boundary, and
   ;; what a proved equivocation takes. Bonding to an account that operates no
   ;; witness is still allowed: publishers are weighted by the same bonds.
-  (update ex :clearing cl/bond account validator amount
-          (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
+  (if (vals/jailed-operator? ex validator)
+    ex
+    (update ex :clearing cl/bond account validator amount
+            (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex)))))
 
 (defmethod apply-tx :unbond
   [ex {:keys [account validator amount]}]
@@ -1382,9 +1384,19 @@
 
 (declare pad-id)
 
+(declare validator-leaves*)
+
 (defn- validator-leaves
   "Section 09. Empty means absent, like 07 and 08: a chain configured without
-  validators encodes exactly as it did before."
+  validators encodes exactly as it did before.
+
+  Emitted in id order, which is the order the tree sorts leaves into — a
+  section whose flat bytes ran in another order would commit the flat digest
+  and the tree to different sequences."
+  [ex]
+  (some->> (validator-leaves* ex) seq (sort-by :id)))
+
+(defn- validator-leaves*
   [ex]
   (when (vals/enabled? ex)
     (let [{:keys [epoch-length min-stake max-validators]} (:validator-params ex)
@@ -1399,6 +1411,20 @@
         {:id "09:02" :bytes (encode-epoch (:prev-epoch ex))}]
        (for [w (sort (keys vs))]
          {:id (str "09:03:" w) :bytes (encode-validator w (get vs w))})
+       ;; Every bond and every unbonding, by whom and to whom. The account
+       ;; leaf commits only totals, which was enough while a bond was a
+       ;; number; with a validator set, WHICH operator a bond backs decides
+       ;; the set and what a slash takes, so two replicas agreeing on totals
+       ;; could still install different sets.
+       (let [c (:clearing ex)]
+         (for [a (sort (distinct (concat (keys (:bonds c {})) (keys (:unbonding c {})))))]
+           {:id (str "09:09:" (pad-id a))
+            :bytes (let [bs (sort (get-in c [:bonds a] {}))
+                         us (sort-by (juxt :at :validator :amount) (get-in c [:unbonding a] []))]
+                     (-> (enc-ints [enc-tag-validator a (count bs) (count us)])
+                         (into (mapcat (fn [[v amt]] (enc-ints [enc-tag-validator v amt])) bs))
+                         (into (mapcat (fn [{:keys [validator amount at]}]
+                                         (enc-ints [enc-tag-validator validator amount at])) us))))}))
        (for [[w h v :as k] (sort (keys sl))]
          {:id (str "09:04:" w ":" (pad-id h) ":" (pad-id v))
           :bytes (let [{:keys [by amount height]} (get sl k)]

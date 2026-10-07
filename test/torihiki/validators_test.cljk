@@ -216,3 +216,52 @@
         (is (not= (p r) (p (assoc r :subject 8))))
         (is (not= (p {:tx :principal-claim :principal 1})
                   (p {:tx :principal-claim :principal 2})))))))
+
+;; ── review fixes ───────────────────────────────────────────────────────────
+
+(deftest one-operator-one-witness
+  (let [ex (st/apply-tx (chain) {:tx :validator-register :account 100 :witness "w9" :pubkey "key-w9"})]
+    (is (nil? (get-in ex [:validators "w9"])) "one stake counted under two names")))
+
+(deftest the-offender-earns-nothing-and-the-reward-is-capped
+  (let [ex (-> (chain 10)
+               (st/apply-tx {:tx :deposit :account 600 :amount 1000000})
+               (st/apply-tx {:tx :bond :account 600 :validator 102 :amount 100000}))
+        self (block ex 5 [(assoc (evidence "w3" 4 7) :account 102)] {:vote-verify-fn vote-verify})
+        other (block ex 5 [(evidence "w3" 4 7)] {:vote-verify-fn vote-verify})]
+    (is (= (- 1000000 10) (get-in self [:clearing :accounts 102 :collateral]))
+        "the operator was paid for reporting itself")
+    (is (= 10 (get-in other [:clearing :accounts 500 :collateral]))
+        "5% of 100010 is 5000; capped at the operator's own 10")))
+
+(deftest a-jailed-operator-takes-no-new-bonds
+  (let [ex (block (chain) 5 [(evidence "w3" 4 7)] {:vote-verify-fn vote-verify})
+        after (-> ex
+                  (st/apply-tx {:tx :deposit :account 700 :amount 1000})
+                  (st/apply-tx {:tx :bond :account 700 :validator 102 :amount 500}))]
+    (is (= 0 (cl/stake-of (:clearing after) 102)))))
+
+(deftest a-verifier-that-throws-is-a-no
+  (let [ex (block (chain) 5 [(evidence "w1" 4 2)]
+                  {:vote-verify-fn (fn [& _] (throw (ex-info "bad key" {})))})]
+    (is (not (get-in ex [:validators "w1" :jailed?])))))
+
+(deftest a-bad-genesis-is-refused
+  (doseq [[why g] [["three" (vec (take 3 genesis))]
+                   ["a shared key" (assoc-in genesis [1 :pubkey] "key-w1")]
+                   ["one operator twice" (assoc-in genesis [1 :account] 100)]
+                   ["a bad name" (assoc-in genesis [0 :witness] "W 1")]]]
+    (is (thrown? #?(:clj Exception :cljs js/Error)
+                 (st/new-exchange {:market mkt :validators {:genesis g}}))
+        why)))
+
+(deftest which-operator-a-bond-backs-is-under-the-root
+  (let [ex (-> (chain) (st/apply-tx {:tx :deposit :account 700 :amount 1000}))
+        a (st/apply-tx ex {:tx :bond :account 700 :validator 100 :amount 500})
+        b (st/apply-tx ex {:tx :bond :account 700 :validator 101 :amount 500})]
+    (is (not= (st/state-root a) (st/state-root b)))))
+
+(deftest the-section-is-in-tree-order
+  (let [ex (block (chain) 5 [(evidence "w3" 4 7)] {:vote-verify-fn vote-verify})
+        ids (map :id (filter #(re-find #"^09" (:id %)) (st/canonical-leaves ex)))]
+    (is (= (sort ids) ids))))
