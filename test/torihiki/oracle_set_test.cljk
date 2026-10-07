@@ -88,3 +88,11 @@
                              :oracle-publishers [1 2 3]})]
     (is (= #{1 2 3} (vals/publishers ex)))
     (is (= 3 (:oracle-publishers (api/market-info ex 1))))))
+
+(deftest silence-goes-stale-without-anybody-submitting
+  ;; Review of #36: freshness was judged only when a submission arrived, so a
+  ;; set that stopped publishing left its last price fresh for good.
+  (let [ex (block (chain) 1 (submit [[100 1000] [101 1000] [102 1000]]))]
+    (is (false? (get-in (block ex 61 []) [:oracle-stale 1])) "within max-age")
+    (is (true? (get-in (block ex 62 []) [:oracle-stale 1])) "nobody vouches for it any more")
+    (is (= 1000 (get-in (block ex 62 []) [:oracle 1])) "kept, marked stale")))
