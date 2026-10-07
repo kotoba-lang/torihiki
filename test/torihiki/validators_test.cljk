@@ -1,0 +1,218 @@
+(ns torihiki.validators-test
+  "The validator set as chain state: who is in it is decided by stake at an
+  epoch boundary, nobody can change it alone, and a proved double-vote costs
+  the bond behind it."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.auth :as auth]
+            [torihiki.validators :as vals]
+            [torihiki.state :as st]))
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate (fx/bps 3) :maker-fee-rate 0))
+
+(def genesis
+  (vec (for [[i w] (map-indexed vector ["w1" "w2" "w3" "w4"])]
+         {:witness w :pubkey (str "key-" w) :account (+ 100 i)})))
+
+(defn- chain
+  "An exchange with the four genesis validators, each operator funded and
+  bonded to itself with `stake`. Epochs of 10 blocks."
+  ([] (chain 1000))
+  ([stake]
+   (let [ex (st/new-exchange {:market mkt
+                              :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}
+                              :validators {:genesis genesis :epoch-length 10
+                                           :min-stake 100 :max-validators 5}})]
+     (reduce (fn [e {:keys [account]}]
+               (-> e
+                   (st/apply-tx {:tx :deposit :account account :amount 1000000})
+                   (st/apply-tx {:tx :bond :account account :validator account :amount stake})))
+             ex genesis))))
+
+(defn- block
+  "Apply `txs` as the block at `height`."
+  ([ex height txs] (block ex height txs nil))
+  ([ex height txs opts] (st/apply-block ex {:height height :ts height :txs txs} opts)))
+
+(defn- witnesses [ex] (mapv :witness (vals/active-set ex)))
+
+;; A stand-in for the node's vote verifier: a signature is "<key>|<witness>|
+;; <height>|<view>|<hash>". The engine never parses it; it only asks.
+(defn- sig [k w h v hash] (str k "|" w "|" h "|" v "|" hash))
+(defn- vote-verify [k w h v hash s] (= s (sig k w h v hash)))
+
+;; ── the disabled case ──────────────────────────────────────────────────────
+
+(deftest a-chain-without-validators-is-untouched
+  (let [ex (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}})]
+    (is (not (vals/enabled? ex)))
+    (is (nil? (:epoch ex)))
+    (let [b (block ex 10 [])]
+      (is (nil? (:epoch b)) "a boundary does nothing")
+      (is (not-any? #(re-find #"^09" (:id %)) (st/canonical-leaves b))
+          "the validator section appeared in a chain that has none"))
+    (is (= ex (dissoc (st/apply-tx ex {:tx :validator-register :account 1
+                                       :witness "x" :pubkey "k"}) :rejected))
+        "registration is refused when the chain has no set")))
+
+;; ── genesis and the boundary ───────────────────────────────────────────────
+
+(deftest genesis-is-epoch-zero
+  (let [ex (chain)]
+    (is (= ["w1" "w2" "w3" "w4"] (witnesses ex)))
+    (is (= 0 (get-in ex [:epoch :n])))
+    (is (= "key-w2" (vals/key-at ex "w2" 5)))))
+
+(deftest a-registered-and-bonded-validator-joins-at-the-boundary
+  (let [ex (-> (chain)
+               (st/apply-tx {:tx :deposit :account 200 :amount 1000000})
+               (block 3 [{:tx :validator-register :account 200 :witness "w5" :pubkey "key-w5"}
+                         {:tx :bond :account 200 :validator 200 :amount 5000}]))]
+    (testing "not mid-epoch"
+      (is (= ["w1" "w2" "w3" "w4"] (witnesses (block ex 9 [])))))
+    (let [turned (block ex 10 [])]
+      (is (= ["w1" "w2" "w3" "w4" "w5"] (witnesses turned)))
+      (is (= 1 (get-in turned [:epoch :n])))
+      (is (= 11 (get-in turned [:epoch :from])) "the set runs from the block after the boundary")
+      (is (= 5000 (:stake (last (vals/active-set turned)))))
+      (is (= "key-w1" (vals/key-at turned "w1" 5)) "the previous epoch stays readable"))))
+
+(deftest stake-decides-and-the-cap-holds
+  (let [ex (reduce (fn [e [acct w amt]]
+                     (-> e
+                         (st/apply-tx {:tx :deposit :account acct :amount 1000000})
+                         (st/apply-tx {:tx :validator-register :account acct :witness w
+                                       :pubkey (str "key-" w)})
+                         (st/apply-tx {:tx :bond :account acct :validator acct :amount amt})))
+                   (chain)
+                   [[201 "big" 9000] [202 "mid" 5000] [203 "small" 50]])
+        turned (block ex 10 [])]
+    (is (= 5 (count (vals/active-set turned))) "max-validators")
+    (is (some #{"big"} (witnesses turned)))
+    (is (not (some #{"small"} (witnesses turned))) "below min-stake")
+    (is (= ["big" "mid" "w1" "w2" "w3"] (witnesses turned))
+        "the cap keeps the largest stakes, ties by name")))
+
+(deftest too-few-is-not-a-set
+  (let [ex (-> (chain)
+               (block 4 [{:tx :validator-retire :account 100 :witness "w1"}]))
+        turned (block ex 10 [])]
+    (is (= ["w1" "w2" "w3" "w4"] (witnesses turned)) "three cannot replace four")
+    (is (= 0 (get-in turned [:epoch :n])))
+    (is (= {:height 10 :qualified 3} (:epoch-refused turned)))
+    (is (get-in turned [:validators "w1" :retiring?]) "the request survives a refused turn")))
+
+(deftest retiring-leaves-at-the-boundary-and-is-remembered
+  (let [ex (-> (chain)
+               (st/apply-tx {:tx :deposit :account 200 :amount 1000000})
+               (block 2 [{:tx :validator-register :account 200 :witness "w5" :pubkey "key-w5"}
+                         {:tx :bond :account 200 :validator 200 :amount 5000}
+                         {:tx :validator-retire :account 101 :witness "w2"}]))
+        turned (block ex 10 [])]
+    (is (= ["w1" "w3" "w4" "w5"] (witnesses turned)))
+    (is (= 10 (get-in turned [:validators "w2" :retired-at])) "kept, so late evidence can still find it")
+    (testing "only the operator may retire it"
+      (is (not (get-in (st/apply-tx (chain) {:tx :validator-retire :account 999 :witness "w3"})
+                       [:validators "w3" :retiring?]))))))
+
+(deftest rotation-waits-for-the-boundary-and-only-the-operator-can
+  (let [ex (block (chain) 3 [{:tx :validator-rotate-key :account 102 :witness "w3" :pubkey "key-w3b"}
+                             {:tx :validator-rotate-key :account 999 :witness "w4" :pubkey "evil"}])]
+    (is (= "key-w3" (vals/key-at ex "w3" 5)) "not mid-epoch")
+    (is (nil? (get-in ex [:validators "w4" :pending-pubkey])) "a stranger rotated somebody's key")
+    (let [turned (block ex 10 [])]
+      (is (= "key-w3b" (vals/key-at turned "w3" 11)))
+      (is (= "key-w3" (vals/key-at turned "w3" 5)) "votes from before still verify against the old key")
+      (is (nil? (get-in turned [:validators "w3" :pending-pubkey]))))))
+
+(deftest a-name-or-a-key-cannot-be-taken-twice
+  (let [ex (chain)]
+    (is (= "key-w1" (get-in (st/apply-tx ex {:tx :validator-register :account 300
+                                             :witness "w1" :pubkey "fresh"})
+                            [:validators "w1" :pubkey])))
+    (is (nil? (get-in (st/apply-tx ex {:tx :validator-register :account 300
+                                       :witness "w9" :pubkey "key-w2"})
+                      [:validators "w9"]))
+        "one key under two names is one validator voting twice")))
+
+;; ── equivocation ───────────────────────────────────────────────────────────
+
+(defn- evidence [w h v]
+  (let [k (str "key-" w)]
+    {:tx :equivocation-evidence :account 500 :witness w :evidence-height h :view v
+     :hash-a "bafy-a" :sig-a (sig k w h v "bafy-a")
+     :hash-b "bafy-b" :sig-b (sig k w h v "bafy-b")}))
+
+(deftest a-proved-double-vote-slashes-every-bond-behind-it
+  (let [ex (-> (chain)
+               ;; a delegator backs w3's operator too, and is slashed with it
+               (st/apply-tx {:tx :deposit :account 600 :amount 1000000})
+               (st/apply-tx {:tx :bond :account 600 :validator 102 :amount 4000}))
+        before-fund (get-in ex [:clearing :insurance-fund] 0)
+        after (block ex 5 [(evidence "w3" 4 7)] {:vote-verify-fn vote-verify})
+        c (:clearing after)]
+    (is (get-in after [:validators "w3" :jailed?]))
+    (is (= 0 (cl/stake-of c 102)) "the stake is gone")
+    (is (= (- 1000000 1000) (get-in c [:accounts 102 :collateral])) "the operator lost its bond")
+    (is (= (- 1000000 4000) (get-in c [:accounts 600 :collateral])) "the delegator lost its bond")
+    (is (= 250 (get-in c [:accounts 500 :collateral])) "5% of 5000 to the prover")
+    (is (= (+ before-fund 4750) (get c :insurance-fund)) "the rest stays in the exchange")
+    (is (= 5000 (get-in after [:slashed ["w3" 4 7] :amount])))
+    (testing "out at the boundary, for good"
+      (let [turned (block (-> after
+                              (st/apply-tx {:tx :deposit :account 200 :amount 1000000})
+                              (st/apply-tx {:tx :validator-register :account 200 :witness "w5" :pubkey "key-w5"})
+                              (st/apply-tx {:tx :bond :account 200 :validator 200 :amount 5000}))
+                          10 [])]
+        (is (= ["w1" "w2" "w4" "w5"] (witnesses turned)))))
+    (testing "the same offence pays once"
+      (let [again (block after 6 [(assoc (evidence "w3" 4 7) :account 501)]
+                         {:vote-verify-fn vote-verify})]
+        (is (= 0 (get-in again [:clearing :accounts 501 :collateral] 0)))))))
+
+(deftest unbonding-stake-is-still-slashable
+  (let [ex (-> (chain)
+               (block 2 [{:tx :unbond :account 101 :validator 101 :amount 1000}]))
+        after (block ex 5 [(evidence "w2" 3 1)] {:vote-verify-fn vote-verify})]
+    (is (= (- 1000000 1000) (get-in after [:clearing :accounts 101 :collateral])))
+    (is (empty? (get-in after [:clearing :unbonding 101])))))
+
+(deftest evidence-that-does-not-prove-anything-does-nothing
+  (let [ex (chain)
+        ok (evidence "w1" 4 2)
+        root (st/state-root (block ex 5 []))]
+    (doseq [[why bad opts] [["no verifier" ok nil]
+                            ["the same block twice" (assoc ok :hash-b "bafy-a" :sig-b (:sig-a ok)) nil]
+                            ["a forged signature" (assoc ok :sig-b "forged") nil]
+                            ["a different view" (assoc ok :sig-b (sig "key-w1" "w1" 4 3 "bafy-b")) nil]
+                            ["an unknown witness" (assoc ok :witness "w9") nil]]]
+      (let [after (block ex 5 [bad] (or opts {:vote-verify-fn (when-not (= why "no verifier") vote-verify)}))]
+        (is (not (get-in after [:validators "w1" :jailed?])) why)
+        (is (= root (st/state-root after)) why)))))
+
+;; ── commitment and authentication ──────────────────────────────────────────
+
+(deftest the-set-is-under-the-root
+  (let [ex (chain)]
+    (is (not= (st/state-root ex)
+              (st/state-root (st/apply-tx ex {:tx :validator-rotate-key :account 100
+                                              :witness "w1" :pubkey "key-w1b"})))
+        "a queued rotation is outside the root")
+    (is (not= (st/state-root ex)
+              (st/state-root (st/apply-tx ex {:tx :validator-register :account 300
+                                              :witness "w9" :pubkey "key-w9"})))
+        "a registration is outside the root")))
+
+(deftest the-fields-that-choose-a-key-are-signed
+  (let [base {:tx :validator-rotate-key :witness "w1" :pubkey "key-w1b"}
+        p (fn [t] (auth/signing-payload "c" 100 0 t))]
+    (is (not= (p base) (p (assoc base :pubkey "attacker"))))
+    (is (not= (p base) (p (assoc base :witness "w2"))))
+    (testing "the key-recovery handshake, which was not signed before"
+      (let [r {:tx :principal-rotate :subject 7 :pubkey "k1"}]
+        (is (not= (p r) (p (assoc r :pubkey "attacker"))))
+        (is (not= (p r) (p (assoc r :subject 8))))
+        (is (not= (p {:tx :principal-claim :principal 1})
+                  (p {:tx :principal-claim :principal 2})))))))

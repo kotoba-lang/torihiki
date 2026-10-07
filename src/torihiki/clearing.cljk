@@ -565,7 +565,12 @@
   Bonded collateral is still in the account — it has to be, because slashing
   takes it from there — but it is not free. See `free-collateral`."
   [state acct]
-  (reduce + 0 (vals (get-in state [:bonds acct] {}))))
+  ;; Unbonding counts until it is collected. `unbond` says the stake "must stay
+  ;; answerable for a while longer", and it was not: the moment it left the
+  ;; bond it became free collateral and could be withdrawn, so a validator
+  ;; could unbond, withdraw, and leave nothing for a slash to take.
+  (+ (reduce + 0 (vals (get-in state [:bonds acct] {})))
+     (reduce + 0 (map :amount (get-in state [:unbonding acct] [])))))
 
 (defn free-collateral
   "What the account may withdraw or commit to new positions: equity less the

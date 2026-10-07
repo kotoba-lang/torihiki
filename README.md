@@ -548,6 +548,37 @@ Still not **incremental**: a root costs the whole state, which is right for
 the kilobytes a normal block touches and wrong for a book holding hundreds of
 thousands of resting orders.
 
+## The validator set is chain state
+
+`torihiki.validators` (roadmap D2). A chain built with
+`:validators {:genesis [...] :epoch-length :min-stake :max-validators}` keeps
+its validator set under the state root instead of in a node's source:
+
+- `:validator-register` / `:validator-rotate-key` / `:validator-retire`, signed
+  by the witness's **operator account**. The consensus key is separate from
+  the account key, so the account can stay cold.
+- The active set changes **only at an epoch boundary**: registered, not
+  retiring, not jailed, at least `:min-stake` bonded to the operator account,
+  largest stake first, ties by name, at most `:max-validators`. Fewer than four
+  qualifying keeps the current set — a turn that would leave a group unable to
+  tolerate one fault is refused, and the queued requests survive it.
+- `:equivocation-evidence` — two different block hashes signed by one
+  consensus key at one height in one view, checked against the key that
+  witness held in that epoch by the node's `:vote-verify-fn` (the engine has no
+  crypto and the vote format belongs to consensus). A proof jails the witness
+  and slashes **every** bond behind its operator account, live and unbonding:
+  5% to the prover, the rest to the insurance fund. Once per offence.
+- Unbonding collateral now stays reserved until collected; before, it was free
+  the moment it left the bond, so a validator could unbond and withdraw before
+  a slash could reach it.
+
+A chain built without `:validators` is untouched: no section `09` in the root,
+and the published digests below do not move.
+
+What this does **not** do yet is make consensus *read* the set. `torihiki-node`
+still runs a fixed four; switching `inga` to each epoch's set at the boundary
+is the next step.
+
 ## Identity, and the authority it costs
 
 An account id is a function of its key (`torihiki.address/derive`), which is

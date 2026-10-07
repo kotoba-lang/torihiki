@@ -198,7 +198,18 @@
    ;; Contract code and the salt that places it. Unsigned, an attacker could
    ;; swap the bytecode of a deployment in flight and it would land, signed by
    ;; somebody who never saw it, at the address they were told to expect.
-   (:code tx) (:salt tx)])
+   (:code tx) (:salt tx)
+   ;; The key-recovery handshake, which was not signed at all. `:principal`
+   ;; names who may rotate an account and `:subject`/`:pubkey` which account
+   ;; and to WHICH key: unsigned, a relay could re-aim a rotation at its own
+   ;; key and the controller's signature would still verify.
+   (:principal tx) (:subject tx) (:pubkey tx)
+   ;; The validator set (`torihiki.validators`). `:witness` is which validator
+   ;; a registration, rotation or retirement acts on — `:pubkey` above is the
+   ;; consensus key it installs — and the rest is the equivocation proof.
+   ;; Unsigned, a relay could swap the proof under the submitter's name.
+   (:witness tx) (:evidence-height tx) (:view tx)
+   (:hash-a tx) (:sig-a tx) (:hash-b tx) (:sig-b tx)])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two
