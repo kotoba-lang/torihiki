@@ -1,0 +1,70 @@
+(ns torihiki.light
+  "A light client: check one account's balance without replaying the chain
+  and without trusting any one server.
+
+  Roadmap D5. Blocks do not carry a state root — consensus orders
+  transactions and never compares what executing them produced — so the
+  root a client can trust has to be vouched for another way: each validator
+  signs `(chain, engine height, state root)` with its consensus key, and a
+  root is trusted when signatures from MORE THAN 2/3 of the set's weight name
+  it. That is the same threshold that certifies a block; a client that
+  accepts it trusts exactly what a full node trusts about who decides.
+
+  Then `torihiki.commit/verify` checks an account's leaf against that root.
+  The leaf's merkle-sum value is its collateral, so the balance itself is
+  what is proved, not just that some account exists.
+
+  Pure and portable: no network, no clock, no platform. Signature checking
+  is injected (`verify-fn` of `[pubkey payload sig] -> boolean`), so the
+  same code runs in a browser on WebCrypto results, in Node, or on the JVM,
+  and nothing here depends on where the validators run."
+  (:require [torihiki.commit :as cm]))
+
+(defn root-payload
+  "The string a validator signs to vouch for `root` at engine `height`.
+  Field-per-line with names, like every signed payload here, so two
+  attestations cannot collide by juxtaposition."
+  [chain-id height root]
+  (str "torihiki/root/v1\n"
+       "chain=" chain-id "\n"
+       "height=" height "\n"
+       "root=" root "\n"))
+
+(defn attested-root
+  "The `{:height :root :signers :weight :total}` that validators holding more
+  than 2/3 of `members`' weight signed, or nil.
+
+  `members` is `{witness {:pubkey :weight}}` — the set the client trusts for
+  that height (one weight each when the set carries no stake). Each witness
+  counts once, a signature that does not verify counts for nothing, and
+  attestations from outside the set are ignored rather than refused: a
+  server can relay whatever it was handed, and only the set's word adds up."
+  [attestations members chain-id verify-fn]
+  (let [total (reduce + 0 (map :weight (vals members)))
+        valid (->> attestations
+                   (filter (fn [{:keys [witness height root sig]}]
+                             (when-let [m (get members witness)]
+                               (and (integer? height) (string? root) (string? sig)
+                                    (true? (try (verify-fn (:pubkey m)
+                                                           (root-payload chain-id height root) sig)
+                                                (catch #?(:clj Throwable :cljs :default) _ false)))))))
+                   (group-by (juxt :height :root)))]
+    (some (fn [[[h r] as]]
+            (let [signers (set (map :witness as))
+                  weight (reduce + 0 (map #(:weight (get members %)) signers))]
+              (when (and (pos? total) (> (* 3 weight) (* 2 total)))
+                {:height h :root r :signers signers :weight weight :total total})))
+          (sort-by (comp - first key) valid))))
+
+(defn verify-account
+  "Account `a`'s collateral, proved against an attested root, or nil.
+
+  `p` is a proof as `torihiki.commit/proof` returns it, for the same height
+  the root was attested at. The proof must be for `a`'s own leaf: a valid
+  proof of somebody else's balance is still a valid proof."
+  [p attested a]
+  (when (and p attested
+             (= (:id p) (cm/account-leaf-id a))
+             (cm/verify p (:root attested)))
+    {:account a :collateral (:sum p) :height (:height attested)
+     :signers (:signers attested)}))

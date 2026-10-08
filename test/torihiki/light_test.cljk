@@ -1,0 +1,50 @@
+(ns torihiki.light-test
+  "The light client accepts a balance only when the set vouched for the root
+  and the proof is for the account asked about."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.clearing :as cl]
+            [torihiki.commit :as cm]
+            [torihiki.light :as light]
+            [torihiki.state :as st]))
+
+(def ex (-> (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                              :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}})
+            (st/apply-tx {:tx :deposit :account 7 :amount 5000})
+            (st/apply-tx {:tx :deposit :account 8 :amount 900})))
+
+(def root (st/state-root ex))
+(def members {"w1" {:pubkey "k1" :weight 1} "w2" {:pubkey "k2" :weight 1}
+              "w3" {:pubkey "k3" :weight 1} "w4" {:pubkey "k4" :weight 1}})
+
+;; A stand-in signature: "<pubkey>|<payload>". The client never parses it.
+(defn- sign [k payload] (str k "|" payload))
+(defn- verify [k payload sig] (= sig (sign k payload)))
+(defn- att [w h r] {:witness w :height h :root r
+                    :sig (sign (:pubkey (get members w)) (light/root-payload "c" h r))})
+
+(deftest a-root-needs-more-than-two-thirds
+  (is (nil? (light/attested-root [(att "w1" 10 root) (att "w2" 10 root)] members "c" verify)))
+  (is (= root (:root (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" verify)))))
+
+(deftest what-does-not-count
+  (testing "a stranger, a forged signature, a witness twice, a different root"
+    (let [as [(att "w1" 10 root) (att "w1" 10 root)
+              (assoc (att "w2" 10 root) :sig "forged")
+              {:witness "w9" :height 10 :root root :sig "x"}
+              (att "w3" 10 "0000")]]
+      (is (nil? (light/attested-root as members "c" verify)))))
+  (testing "a signature for another chain"
+    (is (nil? (light/attested-root
+               (map #(assoc (att % 10 root) :sig (sign (:pubkey (get members %)) (light/root-payload "other" 10 root)))
+                    ["w1" "w2" "w3"])
+               members "c" verify)))))
+
+(deftest the-balance-is-what-is-proved
+  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w4"]) members "c" verify)
+        leaves (st/canonical-leaves ex)
+        p7 (cm/proof leaves (cm/account-leaf-id 7))
+        p8 (cm/proof leaves (cm/account-leaf-id 8))]
+    (is (= 5000 (:collateral (light/verify-account p7 a 7))))
+    (is (nil? (light/verify-account p8 a 7)) "somebody else's proof")
+    (is (nil? (light/verify-account (assoc p7 :sum 999999) a 7)) "an inflated balance")
+    (is (nil? (light/verify-account p7 (assoc a :root "00") 7)) "a root nobody vouched for")))
