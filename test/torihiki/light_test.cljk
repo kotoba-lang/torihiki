@@ -20,11 +20,11 @@
 (defn- sign [k payload] (str k "|" payload))
 (defn- verify [k payload sig] (= sig (sign k payload)))
 (defn- att [w h r] {:witness w :height h :root r
-                    :sig (sign (:pubkey (get members w)) (light/root-payload "c" h r))})
+                    :sig (sign (:pubkey (get members w)) (light/root-payload "c" 0 h r))})
 
 (deftest a-root-needs-more-than-two-thirds
-  (is (nil? (light/attested-root [(att "w1" 10 root) (att "w2" 10 root)] members "c" verify)))
-  (is (= root (:root (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" verify)))))
+  (is (nil? (light/attested-root [(att "w1" 10 root) (att "w2" 10 root)] members "c" 0 verify)))
+  (is (= root (:root (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" 0 verify)))))
 
 (deftest what-does-not-count
   (testing "a stranger, a forged signature, a witness twice, a different root"
@@ -32,15 +32,15 @@
               (assoc (att "w2" 10 root) :sig "forged")
               {:witness "w9" :height 10 :root root :sig "x"}
               (att "w3" 10 "0000")]]
-      (is (nil? (light/attested-root as members "c" verify)))))
+      (is (nil? (light/attested-root as members "c" 0 verify)))))
   (testing "a signature for another chain"
     (is (nil? (light/attested-root
-               (map #(assoc (att % 10 root) :sig (sign (:pubkey (get members %)) (light/root-payload "other" 10 root)))
+               (map #(assoc (att % 10 root) :sig (sign (:pubkey (get members %)) (light/root-payload "other" 0 10 root)))
                     ["w1" "w2" "w3"])
-               members "c" verify)))))
+               members "c" 0 verify)))))
 
 (deftest the-balance-is-what-is-proved
-  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w4"]) members "c" verify)
+  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w4"]) members "c" 0 verify)
         leaves (st/canonical-leaves ex)
         p7 (cm/proof leaves (cm/account-leaf-id 7))
         p8 (cm/proof leaves (cm/account-leaf-id 8))]
@@ -50,8 +50,23 @@
     (is (nil? (light/verify-account p7 (assoc a :root "00") 7)) "a root nobody vouched for")))
 
 (deftest a-proof-that-went-through-json-still-checks
-  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" verify)
+  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" 0 verify)
         p (cm/proof (st/canonical-leaves ex) (cm/account-leaf-id 7))
         wire (-> p (update :proof (fn [ss] (mapv #(update % :side name) ss))))]
     (is (= 5000 (:collateral (light/verify-account wire a 7))))))
+
+(deftest signatures-speak-for-one-epoch
+  (is (nil? (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" 1 verify))
+      "signed as members of epoch 0, read as epoch 1"))
+
+(deftest conflicting-roots-are-evidence-not-a-choice
+  (let [r (light/attested-root (concat (map #(att % 10 root) ["w1" "w2" "w3"])
+                                       (map #(att % 10 "ffff") ["w3" "w4"]))
+                               members "c" 0 verify)]
+    (is (= 2 (count (:conflict r))))))
+
+(deftest a-proof-with-no-path-proves-nothing
+  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" 0 verify)
+        p (cm/proof (st/canonical-leaves ex) (cm/account-leaf-id 7))]
+    (is (nil? (light/verify-account (assoc p :proof []) a 7)))))
 
