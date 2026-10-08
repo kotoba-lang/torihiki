@@ -48,3 +48,10 @@
     (is (nil? (light/verify-account p8 a 7)) "somebody else's proof")
     (is (nil? (light/verify-account (assoc p7 :sum 999999) a 7)) "an inflated balance")
     (is (nil? (light/verify-account p7 (assoc a :root "00") 7)) "a root nobody vouched for")))
+
+(deftest a-proof-that-went-through-json-still-checks
+  (let [a (light/attested-root (map #(att % 10 root) ["w1" "w2" "w3"]) members "c" verify)
+        p (cm/proof (st/canonical-leaves ex) (cm/account-leaf-id 7))
+        wire (-> p (update :proof (fn [ss] (mapv #(update % :side name) ss))))]
+    (is (= 5000 (:collateral (light/verify-account wire a 7))))))
+

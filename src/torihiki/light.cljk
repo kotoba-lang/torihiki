@@ -56,6 +56,16 @@
                 {:height h :root r :signers signers :weight weight :total total})))
           (sort-by (comp - first key) valid))))
 
+(defn proof-from-json
+  "A proof as it arrives over JSON, made checkable again: the path's `:side`
+  is a keyword (`:left`/`:right`) and JSON turns it into a string, after
+  which every step reads as `:right` and a genuine proof fails. Idempotent."
+  [p]
+  (when p
+    (-> p
+        (update :proof (fn [steps] (mapv #(update % :side (fn [s] (when s (keyword s)))) steps)))
+        (update :bytes vec))))
+
 (defn verify-account
   "Account `a`'s collateral, proved against an attested root, or nil.
 
@@ -63,8 +73,9 @@
   the root was attested at. The proof must be for `a`'s own leaf: a valid
   proof of somebody else's balance is still a valid proof."
   [p attested a]
-  (when (and p attested
+  (when-let [p (proof-from-json p)]
+  (when (and attested
              (= (:id p) (cm/account-leaf-id a))
              (cm/verify p (:root attested)))
     {:account a :collateral (:sum p) :height (:height attested)
-     :signers (:signers attested)}))
+     :signers (:signers attested)})))
