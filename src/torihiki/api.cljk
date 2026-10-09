@@ -158,7 +158,9 @@
               ;; away; neither is a price.
               (zero? (:level t)) :bad-price-level
               ;; Reduce-only orders are exempt inside `order-allowed?`.
-              (not (om/order-allowed? ex account market (:side t) (:level t) (:qty t) (or (:flags t) 0)))
+              (not (om/orders-allowed? ex (:open-orders ex) account market
+                                       [[(:side t) (:level t) (:qty t) (or (:flags t) 0)
+                                         (when (:builder t) (:builder-fee t))]]))
               :insufficient-margin)))
 
       (= tx :cancel)

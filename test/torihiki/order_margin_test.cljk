@@ -128,6 +128,26 @@
   (is (= :bad-price-level (api/validate (funded 2) (order 1 bk/bid 0 1))))
   (is (nil? (api/validate (funded 1) (order 1 bk/bid 0 1))) "version 1 unchanged"))
 
+;; Review of #41, round 2: crossing your own resting order was counted as a
+;; real fill at a profit against the mark, so each round of self-trading
+;; bought room for more — the requirement doubled every round.
+(deftest taking-your-own-order-buys-nothing
+  (let [ex (block (funded 2) 2 [(order 1 bk/ask 1 9)])]
+    (is (= :insufficient-margin (api/validate ex (order 1 bk/bid 1 756))))
+    (let [ex (reduce (fn [ex i]
+                       (block ex (+ 3 i) [(order 1 bk/ask (+ 2 i) 9) (order 1 bk/bid (+ 2 i) 500)]))
+                     ex (range 6))]
+      (is (<= (om/requirement (:clearing ex) (:open-orders ex) 1 (:marks ex) (:markets ex))
+              (om/available (:clearing ex) 1 (:marks ex)))
+          "never more promised than backed"))))
+
+(deftest nothing-opens-on-a-market-with-no-price
+  ;; Review of #41, round 2: margined at their own limits, an ask at level 1
+  ;; and a colluding bid traded a fresh market into existence at 1.
+  (let [ex (block (chain 2) 1 [(deposit 1 1000) (deposit 2 1000)])]
+    (is (= :insufficient-margin (api/validate ex (order 1 bk/ask 1 40000))))
+    (is (= :insufficient-margin (api/validate ex (order 2 bk/bid 100 1))))))
+
 ;; ── version 2: what is never refused ────────────────────────────────────────
 
 (defn- underwater
@@ -232,7 +252,8 @@
 
 (deftest an-overflowed-event-buffer-does-not-desync-the-cache
   ;; Review of #41: fills past ev-cap are not stored, and a cache kept from
-  ;; fills drifted from the books — so a restored replica disagreed.
+  ;; fills drifted from the books — so a restored replica disagreed. The
+  ;; cache is now kept from the queues read before placing.
   (let [ex (funded 2 {:book-opts {:n-levels 256 :cap 4096 :ev-cap 4}})
         ex (block ex 2 (for [_ (range 6)] (order 3 bk/bid 100 10)))
         ex (block ex 3 [(order 1 bk/ask 100 60)])]

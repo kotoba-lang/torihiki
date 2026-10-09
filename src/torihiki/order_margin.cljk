@@ -27,8 +27,10 @@
   - an order is accepted when, after it, requirement <= available — or when
     it does not make the shortfall (requirement - available) any larger, so a
     trader can always reduce. The part of the order that would take
-    liquidity is priced exactly, by walking the book read-only (`simulate`);
-    only what would rest is counted as resting.
+    liquidity is priced exactly, by reading the book's queues read-only
+    (`consume`) — the account's own orders it would take net to nothing —
+    and only what would rest is counted as resting. Nothing opens on a
+    market that has no mark yet.
   - reduce-only orders, and fired triggers (which are reduce-only), are
     clamped to the position and never checked: closing must not be refused.
   - free collateral is `available - requirement`, so what backs a resting
@@ -42,10 +44,11 @@
   `[:open-orders acct mkt] {:bids {level qty} :asks {level qty}}` — QUANTITIES
   only, so keeping it can never overflow and never throw, on any version. It
   is a function of the books, which are under the root, so it is not a leaf:
-  `rebuild` derives it, a snapshot restore uses that, the engine rebuilds it
-  whenever a block's fills overflow the book's event buffer (the fills it
-  would have read are gone), and a test compares the running cache with a
-  rebuild after every kind of book change. Read only from version 2."
+  `rebuild` derives it, a snapshot restore uses that, makers' orders are
+  taken off by reading the book's queues before an order is placed (not
+  from the block's fill buffer, which stops at `ev-cap`), and a test
+  compares the running cache with a rebuild after every kind of book
+  change. Read only from version 2."
   (:require [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.fixed :as fx]
@@ -112,21 +115,6 @@
                oo [bk/bid bk/ask])))
    {} (sort-by key books)))
 
-(defn take-fills
-  "`oo` with the makers' side of `fills` taken off their resting quantities."
-  [oo mkt fills]
-  (reduce (fn [oo {:keys [maker-owner level qty taker-side]}]
-            (adjust oo maker-owner mkt (if (= taker-side bk/bid) bk/ask bk/bid) level (- qty)))
-          oo fills))
-
-(defn overflowed?
-  "Did this block's fills on `book` outrun its event buffer? Then `bk/fills`
-  no longer holds them all, and a cache kept from fills is wrong."
-  [book]
-  (> (bk/event-count book) (:ev-cap book)))
-
-;; ── the requirement ─────────────────────────────────────────────────────────
-
 (defn- market-requirement
   [clearing acct mkt market mark size {:keys [bids asks]}]
   (let [im (fn [v] (let [v (fx/abs* v)]
@@ -187,59 +175,83 @@
 
 ;; ── the check ───────────────────────────────────────────────────────────────
 
-(defn simulate
-  "What an order would do on `book`, read-only: `{:filled lots :cost
-  notional :rest lots}` — `cost` the notional it would take at, `rest` what
-  would rest. nil for a post-only order that would cross (the book refuses
-  it). Walks the opposite side from the best level the way `bk/place!`
-  matches; the account's own orders count as liquidity, which can only
-  overstate what it takes."
+(defn consume
+  "Which resting orders an order would take on `book`, read-only, in the
+  order `bk/place!` takes them (best level first, FIFO within a level):
+  `{:takes [{:owner :level :qty} ...] :rest lots}`, `rest` being what would
+  then rest. nil for a post-only order that would cross (the book refuses
+  it). Costs what the matching itself costs: one step per order taken."
   [book side level qty flags]
   (let [opp (if (= side bk/bid) bk/ask bk/bid)
         crosses? (fn [l] (and (not (neg? l)) (if (= side bk/bid) (<= l level) (>= l level))))]
     (if (and (pos? (bit-and flags bk/flag-post-only)) (crosses? (bk/best book opp)))
       nil
-      (loop [l (bk/best book opp) remaining qty filled 0 cost 0]
+      (loop [l (bk/best book opp) remaining qty takes []]
         (if (and (pos? remaining) (crosses? l))
-          (let [take (min remaining (bk/level-qty book opp l))]
-            (recur (bk/next-occupied book opp l) (- remaining take) (+ filled take)
-                   (+ cost (fx/notional l take))))
-          {:filled filled :cost cost
-           :rest (if (pos? (bit-and flags bk/flag-ioc)) 0 remaining)})))))
+          (let [[remaining takes]
+                (reduce (fn [[rem acc] {:keys [owner qty]}]
+                          (if (pos? rem)
+                            (let [t (min rem qty)] [(- rem t) (conj acc {:owner owner :level l :qty t})])
+                            (reduced [rem acc])))
+                        [remaining takes] (bk/level-orders-upto book opp l remaining))]
+            (recur (bk/next-occupied book opp l) remaining takes))
+          {:takes takes :rest (if (pos? (bit-and flags bk/flag-ioc)) 0 remaining)})))))
+
+(defn take-consumed
+  "`oo` with what `consume` said an order took removed from the makers'
+  resting quantities. Read from the book BEFORE placing, not from
+  `bk/fills`: the fill buffer is shared by the whole block and stops
+  recording at `ev-cap`."
+  [oo mkt side takes]
+  (let [opp (if (= side bk/bid) bk/ask bk/bid)]
+    (reduce (fn [oo {:keys [owner level qty]}] (adjust oo owner mkt opp level (- qty))) oo takes)))
 
 (defn- shortfall [c oo acct marks markets sizes avail]
   (- (requirement c oo acct marks markets sizes) avail))
 
 (defn orders-allowed?
   "May `acct` place `orders` — `[[side level qty flags] ...]` — on perp
-  market `mkt`, together? See the namespace doc. `oo` is the resting
+  market `mkt`, together (`[[side level qty flags builder-fee?] ...]`)? See
+  the namespace doc. `oo` is the resting
   quantities to count against (an amend passes them without the order it
-  replaces). Each order's taking part is simulated against the book as it
-  stands, so liquidity two orders would both take is counted twice, which
-  can only overstate. A computation too large for the integer domain refuses
+  replaces). Each order's taking part is read off the book as it stands
+  (`consume`), so liquidity two orders of a ladder would both take is
+  counted twice, which can only overstate. A computation too large for the integer domain refuses
   rather than throws."
   [ex oo acct mkt orders]
   (let [orders (remove (fn [[_ _ _ flags]] (pos? (bit-and flags bk/flag-reduce-only))) orders)]
-    (or (empty? orders)
+    (cond
+      (empty? orders) true
+      ;; No price yet: nothing to value a position or a fill against, and
+      ;; margining orders at their own limits let an ask at level 1 and a
+      ;; colluding bid trade a market into existence at any price. Opening
+      ;; waits for the first mark.
+      (not (pos? (get-in ex [:marks mkt] 0))) false
+      :else
         (try
           (let [c (:clearing ex) marks (:marks ex) markets (:markets ex)
                 mark (get marks mkt 0)
                 book (get-in ex [:books mkt])
                 fee-rate (get-in markets [mkt :taker-fee-rate] 0)
                 {:keys [signed delta oo']}
-                (reduce (fn [acc [side level qty flags]]
-                          (if-let [{:keys [filled cost rest]} (simulate book side level qty flags)]
-                            (-> acc
-                                (update :signed + (if (= side bk/bid) filled (- filled)))
-                                ;; what the taken part is worth at the mark,
-                                ;; less what it cost, less the taker fee at the
-                                ;; market's base rate
-                                (update :delta + (cond
-                                                   (not (pos? mark)) 0
-                                                   (= side bk/bid) (- (fx/notional mark filled) cost)
-                                                   :else (- cost (fx/notional mark filled)))
-                                        (- (fx/mul-rate cost fee-rate)))
-                                (update :oo' adjust acct mkt side level rest))
+                (reduce (fn [acc [side level qty flags builder-fee]]
+                          (if-let [{:keys [takes rest]} (consume book side level qty flags)]
+                            (let [;; Taking its own resting order changes nothing
+                                  ;; but that order: no position, no profit.
+                                  {mine true others false} (group-by #(= acct (:owner %)) takes)
+                                  filled (reduce + 0 (map :qty others))
+                                  cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) others))
+                                  rate (+ fee-rate (long (or builder-fee 0)))]
+                              (-> acc
+                                  (update :signed + (if (= side bk/bid) filled (- filled)))
+                                  ;; what the taken part is worth at the mark,
+                                  ;; less what it cost and the fees on it
+                                  (update :delta + (if (= side bk/bid)
+                                                     (- (fx/notional mark filled) cost)
+                                                     (- cost (fx/notional mark filled)))
+                                          (- (fx/mul-rate cost rate)))
+                                  (update :oo' take-consumed mkt side mine)
+                                  (update :oo' adjust acct mkt side level rest)))
                             acc))
                         {:signed 0 :delta 0 :oo' oo} orders)
                 avail (available c acct marks)
@@ -247,7 +259,7 @@
                 after (shortfall c oo' acct marks markets
                                  {mkt (+ (cross-size c acct mkt) signed)} (+ avail delta))]
             (or (<= after 0) (<= after before)))
-          (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) _ false)))))
+          (catch #?(:clj Exception :cljs ExceptionInfo) _ false)))))
 
 (defn order-allowed?
   "`orders-allowed?` for one order."

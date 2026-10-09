@@ -660,24 +660,26 @@
   ;; (`torihiki.order-margin`). Checked here as well as in `api/validate`,
   ;; because triggers, TWAP slices and amends reach this without passing
   ;; through validation.
-  (if (and (om/active? ex) (not (om/order-allowed? ex account market side level qty flags)))
+  (if (and (om/active? ex)
+           (not (om/orders-allowed? ex (:open-orders ex) account market
+                                    [[side level qty flags (when builder builder-fee)]])))
     ex
   (let [book (get-in ex [:books market])
+        ;; Which resting orders this will take, read off the queues BEFORE
+        ;; placing — not from `bk/fills`, which the whole block shares and
+        ;; which stops recording at `ev-cap`.
+        takes (:takes (om/consume book side level qty flags))
         before (bk/event-count book)
         oid (bk/place! book side level qty flags account)
         fills (drop before (bk/fills book))
         mkt (get-in ex [:markets market])
         h (:height ex 0)
-        ;; The resting-order totals follow the book: the makers' orders this
-        ;; consumed, and whatever of this one rested.
-        ex (if (om/overflowed? book)
-             ;; The block's fills outran the event buffer: the ones this
-             ;; would read are gone, so the cache is derived afresh.
-             (assoc ex :open-orders (om/rebuild (:books ex) (:markets ex)))
-             (update-oo ex
-                        (fn [oo] (cond-> (om/take-fills oo market fills)
-                                   (not (neg? oid))
-                                   (om/adjust account market side level (:qty (bk/order-of book oid)))))))]
+        ;; The resting quantities follow the book: the makers' orders this
+        ;; took, and whatever of this one rested.
+        ex (update-oo ex
+                      (fn [oo] (cond-> (om/take-consumed oo market side takes)
+                                 (not (neg? oid))
+                                 (om/adjust account market side level (:qty (bk/order-of book oid))))))]
     ;; Both sides of every fill are credited here, and in fill order. Crediting
     ;; only the taker and reconciling makers later would let an account's
     ;; margin be evaluated against a position it already holds but has not
@@ -1353,7 +1355,9 @@
   only a louder way to fail at it."
   [ex market]
   (let [book (get-in ex [:books market])
-        ev-start (bk/event-count book)
+        ;; What the liquidator's slices take from makers' resting orders, read
+        ;; off the queues before each slice (see `apply-tx-order`).
+        taken (volatile! [])
         mark (get-in ex [:marks market] (get-in ex [:oracle market] 0))
         ;; A stale oracle stops liquidation. Closing somebody's position at a
         ;; price nobody currently vouches for is irreversible; waiting is not.
@@ -1367,6 +1371,7 @@
                   (let [before (bk/event-count book)
                         side (if (pos? delta) bk/bid bk/ask)
                         limit (if (pos? delta) (dec (:n-levels book)) 0)
+                        _ (vswap! taken conj [side (:takes (om/consume book side limit (fx/abs* delta) bk/flag-ioc))])
                         _ (bk/place! book side limit (fx/abs* delta) bk/flag-ioc liquidator-account)
                         fills (drop before (bk/fills book))
                         filled (reduce + 0 (map :qty fills))
@@ -1384,9 +1389,8 @@
            []
            (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))
         ;; The liquidator's slices took makers' resting orders.
-        (as-> e (if (om/overflowed? book)
-                  (assoc e :open-orders (om/rebuild (:books e) (:markets e)))
-                  (update-oo e om/take-fills market (drop ev-start (bk/fills book))))))))
+        (as-> e (reduce (fn [e [side takes]] (update-oo e om/take-consumed market side takes))
+                        e @taken)))))
 
 (defmethod apply-tx :liquidate
   [ex {:keys [market]}]
@@ -1445,9 +1449,8 @@
                           ;; new rule exists to prevent.
                           (if (and (< before om/version) (om/active? e))
                             (-> e
-                                ;; Kept from fills under version 1, where an
-                                ;; overflowed event buffer was never checked:
-                                ;; derived afresh before it is first read.
+                                ;; Derived afresh before it is first read, so
+                                ;; nothing kept under version 1 is trusted.
                                 (assoc :open-orders (om/rebuild (:books e) (:markets e)))
                                 cancel-unbacked-orders)
                             e)))
