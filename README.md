@@ -627,7 +627,9 @@ margin on the worst case of the account's resting orders filling —
 new order as if it rested in full at its limit. An order that does not raise
 that requirement is never refused, so closing always works. Free collateral
 subtracts the same requirement, so what backs a resting order cannot be
-withdrawn, transferred or bonded. A price level of 0 is refused. Amends are
+withdrawn, transferred or bonded. A price level of 0 is refused. At the
+height version 2 activates, the resting perp orders of any account that cannot
+back them — placed unchecked under version 1 — are cancelled. Amends are
 checked before the old order is cancelled. The resting totals are a cache
 derived from the books (outside the root, rebuilt on restore), so a version-1
 chain's state and roots are unchanged.

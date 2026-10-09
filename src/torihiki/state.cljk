@@ -621,6 +621,26 @@
          ex
          fills)))))
 
+(declare update-oo)
+
+(defn cancel-unbacked-orders
+  "Cancel every resting perp order of each account whose requirement
+  (`torihiki.order-margin/requirement`) exceeds its equity less bonds.
+  Accounts and markets in sorted order, so every replica cancels the same
+  orders. Run once, when protocol version 2 activates."
+  [ex]
+  (let [c (:clearing ex) marks (:marks ex) markets (:markets ex)]
+    (reduce
+     (fn [ex acct]
+       (if (<= (om/requirement c (:open-orders ex) acct marks markets)
+               (- (cl/equity c acct marks) (cl/bonded c acct)))
+         ex
+         (reduce (fn [ex mkt]
+                   (bk/cancel-all! (get-in ex [:books mkt]) acct)
+                   (update-oo ex om/clear acct mkt))
+                 ex (sort (keys (get-in ex [:open-orders acct]))))))
+     ex (sort (keys (:open-orders ex))))))
+
 (defn- update-oo
   "`ex` with `f` applied to the resting-order totals — and unchanged, not
   merely equal, when `f` changed nothing, so a transaction that touched no
@@ -1399,7 +1419,16 @@
    (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected [])
                 ;; A scheduled protocol version takes effect BEFORE the block's
                 ;; transactions, so every rule in block `at` is the new one.
-                (gov/activate height)
+                (as-> e (let [before (gov/active-version e)
+                              e (gov/activate e height)]
+                          ;; Orders rested under version 1 were never
+                          ;; checked; the ones their owner cannot back are
+                          ;; withdrawn at the height version 2 starts, or
+                          ;; they could fill into exactly the position the
+                          ;; new rule exists to prevent.
+                          (if (and (< before om/version) (om/active? e))
+                            (cancel-unbacked-orders e)
+                            e)))
                 ;; For `:equivocation-evidence` only, and removed before the
                 ;; block returns: a function is not state.
                 (cond-> vote-verify-fn (assoc ::vote-verify-fn vote-verify-fn)))
