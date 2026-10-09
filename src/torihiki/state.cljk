@@ -52,9 +52,10 @@
 
 (def ^:const vault-account -1)      ; the backstop vault
 (def ^:const liquidation-version
-  "From this protocol version a liquidation slice is quoted first, executed
+  "Protocol version 3. From it a liquidation slice is quoted first, executed
   only when the book absorbs it above bankruptcy, and every maker it takes
-  is credited (`sweep-liquidations`)."
+  is credited (`sweep-liquidations`); and every order is settled from the
+  queues it took, not from the block's event buffer (`settled-fills`)."
   3)
 
 (def ^:const liquidator-account -2) ; the synthetic taker liquidations trade as
@@ -539,6 +540,23 @@
 
 (declare fire-triggers apply-tx-order apply-tx-spot-order spot?)
 
+(defn- settled-fills
+  "The fills an order made, to settle.
+
+  Below protocol version 3 they are read from the book's event buffer, which
+  the whole block shares and which stops RECORDING at `ev-cap` while the book
+  goes on matching: once a block had made that many fills, every later one
+  changed the book and settled nobody — a taker 60 lots into six makers held
+  a position of 40. From version 3 they are what `om/consume` read off the
+  queues before the order was placed, which is exactly what `bk/place!`
+  then matched (best level first, FIFO), with nothing to overflow."
+  [ex book before takes taker side]
+  (if (>= (gov/active-version ex) liquidation-version)
+    (mapv (fn [{:keys [owner level qty]}]
+            {:taker-owner taker :maker-owner owner :level level :qty qty :taker-side side})
+          takes)
+    (drop before (bk/fills book))))
+
 (defmethod apply-tx :order
   [ex {:keys [account market side level qty flags builder builder-fee]
       :or {flags 0}}]
@@ -604,11 +622,12 @@
     (if (> need have)
       ex
       (let [book (get-in ex [:books market])
+            takes (:takes (om/consume book side level qty flags))
             before (bk/event-count book)
             base (get-in ex [:markets market :asset])
             mkt (get-in ex [:markets market])
             _ (bk/place! book side level qty flags account)
-            fills (drop before (bk/fills book))
+            fills (settled-fills ex book before takes account side)
             ;; Committed first, then released per fill: an order that fills
             ;; immediately never rests, and doing it in this order means the
             ;; two paths do not need to know which happened.
@@ -677,7 +696,7 @@
         takes (:takes (om/consume book side level qty flags))
         before (bk/event-count book)
         oid (bk/place! book side level qty flags account)
-        fills (drop before (bk/fills book))
+        fills (settled-fills ex book before takes account side)
         mkt (get-in ex [:markets market])
         h (:height ex 0)
         ;; The resting quantities follow the book: the makers' orders this

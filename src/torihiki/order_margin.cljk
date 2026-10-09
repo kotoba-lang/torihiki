@@ -194,7 +194,10 @@
                             (let [t (min rem qty)] [(- rem t) (conj acc {:owner owner :level l :qty t})])
                             (reduced [rem acc])))
                         [remaining takes] (bk/level-orders-upto book opp l remaining))]
-            (recur (bk/next-occupied book opp l) remaining takes))
+            ;; Only look further while something is left to fill: the scan
+            ;; for the next level walks the ladder's bitmap, and an order
+            ;; that is done must not pay for it.
+            (recur (if (pos? remaining) (bk/next-occupied book opp l) -1) remaining takes))
           {:takes takes :rest (if (pos? (bit-and flags bk/flag-ioc)) 0 remaining)})))))
 
 (defn take-consumed
