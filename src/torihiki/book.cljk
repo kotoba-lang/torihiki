@@ -664,6 +664,20 @@
                           :owner (slab/get o-owner slot)
                           :qty (slab/get o-qty slot)}))))))
 
+(defn level-orders-upto
+  "The head of the queue at one price level, in time priority, just far
+  enough to cover `qty`: what an order for `qty` would take there, without
+  walking the rest of the queue. `[{:oid :owner :qty} ...]`."
+  [^Book b side level qty]
+  (let [o-next (slab/field b o-next) o-owner (slab/field b o-owner) o-qty (slab/field b o-qty)
+        k (+ (* (long side) (long (slab/field b n-levels))) (long level))]
+    (loop [slot (slab/get (slab/field b lvl-head) k) need (long qty) acc []]
+      (if (or (neg? slot) (not (pos? need)))
+        acc
+        (let [q (slab/get o-qty slot)]
+          (recur (slab/get o-next slot) (- need q)
+                 (conj acc {:oid (oid-of b slot) :owner (slab/get o-owner slot) :qty q})))))))
+
 ;; ── snapshot ────────────────────────────────────────────────────────────────
 
 (defn snapshot

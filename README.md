@@ -613,6 +613,34 @@ replica at once. Proposals lapse after `:ttl`. New rules ship in a binary
 gated on the active version, and a node whose binary does not know it must
 stop (`gov/supported?`) rather than keep producing roots under rules it lacks.
 
+### Version 2: an order must be one the account can back
+
+Through version 1 nothing checked a perp order against margin. Found from the
+terminal on a four-node devnet: a $100k account rested a 50,000,000-lot bid,
+a 1,000,000-lot sell filled into it, and the taker was at negative equity the
+moment it filled.
+
+From version 2 (`torihiki.order-margin`), positions and orders are valued at
+the mark. Per market the requirement is the larger of two scenarios — every
+resting bid fills, or every resting ask does —
+`IM(|S ± orders| × mark)` plus what those orders would lose against the mark
+the instant they fill (a bid above the mark, an ask below it). An order is
+refused (`:insufficient-margin`, code 19) unless, after it, equity less bonds
+less spot-committed quote covers that requirement — or it does not make the
+shortfall any larger. The part of an order that would take liquidity is priced
+exactly by reading the book's queues read-only — the account's own orders it
+would take net to nothing — and only what would rest counts as resting.
+Reduce-only orders and fired triggers are never refused. Nothing opens on a
+market that has no mark yet: a market listed without an oracle cannot trade
+until it has a price. Free collateral
+subtracts the requirement, so what backs a resting order cannot be withdrawn,
+transferred, bonded or spent on spot. Scale ladders are checked whole. At the
+height version 2 activates, the resting perp orders of any account that cannot
+back them — placed unchecked under version 1 — are cancelled. The resting
+quantities are a cache derived from the books (outside the root, rebuilt on
+restore, kept from the queues rather than the block's fill buffer), so a
+version-1 chain's state and roots are unchanged.
+
 ## The bridge: collateral that came from somewhere
 
 Roadmap D3. `contracts/src/TorihikiBridge.sol` (Foundry, `cd contracts && forge test`)

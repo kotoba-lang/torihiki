@@ -735,10 +735,14 @@
   state unchanged rather than throwing keeps this usable directly as a
   transaction handler: a rejected withdrawal is a no-op block entry, not a
   halted chain."
-  [state acct amount marks markets]
-  (if (<= amount (free-collateral state acct marks markets))
-    (update-in state [:accounts acct :collateral] (fnil - 0) amount)
-    state))
+  ([state acct amount marks markets]
+   (withdraw state acct amount (free-collateral state acct marks markets)))
+  ([state acct amount free]
+   ;; `free` from the caller: from protocol version 2 it counts resting orders
+   ;; (`torihiki.order-margin/free-collateral`), which this namespace cannot see.
+   (if (<= amount free)
+     (update-in state [:accounts acct :collateral] (fnil - 0) amount)
+     state)))
 
 (defn new-state []
   {:accounts {} :fees-collected 0})
