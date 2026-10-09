@@ -165,7 +165,16 @@
   the signed size to close and the mark, and returns `[filled-lots
   avg-price]`, or `[0 _]` if the book took nothing. Injecting it keeps this
   namespace pure and testable without a book, and keeps the book from having
-  to know what a liquidation is."
+  to know what a liquidation is.
+
+  It may return a third element, `commit`: a function of the clearing state
+  that executes the slice and credits its counterparties. Then `take-fn`
+  only QUOTES, and `commit` runs only when stage 1 accepts the quote. Before
+  it existed (protocol version 3), `take-fn` executed against the book
+  whatever the waterfall then decided, and only the liquidated account was
+  credited: the makers whose orders the slice took got no position and no
+  payment, and when the price was past bankruptcy the slice went to the
+  vault as well — the book's side of it simply vanished."
   [state acct mkt mark now markets params take-fn]
   (let [pos (cl/position state acct mkt)
         size (:size pos)]
@@ -180,7 +189,7 @@
       (let [magnitude (slice-size size mark params)
             ;; closing a long means selling: the delta is opposite the position
             delta (if (pos? size) (- magnitude) magnitude)
-            [filled avg-price] (take-fn delta mark)
+            [filled avg-price commit] (take-fn delta mark)
             collateral (get-in state [:accounts acct :collateral] 0)
             bankruptcy (bankruptcy-price pos collateral)
             state (assoc-in state [:liquidation-clock [acct mkt]] now)]
@@ -189,7 +198,7 @@
           ;; stage 1: the book absorbed it above bankruptcy
           (let [fee (fx/mul-rate (fx/abs* (fx/notional avg-price filled))
                                  (:liquidation-fee params))]
-            {:state (-> state
+            {:state (-> (cond-> state commit commit)
                         (cl/apply-fill acct mkt filled avg-price 0)
                         (update-in [:accounts acct :collateral] (fnil - 0) fee)
                         (update :insurance-fund (fnil + 0) fee))
