@@ -54,3 +54,52 @@
                                  (block 3 [(order 3 1 bk/bid 102 12) (order 4 1 bk/bid 102 3) (order 1 1 bk/bid 101 1)]))]
                       (:clearing ex)))]
     (is (= (dissoc (run 2) :open-orders) (dissoc (run 3) :open-orders)))))
+
+;; ── random equivalence ─────────────────────────────────────────────────────
+
+(defn- lcg [seed] (mod (+ (* seed 1103515245) 12345) 2147483648))
+
+(def ^:private fee-mkt (assoc mkt :taker-fee-rate 350000 :maker-fee-rate 100000))
+
+(defn- random-run
+  "A run of random perp and spot orders (IOC, post-only, reduce-only,
+  cancel-all, triggers) with fees, on `version` and `ev-cap`. Returns what
+  settlement decides."
+  [version ev-cap seed]
+  (let [ex (cond-> (st/new-exchange {:markets [fee-mkt spot] :book-opts {:n-levels 256 :cap 4096 :ev-cap ev-cap}})
+             (> version 1) (assoc-in [:protocol :version] version))
+        ex (-> (block ex 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                   (for [a (range 1 5)] {:tx :deposit :account a :amount 10000000})))
+               (as-> e (reduce #(assoc-in %1 [:clearing :balances %2 77] 100000) e (range 1 5))))]
+    (loop [ex ex h 2 r seed]
+      (if (> h 14)
+        (select-keys ex [:clearing :last :rejected])
+        (let [[txs r] (reduce
+                       (fn [[txs r] _]
+                         (let [r (lcg r) pick (fn [n k] (mod (quot r k) n))
+                               a (inc (pick 4 1)) side (pick 2 7)
+                               flags ([0 0 0 bk/flag-ioc bk/flag-post-only bk/flag-reduce-only] (pick 6 11))]
+                           [(conj txs (case (pick 8 101)
+                                        (0 1 2 3) (order a 1 side (+ 90 (pick 21 13)) (inc (pick 40 17)))
+                                        4 (assoc (order a 1 side (+ 90 (pick 21 13)) (inc (pick 40 17))) :flags flags)
+                                        5 (order a 3 side (+ 40 (pick 21 13)) (inc (pick 40 17)))
+                                        6 {:tx :cancel-all :account a :market 1}
+                                        7 {:tx :trigger :account a :market 1 :trigger-price (+ 95 (pick 11 29))
+                                           :direction (if (zero? side) :above :below)
+                                           :order {:side side :level (if (zero? side) 255 0) :qty (inc (pick 20 31))}}))
+                            r]))
+                       [[] r] (range 30))]
+          (recur (block ex h txs) (inc h) r))))))
+
+(deftest version-3-settles-exactly-what-the-buffer-did-when-it-fits
+  (doseq [seed (range 1 9)]
+    (is (= (random-run 2 4096 seed) (random-run 3 4096 seed)) (str "seed " seed))))
+
+(deftest version-3-does-not-depend-on-the-buffer
+  (doseq [seed (range 1 9)]
+    (is (= (random-run 3 4096 seed) (random-run 3 3 seed)) (str "seed " seed))))
+
+(deftest the-small-buffer-really-overflows
+  ;; Otherwise the test above would prove nothing: on version 2 the same runs
+  ;; lose fills.
+  (is (some #(not= (random-run 2 4096 %) (random-run 2 3 %)) (range 1 9))))
