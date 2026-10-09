@@ -1383,8 +1383,17 @@
         ;; never credited.
         quote-fn (fn [acct c]
                   (fn [delta _mark]
-                   (let [bankruptcy (liq/bankruptcy-price (cl/position c acct market)
-                                                          (get-in c [:accounts acct :collateral] 0))]
+                   (let [{:keys [size entry-notional]} (cl/position c acct market)
+                         collateral (get-in c [:accounts acct :collateral] 0)
+                         ;; Rounded TOWARD safety: a long's slice sells, so its
+                         ;; limit is the bankruptcy price rounded UP — floored,
+                         ;; a fill a fraction of a tick below it left a deficit
+                         ;; neither the vault nor the insurance fund ever saw.
+                         ;; A short's slice buys, and the floor is already safe.
+                         bankruptcy (if (pos? size)
+                                      (- (fx/fdiv (- collateral entry-notional) size))
+                                      (liq/bankruptcy-price {:size size :entry-notional entry-notional}
+                                                            collateral))]
                    (let [side (if (pos? delta) bk/bid bk/ask)
                          ;; Never past bankruptcy: a slice that swept to the end
                          ;; of the ladder handed whatever stink bid sat there
