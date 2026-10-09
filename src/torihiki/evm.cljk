@@ -27,7 +27,8 @@
   every Solidity caller will decode. Returning a magnitude and a sign flag
   would be a second convention for something the ABI already has one for."
   (:require [kotoba.lang.text :as str]
-            [torihiki.clearing :as cl]))
+            [torihiki.clearing :as cl]
+            [torihiki.order-margin :as om]))
 
 (def ^:const word-bits 256)
 
@@ -144,7 +145,7 @@
 
           :free-collateral
           (when-let [a (parse-word calldata 0)]
-            (str "0x" (hex-word (cl/free-collateral c a (:marks ex) (:markets ex)))))
+            (str "0x" (hex-word (om/free-collateral ex a))))
 
           :mark
           (when-let [m (parse-word calldata 0)]

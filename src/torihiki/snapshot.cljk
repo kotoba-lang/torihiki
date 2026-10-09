@@ -67,6 +67,7 @@
   node that is already in trouble. EDN carries them as themselves."
   (:require [kotoba.lang.text]
             [torihiki.book :as bk]
+            [torihiki.order-margin :as om]
             #?(:clj [kotoba.lang.edn :as edn] :cljs [cljs.reader :as edn])))
 
 (def ^:const format-version
@@ -84,6 +85,10 @@
       ;; `nil` and an empty vector encode to the same bytes but are not `=`,
       ;; which would make a structural comparison of two snapshots lie.
       (update :rejected #(vec (or % [])))
+      ;; Derived from the books (`torihiki.order-margin`), so not captured:
+      ;; `restore` rebuilds it, which also covers a snapshot taken before it
+      ;; existed.
+      (dissoc :open-orders)
       (update :books (fn [bs] (into {} (map (fn [[m b]] [m (bk/snapshot b)])) bs)))))
 
 (defn restore
@@ -96,7 +101,8 @@
     (-> snap
         (dissoc :snapshot/version)
         (update :rejected #(vec (or % [])))
-        (update :books (fn [bs] (into {} (map (fn [[m s]] [m (bk/restore s)])) bs))))))
+        (update :books (fn [bs] (into {} (map (fn [[m s]] [m (bk/restore s)])) bs)))
+        (as-> ex (assoc ex :open-orders (om/rebuild (:books ex) (:markets ex)))))))
 
 (defn write-string
   "Snapshot → EDN string. `pr-str` with `*print-length*` and `*print-level*`

@@ -613,6 +613,25 @@ replica at once. Proposals lapse after `:ttl`. New rules ship in a binary
 gated on the active version, and a node whose binary does not know it must
 stop (`gov/supported?`) rather than keep producing roots under rules it lacks.
 
+### Version 2: an order must be one the account can back
+
+Through version 1 nothing checked a perp order against margin. Found from the
+terminal on a four-node devnet: a $100k account rested a 50,000,000-lot bid,
+a 1,000,000-lot sell filled into it, and the taker was at negative equity the
+moment it filled.
+
+From version 2 (`torihiki.order-margin`) an order is refused
+(`:insufficient-margin`, code 19) unless equity less bonds covers the initial
+margin on the worst case of the account's resting orders filling —
+`max(|P + bids|, |P − asks|)` per market, one side at a time — counting the
+new order as if it rested in full at its limit. An order that does not raise
+that requirement is never refused, so closing always works. Free collateral
+subtracts the same requirement, so what backs a resting order cannot be
+withdrawn, transferred or bonded. A price level of 0 is refused. Amends are
+checked before the old order is cancelled. The resting totals are a cache
+derived from the books (outside the root, rebuilt on restore), so a version-1
+chain's state and roots are unchanged.
+
 ## The bridge: collateral that came from somewhere
 
 Roadmap D3. `contracts/src/TorihikiBridge.sol` (Foundry, `cd contracts && forge test`)

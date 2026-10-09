@@ -25,6 +25,7 @@
   (:require [torihiki.fixed :as fx]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
+            [torihiki.order-margin :as om]
             [torihiki.funding :as fnd]
             [torihiki.liquidation :as liq]
             [torihiki.mark :as mk]
@@ -367,7 +368,7 @@
 (defmethod apply-tx :withdraw
   [ex {:keys [account amount dest]}]
   (let [clearing (:clearing ex)
-        clearing' (cl/withdraw clearing account amount (:marks ex) (:markets ex))]
+        clearing' (cl/withdraw clearing account amount (om/free-collateral ex account))]
     ;; `cl/withdraw` returns the state it was GIVEN when free collateral does
     ;; not cover the amount — that is its documented way of making a refused
     ;; withdrawal a no-op block entry rather than a halted chain. `identical?`
@@ -620,14 +621,35 @@
          ex
          fills)))))
 
+(defn- update-oo
+  "`ex` with `f` applied to the resting-order totals — and unchanged, not
+  merely equal, when `f` changed nothing, so a transaction that touched no
+  order leaves no trace (`torihiki.order-margin`)."
+  [ex f & args]
+  (let [oo (:open-orders ex)
+        oo' (apply f oo args)]
+    (if (= oo oo') ex (assoc ex :open-orders oo'))))
+
 (defn- apply-tx-order
   [ex account market side level qty flags builder builder-fee]
+  ;; From protocol version 2 an order the account cannot back is not placed
+  ;; (`torihiki.order-margin`). Checked here as well as in `api/validate`,
+  ;; because triggers, TWAP slices and amends reach this without passing
+  ;; through validation.
+  (if (and (om/active? ex) (not (om/order-allowed? ex account market side level qty)))
+    ex
   (let [book (get-in ex [:books market])
         before (bk/event-count book)
-        _oid (bk/place! book side level qty flags account)
+        oid (bk/place! book side level qty flags account)
         fills (drop before (bk/fills book))
         mkt (get-in ex [:markets market])
-        h (:height ex 0)]
+        h (:height ex 0)
+        ;; The resting-order totals follow the book: the makers' orders this
+        ;; consumed, and whatever of this one rested.
+        ex (update-oo ex
+                      (fn [oo] (cond-> (om/take-fills oo market fills)
+                                 (not (neg? oid))
+                                 (om/adjust account market side level (:qty (bk/order-of book oid))))))]
     ;; Both sides of every fill are credited here, and in fill order. Crediting
     ;; only the taker and reconciling makers later would let an account's
     ;; margin be evaluated against a position it already holds but has not
@@ -673,7 +695,7 @@
         ;; repriced once per order rather than once per fill: the mark is a
         ;; function of the resulting book, not of each step through it
         (reprice! market)
-        (fire-triggers market))))
+        (fire-triggers market)))))
 
 ;; ── conditional orders ──────────────────────────────────────────────────────
 
@@ -758,7 +780,7 @@
   (if (vals/jailed-operator? ex validator)
     ex
     (update ex :clearing cl/bond account validator amount
-            (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex)))))
+            (om/free-collateral ex account))))
 
 (defmethod apply-tx :unbond
   [ex {:keys [account validator amount]}]
@@ -853,7 +875,7 @@
   ;; Inside one family only. Paying somebody else is a deposit with a
   ;; `:credit`, and that is gated on the bridge.
   (update ex :clearing cl/transfer account to amount
-          (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
+          (om/free-collateral ex account)))
 
 (defmethod apply-tx :set-leverage
   [ex {:keys [account market leverage]}]
@@ -916,7 +938,7 @@
   ;; Paid out of what the vault holds FREE — collateral that is not backing its
   ;; positions.
   (update ex :clearing cl/vault-withdraw account vault shares
-          (cl/free-collateral (:clearing ex) vault (:marks ex) (:markets ex))))
+          (om/free-collateral ex vault)))
 
 (defmethod apply-tx :set-referrer
   [ex {:keys [account referrer]}]
@@ -1109,7 +1131,7 @@
   ;; transactions, each with its own nonce, and the last one lands after the
   ;; move the maker was trying to get out of the way of.
   (bk/cancel-all! (get-in ex [:books market]) account)
-  ex)
+  (update-oo ex om/clear account market))
 
 (defmethod apply-tx :amend
   [ex {:keys [market oid account level qty]}]
@@ -1124,7 +1146,10 @@
       ;; in the queue. See `bk/reduce-to!` for why that matters enough to be a
       ;; separate path.
       (and (= level (:level cur)) (< qty (:qty cur)))
-      (do (bk/reduce-to! book oid account qty) ex)
+      (let [removed (bk/reduce-to! book oid account qty)]
+        (cond-> ex
+          (not (spot? ex market))
+          (update-oo om/adjust account market (:side cur) level (- removed))))
 
       ;; Anything else is a new order at the back of the line, so it IS one.
       ;; Delegating rather than re-implementing: placing has to run fills
@@ -1132,10 +1157,14 @@
       ;; second copy of that would be a second definition of what an order
       ;; does.
       :else
-      (if (zero? (bk/cancel! book oid account))
-        ex
-        (apply-tx ex {:tx :order :account account :market market
-                      :side (:side cur) :level level :qty qty :flags 0})))))
+      (let [cancelled (bk/cancel! book oid account)]
+        (if (zero? cancelled)
+          ex
+          (apply-tx (cond-> ex
+                      (not (spot? ex market))
+                      (update-oo om/adjust account market (:side cur) (:level cur) (- cancelled)))
+                    {:tx :order :account account :market market
+                     :side (:side cur) :level level :qty qty :flags 0}))))))
 
 (defmethod apply-tx :cancel
   [ex {:keys [market oid account]}]
@@ -1148,10 +1177,12 @@
   ;; on their book.
   (let [o (bk/order-of (get-in ex [:books market]) oid)
         cancelled (bk/cancel! (get-in ex [:books market]) oid account)]
-    (if (and (pos? cancelled) (spot? ex market))
+    (cond
+      (not (pos? cancelled)) ex
+      (spot? ex market)
       (let [[asset amount] (spot-backing ex market (:side o) (:level o) cancelled)]
         (update ex :clearing cl/release-spot account asset amount))
-      ex)))
+      :else (update-oo ex om/adjust account market (:side o) (:level o) (- cancelled)))))
 
 ;; Set the oracle directly. Only permitted when no publisher set is configured
 ;; (see torihiki.api/validate). A devnet with one operator uses this; a market
@@ -1287,6 +1318,7 @@
   only a louder way to fail at it."
   [ex market]
   (let [book (get-in ex [:books market])
+        ev-start (bk/event-count book)
         mark (get-in ex [:marks market] (get-in ex [:oracle market] 0))
         ;; A stale oracle stops liquidation. Closing somebody's position at a
         ;; price nobody currently vouches for is irreversible; waiting is not.
@@ -1307,15 +1339,17 @@
                     (if (zero? filled)
                       [0 0]
                       [(if (pos? delta) filled (- filled)) (fx/fdiv cost filled)])))]
-    (reduce
-     (fn [ex' acct]
-       (let [r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
-                              (:markets ex') (:liq-params ex') take-fn)]
-         (assoc ex' :clearing (:state r))))
-     ex
-     (if (or stale? (not (pos? mark)))
-       []
-       (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))))
+    (-> (reduce
+         (fn [ex' acct]
+           (let [r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
+                                  (:markets ex') (:liq-params ex') take-fn)]
+             (assoc ex' :clearing (:state r))))
+         ex
+         (if (or stale? (not (pos? mark)))
+           []
+           (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))
+        ;; The liquidator's slices took makers' resting orders.
+        (update-oo om/take-fills market (drop ev-start (bk/fills book))))))
 
 (defmethod apply-tx :liquidate
   [ex {:keys [market]}]
@@ -1922,7 +1956,8 @@
    ;; refused an order over the open-interest cap committed to the SAME bytes.
    ;; The root is supposed to make what was refused as agreed as what was
    ;; executed, and for these five it agreed only that something was.
-   })
+   ;; 19: protocol version 2, `torihiki.order-margin`. Appended.
+   :insufficient-margin 19})
 
 (defn- encode-rejections
   [rejected]

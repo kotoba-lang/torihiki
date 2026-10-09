@@ -1,0 +1,165 @@
+(ns torihiki.order-margin
+  "Initial margin that counts resting orders, so an account cannot promise
+  more than it can back.
+
+  Until protocol version 2 nothing checked a perp order against margin at
+  all. `torihiki.state` said a perp order asking for more margin than it has
+  \"is a margin question the clearinghouse answers later\", and nothing
+  answered it: a $100k account rested a 50,000,000-lot bid, a 1,000,000-lot
+  sell filled into it, and the taker was at negative equity — bad debt — the
+  moment it filled, with the maker past its initial margin too. (Found from
+  the terminal against a four-node devnet, 2026-10-09.)
+
+  From version 2 (`torihiki.governance/active-version`):
+
+  - An order is accepted only if the account's requirement, counting the
+    order as if it rested in full, is covered by equity less bonds — or if the
+    order does not raise the requirement at all, so closing a position is
+    never refused, however underwater the account is.
+  - The requirement per market is the initial margin on the WORST case of
+    every resting order on one side filling: `max(|P + B|, |P - A|)`, where P
+    is the position's notional at the mark and B, A the resting bid and ask
+    notionals at their own limits. One side's orders can only all fill if the
+    other side's do not, so the sides are not added.
+  - `free-collateral` subtracts the same requirement, so collateral backing a
+    resting order cannot be withdrawn, transferred or bonded out from under
+    it.
+
+  Makers are covered by construction: a resting order was paid for when it
+  was placed. What can still go wrong is the mark moving afterwards, which is
+  what maintenance margin and liquidation exist for.
+
+  ## The resting-order totals are a cache, outside the root
+
+  Per account and market, `{:bq :bn :aq :an}` — resting bid and ask quantity
+  and notional — kept at `[:open-orders acct mkt]` and updated where the book
+  changes. It is a function of the books, which ARE under the root, so it is
+  not a leaf of its own: `rebuild` derives it from the books, a snapshot
+  restore uses that, and a test checks the running cache against it after
+  every kind of book change. Kept on every version, so a chain that upgrades
+  has it ready at the activation height; read only from version 2, so a
+  version-1 chain's state and roots are what they were."
+  (:require [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.fixed :as fx]
+            [torihiki.governance :as gov]))
+
+(def ^:const version
+  "The protocol version these rules take effect at."
+  2)
+
+(defn active? [ex] (>= (gov/active-version ex) version))
+
+(defn- spot-market? [market]
+  (let [k (:kind market)] (or (= :spot k) (= "spot" k))))
+
+;; ── the cache ───────────────────────────────────────────────────────────────
+
+(defn adjust
+  "`oo` with `qty` lots at `level` added to (negative: taken from) `acct`'s
+  resting `side` on `mkt`. Entries that reach zero are removed, so the cache
+  and `rebuild` compare equal."
+  [oo acct mkt side level qty]
+  (if (zero? qty)
+    oo
+    (let [[kq kn] (if (= side bk/bid) [:bq :bn] [:aq :an])
+          e (-> (get-in oo [acct mkt] {:bq 0 :bn 0 :aq 0 :an 0})
+                (update kq + qty)
+                (update kn + (fx/notional level qty)))]
+      (if (every? zero? (vals e))
+        (let [m (dissoc (get oo acct) mkt)]
+          (if (empty? m) (dissoc oo acct) (assoc oo acct m)))
+        (assoc-in oo [acct mkt] e)))))
+
+(defn clear
+  "`oo` with nothing resting for `acct` on `mkt` (after a cancel-all)."
+  [oo acct mkt]
+  (if-not (get-in oo [acct mkt])
+    oo
+    (let [m (dissoc (get oo acct) mkt)]
+      (if (empty? m) (dissoc oo acct) (assoc oo acct m)))))
+
+(defn rebuild
+  "The resting-order totals of every perp book, from the books themselves."
+  [books markets]
+  (reduce
+   (fn [oo [mkt book]]
+     (if (spot-market? (get markets mkt))
+       oo
+       (reduce (fn [oo side]
+                 (loop [l (bk/best book side) oo oo]
+                   (if (neg? l)
+                     oo
+                     (recur (bk/next-occupied book side l)
+                            (reduce (fn [oo {:keys [owner qty]}] (adjust oo owner mkt side l qty))
+                                    oo (bk/level-orders book side l))))))
+               oo [bk/bid bk/ask])))
+   {} (sort-by key books)))
+
+(defn take-fills
+  "`oo` with the makers' side of `fills` taken off their resting totals: a
+  fill consumes the maker's resting order, at the maker's level."
+  [oo mkt fills]
+  (reduce (fn [oo {:keys [maker-owner level qty taker-side]}]
+            (adjust oo maker-owner mkt (if (= taker-side bk/bid) bk/ask bk/bid) level (- qty)))
+          oo fills))
+
+;; ── the requirement ─────────────────────────────────────────────────────────
+
+(defn- market-requirement
+  [clearing acct mkt market mark {:keys [bn an] :or {bn 0 an 0}}]
+  (let [pos (cl/position clearing acct mkt)
+        ;; An isolated position is backed by its own fenced margin, so it
+        ;; does not count here; orders on that market are margined from the
+        ;; cross pool, which over-reserves and never under-reserves.
+        p (if (:isolated pos) 0 (fx/notional mark (:size pos 0)))
+        v (max (fx/abs* (+ p bn)) (fx/abs* (- p an)))]
+    (fx/mul-rate v (cl/initial-margin-rate-for clearing acct mkt market v))))
+
+(defn requirement
+  "Initial margin for `acct`'s cross positions AND its resting orders, `oo`
+  being the resting totals to count. Without orders it equals
+  `clearing/initial-margin`."
+  [clearing oo acct marks markets]
+  (let [mine (get oo acct {})
+        mkts (into (set (keys mine))
+                   (keep (fn [[m p]] (when-not (:isolated p) m)))
+                   (get-in clearing [:accounts acct :positions] {}))]
+    (reduce (fn [acc mkt]
+              (+ acc (market-requirement clearing acct mkt (get markets mkt)
+                                         (get marks mkt 0) (get mine mkt))))
+            0 (sort mkts))))
+
+(defn free-collateral
+  "What `acct` may withdraw, transfer, bond or commit to new orders. From
+  version 2 the requirement counts resting orders; before, it is
+  `clearing/free-collateral` exactly."
+  [ex acct]
+  (let [c (:clearing ex)]
+    (if (active? ex)
+      (max 0 (- (cl/equity c acct (:marks ex))
+                (requirement c (:open-orders ex) acct (:marks ex) (:markets ex))
+                (cl/bonded c acct)))
+      (cl/free-collateral c acct (:marks ex) (:markets ex)))))
+
+(defn order-allowed?
+  "May `acct` place `qty` at `level` on `side` of perp market `mkt`?
+
+  Counted as if it rested in full at its own limit: if it crosses, it fills
+  at that price or better, so this never under-counts the taker. `oo` is
+  the resting totals to count against — an amend passes them without the
+  order it replaces.
+
+  Allowed when the requirement with the order is covered by equity less
+  bonds, OR when the order does not raise the requirement: a trader must be
+  able to close, whatever their margin. Anything too large to compute is
+  refused, not thrown."
+  ([ex acct mkt side level qty] (order-allowed? ex (:open-orders ex) acct mkt side level qty))
+  ([ex oo acct mkt side level qty]
+   (try
+     (let [c (:clearing ex) marks (:marks ex) markets (:markets ex)
+           before (requirement c oo acct marks markets)
+           after (requirement c (adjust oo acct mkt side level qty) acct marks markets)]
+       (or (<= after before)
+           (<= after (- (cl/equity c acct marks) (cl/bonded c acct)))))
+     (catch #?(:clj Exception :cljs :default) _ false))))
