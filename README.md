@@ -620,19 +620,23 @@ terminal on a four-node devnet: a $100k account rested a 50,000,000-lot bid,
 a 1,000,000-lot sell filled into it, and the taker was at negative equity the
 moment it filled.
 
-From version 2 (`torihiki.order-margin`) an order is refused
-(`:insufficient-margin`, code 19) unless equity less bonds covers the initial
-margin on the worst case of the account's resting orders filling —
-`max(|P + bids|, |P − asks|)` per market, one side at a time — counting the
-new order as if it rested in full at its limit. An order that does not raise
-that requirement is never refused, so closing always works. Free collateral
-subtracts the same requirement, so what backs a resting order cannot be
-withdrawn, transferred or bonded. A price level of 0 is refused. At the
+From version 2 (`torihiki.order-margin`), positions and orders are valued at
+the mark. Per market the requirement is the larger of two scenarios — every
+resting bid fills, or every resting ask does —
+`IM(|S ± orders| × mark)` plus what those orders would lose against the mark
+the instant they fill (a bid above the mark, an ask below it). An order is
+refused (`:insufficient-margin`, code 19) unless, after it, equity less bonds
+less spot-committed quote covers that requirement — or it does not make the
+shortfall any larger. The part of an order that would take liquidity is priced
+exactly by walking the book read-only; only what would rest counts as resting.
+Reduce-only orders and fired triggers are never refused. Free collateral
+subtracts the requirement, so what backs a resting order cannot be withdrawn,
+transferred, bonded or spent on spot. Scale ladders are checked whole. At the
 height version 2 activates, the resting perp orders of any account that cannot
-back them — placed unchecked under version 1 — are cancelled. Amends are
-checked before the old order is cancelled. The resting totals are a cache
-derived from the books (outside the root, rebuilt on restore), so a version-1
-chain's state and roots are unchanged.
+back them — placed unchecked under version 1 — are cancelled. The resting
+quantities are a cache derived from the books (outside the root, rebuilt on
+restore and whenever a block's fills overflow the book's event buffer), so a
+version-1 chain's state and roots are unchanged.
 
 ## The bridge: collateral that came from somewhere
 

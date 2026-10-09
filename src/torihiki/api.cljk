@@ -112,7 +112,7 @@
           (and (= level (:level cur)) (< qty (:qty cur))) nil
           (not (om/order-allowed?
                 ex (om/adjust (:open-orders ex) account market (:side cur) (:level cur) (- (:qty cur)))
-                account market (:side cur) level qty))
+                account market (:side cur) level qty 0))
           :insufficient-margin)))))
 
 (defn validate
@@ -157,10 +157,8 @@
               ;; A bid at 0 asks for the asset free and an ask at 0 gives it
               ;; away; neither is a price.
               (zero? (:level t)) :bad-price-level
-              ;; Reduce-only is clamped to the position and never raises the
-              ;; requirement, so it is never refused here.
-              (pos? (bit-and (or (:flags t) 0) bk/flag-reduce-only)) nil
-              (not (om/order-allowed? ex account market (:side t) (:level t) (:qty t)))
+              ;; Reduce-only orders are exempt inside `order-allowed?`.
+              (not (om/order-allowed? ex account market (:side t) (:level t) (:qty t) (or (:flags t) 0)))
               :insufficient-margin)))
 
       (= tx :cancel)
@@ -408,6 +406,19 @@
       ;; A step of zero stacks every rung on one level, which is an order for
       ;; count x qty wearing a ladder's clothes.
       (not (and (integer? (:step t)) (pos? (:step t)))) :missing-field
+      ;; From version 2 the ladder is checked WHOLE, as it is placed whole:
+      ;; refusing it here is what keeps the engine from placing the rungs it
+      ;; can back and silently dropping the rest.
+      (and (om/active? ex) (perp? ex market)
+           (let [{:keys [side level qty step]} t
+                 dir (if (= side bk/bid) -1 1)
+                 n (n-levels ex market)
+                 rungs (for [i (range (:count* t))
+                             :let [l (+ level (* dir i step))]
+                             :when (and (<= 0 l) (< l n))]
+                         [side l qty (or (:flags t) 0)])]
+             (not (om/orders-allowed? ex (:open-orders ex) account market rungs))))
+      :insufficient-margin
       :else nil)
 
     :twap
@@ -617,7 +628,8 @@
      :maintenance-margin (cl/maintenance-margin c account marks markets)
      ;; From protocol version 2 both count resting orders
      ;; (`torihiki.order-margin`): what is backing an order is not free.
-     :order-margin (om/requirement c (:open-orders ex) account marks markets)
+     :order-margin (when (om/active? ex)
+                     (om/requirement c (:open-orders ex) account marks markets))
      :free-collateral (om/free-collateral ex account)
      :liquidatable (boolean (cl/liquidatable? c account marks markets))
      :positions (into {}

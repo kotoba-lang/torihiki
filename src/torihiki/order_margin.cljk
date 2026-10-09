@@ -7,38 +7,45 @@
   \"is a margin question the clearinghouse answers later\", and nothing
   answered it: a $100k account rested a 50,000,000-lot bid, a 1,000,000-lot
   sell filled into it, and the taker was at negative equity — bad debt — the
-  moment it filled, with the maker past its initial margin too. (Found from
-  the terminal against a four-node devnet, 2026-10-09.)
+  moment it filled. (Found from the terminal against a four-node devnet,
+  2026-10-09.)
 
-  From version 2 (`torihiki.governance/active-version`):
+  ## The rule (version 2, `torihiki.governance/active-version`)
 
-  - An order is accepted only if the account's requirement, counting the
-    order as if it rested in full, is covered by equity less bonds — or if the
-    order does not raise the requirement at all, so closing a position is
-    never refused, however underwater the account is.
-  - The requirement per market is the initial margin on the WORST case of
-    every resting order on one side filling: `max(|P + B|, |P - A|)`, where P
-    is the position's notional at the mark and B, A the resting bid and ask
-    notionals at their own limits. One side's orders can only all fill if the
-    other side's do not, so the sides are not added.
-  - `free-collateral` subtracts the same requirement, so collateral backing a
-    resting order cannot be withdrawn, transferred or bonded out from under
-    it.
+  Every position is margined at the MARK, so every order is valued there too,
+  plus what filling it would lose against the mark on the spot:
 
-  Makers are covered by construction: a resting order was paid for when it
-  was placed. What can still go wrong is the mark moving afterwards, which is
-  what maintenance margin and liquidation exist for.
+  - per market, two scenarios — every resting bid fills, or every resting ask
+    does (one side can only fill if the other does not):
+      long  = IM(|S + Bq| x mark) + Σ_bids max(0, L - mark) x q
+      short = IM(|S - Aq| x mark) + Σ_asks max(0, mark - L) x q
+    and the requirement is the larger. An ask resting below the mark, or a
+    bid above it, loses the difference the instant it fills; counting the
+    order at its own limit instead let an account rest an ask at level 1 and
+    hand a colluding taker the loss.
+  - available = equity - bonds - quote committed to spot orders.
+  - an order is accepted when, after it, requirement <= available — or when
+    it does not make the shortfall (requirement - available) any larger, so a
+    trader can always reduce. The part of the order that would take
+    liquidity is priced exactly, by walking the book read-only (`simulate`);
+    only what would rest is counted as resting.
+  - reduce-only orders, and fired triggers (which are reduce-only), are
+    clamped to the position and never checked: closing must not be refused.
+  - free collateral is `available - requirement`, so what backs a resting
+    order cannot be withdrawn, transferred, bonded or spent on spot.
+  - at the height version 2 activates, the cache is rebuilt and the resting
+    orders of any account that cannot back them — placed unchecked under
+    version 1 — are cancelled.
 
-  ## The resting-order totals are a cache, outside the root
+  ## The resting quantities are a cache, outside the root
 
-  Per account and market, `{:bq :bn :aq :an}` — resting bid and ask quantity
-  and notional — kept at `[:open-orders acct mkt]` and updated where the book
-  changes. It is a function of the books, which ARE under the root, so it is
-  not a leaf of its own: `rebuild` derives it from the books, a snapshot
-  restore uses that, and a test checks the running cache against it after
-  every kind of book change. Kept on every version, so a chain that upgrades
-  has it ready at the activation height; read only from version 2, so a
-  version-1 chain's state and roots are what they were."
+  `[:open-orders acct mkt] {:bids {level qty} :asks {level qty}}` — QUANTITIES
+  only, so keeping it can never overflow and never throw, on any version. It
+  is a function of the books, which are under the root, so it is not a leaf:
+  `rebuild` derives it, a snapshot restore uses that, the engine rebuilds it
+  whenever a block's fills overflow the book's event buffer (the fills it
+  would have read are gone), and a test compares the running cache with a
+  rebuild after every kind of book change. Read only from version 2."
   (:require [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.fixed :as fx]
@@ -50,26 +57,35 @@
 
 (defn active? [ex] (>= (gov/active-version ex) version))
 
-(defn- spot-market? [market]
+(defn spot-market? [market]
   (let [k (:kind market)] (or (= :spot k) (= "spot" k))))
 
 ;; ── the cache ───────────────────────────────────────────────────────────────
 
+(defn- side-key [side] (if (= side bk/bid) :bids :asks))
+
+(defn- prune [oo acct mkt]
+  (let [e (get-in oo [acct mkt])
+        e (cond-> e
+            (empty? (:bids e)) (dissoc :bids)
+            (empty? (:asks e)) (dissoc :asks))]
+    (if (empty? e)
+      (let [m (dissoc (get oo acct) mkt)]
+        (if (empty? m) (dissoc oo acct) (assoc oo acct m)))
+      (assoc-in oo [acct mkt] e))))
+
 (defn adjust
-  "`oo` with `qty` lots at `level` added to (negative: taken from) `acct`'s
-  resting `side` on `mkt`. Entries that reach zero are removed, so the cache
-  and `rebuild` compare equal."
+  "`oo` with `qty` lots added to (negative: taken from) `acct`'s resting
+  `side` at `level` on `mkt`. Quantities only: nothing here can overflow."
   [oo acct mkt side level qty]
   (if (zero? qty)
     oo
-    (let [[kq kn] (if (= side bk/bid) [:bq :bn] [:aq :an])
-          e (-> (get-in oo [acct mkt] {:bq 0 :bn 0 :aq 0 :an 0})
-                (update kq + qty)
-                (update kn + (fx/notional level qty)))]
-      (if (every? zero? (vals e))
-        (let [m (dissoc (get oo acct) mkt)]
-          (if (empty? m) (dissoc oo acct) (assoc oo acct m)))
-        (assoc-in oo [acct mkt] e)))))
+    (let [k (side-key side)
+          q (+ (get-in oo [acct mkt k level] 0) qty)]
+      (prune (if (pos? q)
+               (assoc-in oo [acct mkt k level] q)
+               (update-in oo [acct mkt k] dissoc level))
+             acct mkt))))
 
 (defn clear
   "`oo` with nothing resting for `acct` on `mkt` (after a cancel-all)."
@@ -80,7 +96,7 @@
       (if (empty? m) (dissoc oo acct) (assoc oo acct m)))))
 
 (defn rebuild
-  "The resting-order totals of every perp book, from the books themselves."
+  "The resting quantities of every perp book, from the books themselves."
   [books markets]
   (reduce
    (fn [oo [mkt book]]
@@ -97,69 +113,144 @@
    {} (sort-by key books)))
 
 (defn take-fills
-  "`oo` with the makers' side of `fills` taken off their resting totals: a
-  fill consumes the maker's resting order, at the maker's level."
+  "`oo` with the makers' side of `fills` taken off their resting quantities."
   [oo mkt fills]
   (reduce (fn [oo {:keys [maker-owner level qty taker-side]}]
             (adjust oo maker-owner mkt (if (= taker-side bk/bid) bk/ask bk/bid) level (- qty)))
           oo fills))
 
+(defn overflowed?
+  "Did this block's fills on `book` outrun its event buffer? Then `bk/fills`
+  no longer holds them all, and a cache kept from fills is wrong."
+  [book]
+  (> (bk/event-count book) (:ev-cap book)))
+
 ;; ── the requirement ─────────────────────────────────────────────────────────
 
 (defn- market-requirement
-  [clearing acct mkt market mark {:keys [bn an] :or {bn 0 an 0}}]
-  (let [pos (cl/position clearing acct mkt)
-        ;; An isolated position is backed by its own fenced margin, so it
-        ;; does not count here; orders on that market are margined from the
-        ;; cross pool, which over-reserves and never under-reserves.
-        p (if (:isolated pos) 0 (fx/notional mark (:size pos 0)))
-        v (max (fx/abs* (+ p bn)) (fx/abs* (- p an)))]
-    (fx/mul-rate v (cl/initial-margin-rate-for clearing acct mkt market v))))
+  [clearing acct mkt market mark size {:keys [bids asks]}]
+  (let [im (fn [v] (let [v (fx/abs* v)]
+                     (fx/mul-rate v (cl/initial-margin-rate-for clearing acct mkt market v))))]
+    (if (pos? mark)
+      (let [bq (reduce + 0 (vals bids))
+            aq (reduce + 0 (vals asks))
+            loss-b (reduce + 0 (for [[l q] bids :when (> l mark)] (fx/notional (- l mark) q)))
+            loss-a (reduce + 0 (for [[l q] asks :when (< l mark)] (fx/notional (- mark l) q)))]
+        (max (+ (im (fx/notional mark (+ size bq))) loss-b)
+             (+ (im (fx/notional mark (- size aq))) loss-a)))
+      ;; No mark yet (a market before its first price): nothing to lose
+      ;; against and no position worth anything, so each side's orders are
+      ;; margined at their own limits.
+      (max (im (reduce + 0 (for [[l q] bids] (fx/notional l q))))
+           (im (reduce + 0 (for [[l q] asks] (fx/notional l q))))))))
+
+(defn- cross-size [clearing acct mkt]
+  (let [p (cl/position clearing acct mkt)]
+    ;; An isolated position is backed by its own fenced margin; orders on that
+    ;; market are margined from the cross pool, which over-reserves.
+    (if (:isolated p) 0 (:size p 0))))
 
 (defn requirement
-  "Initial margin for `acct`'s cross positions AND its resting orders, `oo`
-  being the resting totals to count. Without orders it equals
-  `clearing/initial-margin`."
-  [clearing oo acct marks markets]
-  (let [mine (get oo acct {})
-        mkts (into (set (keys mine))
-                   (keep (fn [[m p]] (when-not (:isolated p) m)))
-                   (get-in clearing [:accounts acct :positions] {}))]
-    (reduce (fn [acc mkt]
-              (+ acc (market-requirement clearing acct mkt (get markets mkt)
-                                         (get marks mkt 0) (get mine mkt))))
-            0 (sort mkts))))
+  "What `acct`'s cross positions and resting orders `oo` need, at the marks.
+  `sizes` overrides position sizes by market (for a hypothetical fill).
+  Without orders it equals `clearing/initial-margin`."
+  ([clearing oo acct marks markets] (requirement clearing oo acct marks markets {}))
+  ([clearing oo acct marks markets sizes]
+   (let [mine (get oo acct {})
+         mkts (-> (set (keys mine))
+                  (into (keep (fn [[m p]] (when-not (:isolated p) m)))
+                        (get-in clearing [:accounts acct :positions] {}))
+                  (into (keys sizes)))]
+     (reduce (fn [acc mkt]
+               (+ acc (market-requirement clearing acct mkt (get markets mkt) (get marks mkt 0)
+                                          (get sizes mkt (cross-size clearing acct mkt))
+                                          (get mine mkt))))
+             0 (sort mkts)))))
+
+(defn available
+  "Equity less bonds less quote committed to resting spot orders."
+  [clearing acct marks]
+  (- (cl/equity clearing acct marks)
+     (cl/bonded clearing acct)
+     (get-in clearing [:committed acct 0] 0)))
 
 (defn free-collateral
-  "What `acct` may withdraw, transfer, bond or commit to new orders. From
-  version 2 the requirement counts resting orders; before, it is
+  "What `acct` may withdraw, transfer, bond or commit. From version 2 it
+  counts resting orders and spot commitments; before, it is
   `clearing/free-collateral` exactly."
   [ex acct]
   (let [c (:clearing ex)]
     (if (active? ex)
-      (max 0 (- (cl/equity c acct (:marks ex))
-                (requirement c (:open-orders ex) acct (:marks ex) (:markets ex))
-                (cl/bonded c acct)))
+      (max 0 (- (available c acct (:marks ex))
+                (requirement c (:open-orders ex) acct (:marks ex) (:markets ex))))
       (cl/free-collateral c acct (:marks ex) (:markets ex)))))
 
+;; ── the check ───────────────────────────────────────────────────────────────
+
+(defn simulate
+  "What an order would do on `book`, read-only: `{:filled lots :cost
+  notional :rest lots}` — `cost` the notional it would take at, `rest` what
+  would rest. nil for a post-only order that would cross (the book refuses
+  it). Walks the opposite side from the best level the way `bk/place!`
+  matches; the account's own orders count as liquidity, which can only
+  overstate what it takes."
+  [book side level qty flags]
+  (let [opp (if (= side bk/bid) bk/ask bk/bid)
+        crosses? (fn [l] (and (not (neg? l)) (if (= side bk/bid) (<= l level) (>= l level))))]
+    (if (and (pos? (bit-and flags bk/flag-post-only)) (crosses? (bk/best book opp)))
+      nil
+      (loop [l (bk/best book opp) remaining qty filled 0 cost 0]
+        (if (and (pos? remaining) (crosses? l))
+          (let [take (min remaining (bk/level-qty book opp l))]
+            (recur (bk/next-occupied book opp l) (- remaining take) (+ filled take)
+                   (+ cost (fx/notional l take))))
+          {:filled filled :cost cost
+           :rest (if (pos? (bit-and flags bk/flag-ioc)) 0 remaining)})))))
+
+(defn- shortfall [c oo acct marks markets sizes avail]
+  (- (requirement c oo acct marks markets sizes) avail))
+
+(defn orders-allowed?
+  "May `acct` place `orders` — `[[side level qty flags] ...]` — on perp
+  market `mkt`, together? See the namespace doc. `oo` is the resting
+  quantities to count against (an amend passes them without the order it
+  replaces). Each order's taking part is simulated against the book as it
+  stands, so liquidity two orders would both take is counted twice, which
+  can only overstate. A computation too large for the integer domain refuses
+  rather than throws."
+  [ex oo acct mkt orders]
+  (let [orders (remove (fn [[_ _ _ flags]] (pos? (bit-and flags bk/flag-reduce-only))) orders)]
+    (or (empty? orders)
+        (try
+          (let [c (:clearing ex) marks (:marks ex) markets (:markets ex)
+                mark (get marks mkt 0)
+                book (get-in ex [:books mkt])
+                fee-rate (get-in markets [mkt :taker-fee-rate] 0)
+                {:keys [signed delta oo']}
+                (reduce (fn [acc [side level qty flags]]
+                          (if-let [{:keys [filled cost rest]} (simulate book side level qty flags)]
+                            (-> acc
+                                (update :signed + (if (= side bk/bid) filled (- filled)))
+                                ;; what the taken part is worth at the mark,
+                                ;; less what it cost, less the taker fee at the
+                                ;; market's base rate
+                                (update :delta + (cond
+                                                   (not (pos? mark)) 0
+                                                   (= side bk/bid) (- (fx/notional mark filled) cost)
+                                                   :else (- cost (fx/notional mark filled)))
+                                        (- (fx/mul-rate cost fee-rate)))
+                                (update :oo' adjust acct mkt side level rest))
+                            acc))
+                        {:signed 0 :delta 0 :oo' oo} orders)
+                avail (available c acct marks)
+                before (shortfall c oo acct marks markets {} avail)
+                after (shortfall c oo' acct marks markets
+                                 {mkt (+ (cross-size c acct mkt) signed)} (+ avail delta))]
+            (or (<= after 0) (<= after before)))
+          (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) _ false)))))
+
 (defn order-allowed?
-  "May `acct` place `qty` at `level` on `side` of perp market `mkt`?
-
-  Counted as if it rested in full at its own limit: if it crosses, it fills
-  at that price or better, so this never under-counts the taker. `oo` is
-  the resting totals to count against — an amend passes them without the
-  order it replaces.
-
-  Allowed when the requirement with the order is covered by equity less
-  bonds, OR when the order does not raise the requirement: a trader must be
-  able to close, whatever their margin. Anything too large to compute is
-  refused, not thrown."
-  ([ex acct mkt side level qty] (order-allowed? ex (:open-orders ex) acct mkt side level qty))
-  ([ex oo acct mkt side level qty]
-   (try
-     (let [c (:clearing ex) marks (:marks ex) markets (:markets ex)
-           before (requirement c oo acct marks markets)
-           after (requirement c (adjust oo acct mkt side level qty) acct marks markets)]
-       (or (<= after before)
-           (<= after (- (cl/equity c acct marks) (cl/bonded c acct)))))
-     (catch #?(:clj Exception :cljs :default) _ false))))
+  "`orders-allowed?` for one order."
+  ([ex acct mkt side level qty flags] (order-allowed? ex (:open-orders ex) acct mkt side level qty flags))
+  ([ex oo acct mkt side level qty flags]
+   (orders-allowed? ex oo acct mkt [[side level qty flags]])))

@@ -589,8 +589,11 @@
   ;; with, so the answer is at the door.
   (let [[asset need] (spot-backing ex market side level qty)
         have (if (zero? asset)
-               (- (get-in ex [:clearing :accounts account :collateral] 0)
-                  (get-in ex [:clearing :committed account 0] 0))
+               (cond-> (- (get-in ex [:clearing :accounts account :collateral] 0)
+                          (get-in ex [:clearing :committed account 0] 0))
+                 ;; From version 2, quote that backs perp positions and
+                 ;; resting perp orders is not free to spend on spot either.
+                 (om/active? ex) (min (om/free-collateral ex account)))
                (cl/balance (:clearing ex) account asset))]
     (if (> need have)
       ex
@@ -633,7 +636,7 @@
     (reduce
      (fn [ex acct]
        (if (<= (om/requirement c (:open-orders ex) acct marks markets)
-               (- (cl/equity c acct marks) (cl/bonded c acct)))
+               (om/available c acct marks))
          ex
          (reduce (fn [ex mkt]
                    (bk/cancel-all! (get-in ex [:books mkt]) acct)
@@ -642,13 +645,14 @@
      ex (sort (keys (:open-orders ex))))))
 
 (defn- update-oo
-  "`ex` with `f` applied to the resting-order totals — and unchanged, not
-  merely equal, when `f` changed nothing, so a transaction that touched no
-  order leaves no trace (`torihiki.order-margin`)."
+  "`ex` with `f` applied to the resting quantities (`torihiki.order-margin`)
+  — and unchanged when `f` returned the same map, so a transaction that
+  touched no order leaves no `:open-orders` key behind. `identical?`, not
+  `=`: a deep comparison would cost a walk of the cache per order."
   [ex f & args]
   (let [oo (:open-orders ex)
         oo' (apply f oo args)]
-    (if (= oo oo') ex (assoc ex :open-orders oo'))))
+    (if (identical? oo oo') ex (assoc ex :open-orders oo'))))
 
 (defn- apply-tx-order
   [ex account market side level qty flags builder builder-fee]
@@ -656,7 +660,7 @@
   ;; (`torihiki.order-margin`). Checked here as well as in `api/validate`,
   ;; because triggers, TWAP slices and amends reach this without passing
   ;; through validation.
-  (if (and (om/active? ex) (not (om/order-allowed? ex account market side level qty)))
+  (if (and (om/active? ex) (not (om/order-allowed? ex account market side level qty flags)))
     ex
   (let [book (get-in ex [:books market])
         before (bk/event-count book)
@@ -666,10 +670,14 @@
         h (:height ex 0)
         ;; The resting-order totals follow the book: the makers' orders this
         ;; consumed, and whatever of this one rested.
-        ex (update-oo ex
-                      (fn [oo] (cond-> (om/take-fills oo market fills)
-                                 (not (neg? oid))
-                                 (om/adjust account market side level (:qty (bk/order-of book oid))))))]
+        ex (if (om/overflowed? book)
+             ;; The block's fills outran the event buffer: the ones this
+             ;; would read are gone, so the cache is derived afresh.
+             (assoc ex :open-orders (om/rebuild (:books ex) (:markets ex)))
+             (update-oo ex
+                        (fn [oo] (cond-> (om/take-fills oo market fills)
+                                   (not (neg? oid))
+                                   (om/adjust account market side level (:qty (bk/order-of book oid)))))))]
     ;; Both sides of every fill are credited here, and in fill order. Crediting
     ;; only the taker and reconciling makers later would let an account's
     ;; margin be evaluated against a position it already holds but has not
@@ -1061,7 +1069,11 @@
                                (if (pos? q)
                                  (apply-tx-order e (:account t) market
                                                  (:side o) (:level o) q
-                                                 (bit-or (:flags o 0) bk/flag-ioc)
+                                                 ;; reduce-only too: the book
+                                                 ;; ignores that bit, and the
+                                                 ;; margin check reads it — a
+                                                 ;; stop must not be refused.
+                                                 (bit-or (:flags o 0) bk/flag-ioc bk/flag-reduce-only)
                                                  ;; A trigger's order carries no
                                                  ;; builder: the routing client
                                                  ;; is not on the other end when
@@ -1090,8 +1102,11 @@
         cur (get-in ex [:markets market])]
     (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec)))
       ex
-      (assoc-in ex [:markets market]
-                (merge cur (dissoc spec :id :tick :lot))))))
+      (let [ex (assoc-in ex [:markets market] (merge cur (dissoc spec :id :tick :lot)))
+            ;; `:kind` can change here, and the resting-order cache covers
+            ;; perp books only, so it is derived again.
+            oo (om/rebuild (:books ex) (:markets ex))]
+        (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo))))))
 
 (defmethod apply-tx :authorize-agent
   [ex {:keys [account agent expires]}]
@@ -1369,7 +1384,9 @@
            []
            (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))
         ;; The liquidator's slices took makers' resting orders.
-        (update-oo om/take-fills market (drop ev-start (bk/fills book))))))
+        (as-> e (if (om/overflowed? book)
+                  (assoc e :open-orders (om/rebuild (:books e) (:markets e)))
+                  (update-oo e om/take-fills market (drop ev-start (bk/fills book))))))))
 
 (defmethod apply-tx :liquidate
   [ex {:keys [market]}]
@@ -1427,7 +1444,12 @@
                           ;; they could fill into exactly the position the
                           ;; new rule exists to prevent.
                           (if (and (< before om/version) (om/active? e))
-                            (cancel-unbacked-orders e)
+                            (-> e
+                                ;; Kept from fills under version 1, where an
+                                ;; overflowed event buffer was never checked:
+                                ;; derived afresh before it is first read.
+                                (assoc :open-orders (om/rebuild (:books e) (:markets e)))
+                                cancel-unbacked-orders)
                             e)))
                 ;; For `:equivocation-evidence` only, and removed before the
                 ;; block returns: a function is not state.
