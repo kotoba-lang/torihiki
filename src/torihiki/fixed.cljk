@@ -60,6 +60,42 @@
     (throw (ex-info "torihiki.fixed: value escaped the i53 domain"
                     {:where where :value v :i53-max i53-max}))))
 
+(defn sum
+  "Deterministic accumulating addition: `a + b`, refused outside the i53
+  domain rather than allowed through.
+
+  `check` on the RESULT, not on the operands, is the whole point. The
+  falsify-8..14 series proved that checking each delta while accumulating
+  with `(fnil + 0)` still lets the SUM escape the domain: every input
+  in-domain, the total outside it, JVM holding it exactly as a long, nbb
+  rounding it through a double — and the two runtimes then carry different
+  values into the state root with no throw anywhere. `:collateral`,
+  `:deficit`, `:funding-residue`, `:fees-collected` and `:insurance-fund`
+  all cross that way, so every accumulator folds through this instead.
+
+  Throwing here is correct where a validate-layer refusal was not: these
+  sums are produced by the engine's own arithmetic, not by client input, so
+  reaching one means an invariant is already broken — better a loud halt
+  every replica reaches identically than a silent fork. (Validate-layer
+  gates upstream — `api/validate`'s i53 and notional caps — are what keep
+  honest client input from ever driving a sum here.)"
+  [where a b]
+  (check where (+ (long a) (long b))))
+
+(defn mul
+  "Deterministic multiplying addition-free product: `a * b`, refused outside
+  the i53 domain. Unlike `mul-rate` there is no division to bound the
+  result, so the check is on the product itself.
+
+  The JVM computes the product in a 64-bit long and reports `*unchecked
+  long*` overflow by wrapping, while nbb computes it through a double and
+  reports overflow by rounding — two different wrong answers for one call.
+  Both are forbidden by checking before any value is trusted: the product is
+  computed wide (as wide as each runtime's number type allows), tested
+  against the domain, and either both runtimes return it or both throw."
+  [where a b]
+  (check where (* (long a) (long b))))
+
 ;; ── rates ───────────────────────────────────────────────────────────────────
 
 (def ^:const rate-scale 1000000000)      ; 10^9. 1 bp = 100000, 100% = 10^9
