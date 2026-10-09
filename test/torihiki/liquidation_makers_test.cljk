@@ -75,6 +75,8 @@
     (is (zero? (size ex 3)) "the bug: the maker got nothing")
     (is (not (open-interest-balances? ex)))))
 
+(declare money)
+
 (defn- lcg [seed] (mod (+ (* seed 1103515245) 12345) 2147483648))
 
 (deftest positions-always-balance-through-liquidations
@@ -100,6 +102,67 @@
               ex' (block ex h txs)
               liqs (+ liqs (count (filter #(and (not (zero? (or (size ex %) 0))) (zero? (or (size ex' %) 0))) [1 2 3])))]
           (is (open-interest-balances? ex') (str "ev-cap " ev-cap " height " h))
+          (is (= (money ex) (money ex')) (str "money at " h " after " (pr-str txs)))
           (is (= (om/rebuild (:books ex') (:markets ex')) (or (:open-orders ex') {})) (str "cache at " h))
           (recur ex' (inc h) r liqs))
         (is (pos? liqs) "the run exercised liquidations")))))
+
+(defn- money
+  "Everything the exchange owes or holds: collateral less deficits, fees,
+  the insurance fund, less what positions cost to open. A trade moves money
+  between these; nothing may create or destroy it."
+  [ex]
+  (let [c (:clearing ex)]
+    (+ (reduce + 0 (for [[_ a] (:accounts c)]
+                     (- (+ (:collateral a 0) (- (:deficit a 0)))
+                        (reduce + 0 (map :entry-notional (vals (:positions a {})))))))
+       (:fees-collected c 0) (:insurance-fund c 0))))
+
+(deftest a-slice-across-levels-creates-no-money
+  ;; Review of #42: one averaged, floored fill for the liquidated account
+  ;; against makers at their own levels minted (or lost) the remainder.
+  (let [ex (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                   {:tx :deposit :account 1 :amount 10}
+                                   {:tx :deposit :account 2 :amount 100000}
+                                   {:tx :deposit :account 3 :amount 100000}
+                                   (order 2 bk/bid 100 3) (order 1 bk/ask 100 3)])
+               (block 2 [(order 3 bk/ask 101 1) (order 3 bk/ask 103 2)]))
+        before (money ex)
+        ;; 103: equity 1 is under maintenance (3.9); bankruptcy is 103.3, so
+        ;; both asks (101 and 103) are takeable
+        ex (block ex 3 [{:tx :oracle :market 1 :price 103}])]
+    (is (zero? (size ex 1)) "the short was liquidated")
+    (is (= before (money ex)))
+    (is (open-interest-balances? ex))))
+
+(deftest no-slice-past-bankruptcy
+  ;; Review of #42: the quote ran to the end of the ladder, so a stink bid
+  ;; collected the trader's remaining margin now that makers are paid.
+  (let [ex (setup 3 97 97)
+        ex2 (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                    {:tx :deposit :account 1 :amount 1000}
+                                    {:tx :deposit :account 2 :amount 100000}
+                                    {:tx :deposit :account 3 :amount 100000}
+                                    (order 2 bk/ask 100 300) (order 1 bk/bid 100 300)])
+                (block 2 [(order 3 bk/bid 97 100) (order 3 bk/bid 1 200)])
+                (block 3 [{:tx :oracle :market 1 :price 97}]))]
+    (is (= 300 (size ex 3)))
+    (is (= 200 (resting ex2 bk/bid 1)) "the stink bid took nothing")
+    (is (open-interest-balances? ex2))))
+
+(deftest spot-orders-survive-a-liquidation-elsewhere
+  ;; Review of #42: cancelling on every book an account was swept on left its
+  ;; spot orders gone with their reservations still committed.
+  (let [spot (assoc (cl/market {:id 0 :max-leverage 1 :tick 1 :lot 1})
+                    :kind :spot :asset 77 :taker-fee-rate 0 :maker-fee-rate 0)
+        ex (-> (st/new-exchange {:markets [spot mkt] :book-opts {:n-levels 256 :cap 4096 :ev-cap 4096}})
+               (assoc-in [:protocol :version] 3)
+               (assoc-in [:clearing :balances 1 77] 50)
+               (block 1 [{:tx :oracle :market 1 :price 100}
+                         {:tx :deposit :account 1 :amount 1000}
+                         {:tx :deposit :account 2 :amount 100000}
+                         {:tx :order :account 1 :market 0 :side bk/ask :level 10 :qty 50 :flags 0}
+                         (order 2 bk/ask 100 300) (order 1 bk/bid 100 300)])
+               (block 2 [{:tx :oracle :market 1 :price 97}]))]
+    (is (= 50 (bk/level-qty (get-in ex [:books 0]) bk/ask 10)) "the spot order is still there")
+    (is (= 50 (get-in ex [:clearing :committed 1 77])) "and still backed")))

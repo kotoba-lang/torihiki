@@ -1381,9 +1381,17 @@
         ;; only if stage 1 accepts it (`liq/liquidate*`). Below version 3 the
         ;; slice executed whatever the waterfall decided, and the makers were
         ;; never credited.
-        quote-fn (fn [delta _mark]
+        quote-fn (fn [acct c]
+                  (fn [delta _mark]
+                   (let [bankruptcy (liq/bankruptcy-price (cl/position c acct market)
+                                                          (get-in c [:accounts acct :collateral] 0))]
                    (let [side (if (pos? delta) bk/bid bk/ask)
-                         limit (if (pos? delta) (dec (:n-levels book)) 0)
+                         ;; Never past bankruptcy: a slice that swept to the end
+                         ;; of the ladder handed whatever stink bid sat there
+                         ;; the trader's remaining margin, now that makers are
+                         ;; paid. What the book will not take at or better than
+                         ;; bankruptcy is the vault's.
+                         limit (max 0 (min (dec (:n-levels book)) (long bankruptcy)))
                          qty (fx/abs* delta)
                          takes (:takes (om/consume book side limit qty bk/flag-ioc))
                          filled (reduce + 0 (map :qty takes))
@@ -1395,14 +1403,20 @@
                         (fn commit [c]
                           (bk/place! book side limit qty bk/flag-ioc liquidator-account)
                           (vswap! taken conj [side takes])
+                          ;; Both sides of every fill at that fill's level: the
+                          ;; liquidated account at no fee (it pays the
+                          ;; liquidation fee), the maker at its own tier. One
+                          ;; averaged fill for the account would be floored, and
+                          ;; the difference would be minted or lost.
                           (reduce (fn [c {:keys [owner level qty]}]
-                                    (let [[_ m-rate] (cl/fee-rates-for c owner mkt-spec h)]
-                                      ;; the maker takes the other side of the
-                                      ;; liquidator's slice
+                                    (let [[_ m-rate] (cl/fee-rates-for c owner mkt-spec h)
+                                          d (if (pos? delta) qty (- qty))]
                                       (-> c
-                                          (cl/apply-fill owner market (if (pos? delta) (- qty) qty) level m-rate)
+                                          (cl/apply-fill acct market d level 0)
+                                          (cl/apply-fill owner market (- d) level m-rate)
                                           (cl/add-volume owner h (fx/notional level qty)))))
-                                  c takes))])))
+                                  c takes))
+                        cost])))))
         take-fn (fn [delta _mark]
                   (let [before (bk/event-count book)
                         side (if (pos? delta) bk/bid bk/ask)
@@ -1421,12 +1435,21 @@
                  ;; this market first. Its own resting orders would otherwise
                  ;; be makers to its own liquidation — and keep backing
                  ;; nothing.
-                 ex' (if v3?
+                 ;; Only where it holds a position this sweep can close, on a
+                 ;; perp book, and not while cooling down: `scan` picks
+                 ;; accounts by the account-wide test, and cancelling on every
+                 ;; book it is swept on left spot orders gone with their
+                 ;; reservations still committed.
+                 c (:clearing ex')
+                 ex' (if (and v3?
+                              (not (om/spot-market? mkt-spec))
+                              (not (zero? (:size (cl/position c acct market) 0)))
+                              (not (liq/cooling-down? c acct market (:ts ex') (:liq-params ex'))))
                        (do (bk/cancel-all! book acct)
                            (update-oo ex' om/clear acct market))
                        ex')
                  r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
-                                  (:markets ex') (:liq-params ex') (if v3? quote-fn take-fn))]
+                                  (:markets ex') (:liq-params ex') (if v3? (quote-fn acct (:clearing ex')) take-fn))]
              (assoc ex' :clearing (:state r))))
          ex
          (if (or stale? (not (pos? mark)))

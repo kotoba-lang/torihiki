@@ -167,9 +167,12 @@
   namespace pure and testable without a book, and keeps the book from having
   to know what a liquidation is.
 
-  It may return a third element, `commit`: a function of the clearing state
-  that executes the slice and credits its counterparties. Then `take-fn`
-  only QUOTES, and `commit` runs only when stage 1 accepts the quote. Before
+  It may return two more elements:
+  `commit`, a function of the clearing state that executes the slice and
+  settles BOTH sides of every fill at the fill's own level (so nothing is
+  created or lost to an averaged price), and `cost`, the slice's exact
+  notional, which the liquidation fee is charged on. Then `take-fn` only
+  QUOTES, and `commit` runs only when stage 1 accepts the quote. Before
   it existed (protocol version 3), `take-fn` executed against the book
   whatever the waterfall then decided, and only the liquidated account was
   credited: the makers whose orders the slice took got no position and no
@@ -189,17 +192,18 @@
       (let [magnitude (slice-size size mark params)
             ;; closing a long means selling: the delta is opposite the position
             delta (if (pos? size) (- magnitude) magnitude)
-            [filled avg-price commit] (take-fn delta mark)
             collateral (get-in state [:accounts acct :collateral] 0)
             bankruptcy (bankruptcy-price pos collateral)
+            [filled avg-price commit cost] (take-fn delta mark)
             state (assoc-in state [:liquidation-clock [acct mkt]] now)]
         (if (and (pos? (fx/abs* filled))
                  (if (pos? size) (>= avg-price bankruptcy) (<= avg-price bankruptcy)))
           ;; stage 1: the book absorbed it above bankruptcy
-          (let [fee (fx/mul-rate (fx/abs* (fx/notional avg-price filled))
+          (let [fee (fx/mul-rate (fx/abs* (or cost (fx/notional avg-price filled)))
                                  (:liquidation-fee params))]
-            {:state (-> (cond-> state commit commit)
-                        (cl/apply-fill acct mkt filled avg-price 0)
+            {:state (-> (if commit
+                          (commit state)
+                          (cl/apply-fill state acct mkt filled avg-price 0))
                         (update-in [:accounts acct :collateral] (fnil - 0) fee)
                         (update :insurance-fund (fnil + 0) fee))
              :closed filled
