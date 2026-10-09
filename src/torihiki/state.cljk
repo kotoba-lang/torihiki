@@ -51,6 +51,12 @@
 ;; value straight into the state root. Integers dodge both problems.
 
 (def ^:const vault-account -1)      ; the backstop vault
+(def ^:const liquidation-version
+  "From this protocol version a liquidation slice is quoted first, executed
+  only when the book absorbs it above bankruptcy, and every maker it takes
+  is credited (`sweep-liquidations`)."
+  3)
+
 (def ^:const liquidator-account -2) ; the synthetic taker liquidations trade as
 
 ;; ── construction ────────────────────────────────────────────────────────────
@@ -1367,6 +1373,59 @@
         ;; offering the slice to the real book is what makes stage 1 mean
         ;; something; a take-fn that always refuses would send every
         ;; liquidation straight to the vault
+        v3? (>= (gov/active-version ex) liquidation-version)
+        mkt-spec (get-in ex [:markets market])
+        h (:height ex 0)
+        ;; Protocol version 3: QUOTE the slice off the queues, and execute it
+        ;; — crediting every maker it takes, at the maker's level and fee —
+        ;; only if stage 1 accepts it (`liq/liquidate*`). Below version 3 the
+        ;; slice executed whatever the waterfall decided, and the makers were
+        ;; never credited.
+        quote-fn (fn [acct c]
+                  (fn [delta _mark]
+                   (let [{:keys [size entry-notional]} (cl/position c acct market)
+                         collateral (get-in c [:accounts acct :collateral] 0)
+                         ;; Rounded TOWARD safety: a long's slice sells, so its
+                         ;; limit is the bankruptcy price rounded UP — floored,
+                         ;; a fill a fraction of a tick below it left a deficit
+                         ;; neither the vault nor the insurance fund ever saw.
+                         ;; A short's slice buys, and the floor is already safe.
+                         bankruptcy (if (pos? size)
+                                      (- (fx/fdiv (- collateral entry-notional) size))
+                                      (liq/bankruptcy-price {:size size :entry-notional entry-notional}
+                                                            collateral))]
+                   (let [side (if (pos? delta) bk/bid bk/ask)
+                         ;; Never past bankruptcy: a slice that swept to the end
+                         ;; of the ladder handed whatever stink bid sat there
+                         ;; the trader's remaining margin, now that makers are
+                         ;; paid. What the book will not take at or better than
+                         ;; bankruptcy is the vault's.
+                         limit (max 0 (min (dec (:n-levels book)) (long bankruptcy)))
+                         qty (fx/abs* delta)
+                         takes (:takes (om/consume book side limit qty bk/flag-ioc))
+                         filled (reduce + 0 (map :qty takes))
+                         cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) takes))]
+                     (if (zero? filled)
+                       [0 0]
+                       [(if (pos? delta) filled (- filled))
+                        (fx/fdiv cost filled)
+                        (fn commit [c]
+                          (bk/place! book side limit qty bk/flag-ioc liquidator-account)
+                          (vswap! taken conj [side takes])
+                          ;; Both sides of every fill at that fill's level: the
+                          ;; liquidated account at no fee (it pays the
+                          ;; liquidation fee), the maker at its own tier. One
+                          ;; averaged fill for the account would be floored, and
+                          ;; the difference would be minted or lost.
+                          (reduce (fn [c {:keys [owner level qty]}]
+                                    (let [[_ m-rate] (cl/fee-rates-for c owner mkt-spec h)
+                                          d (if (pos? delta) qty (- qty))]
+                                      (-> c
+                                          (cl/apply-fill acct market d level 0)
+                                          (cl/apply-fill owner market (- d) level m-rate)
+                                          (cl/add-volume owner h (fx/notional level qty)))))
+                                  c takes))
+                        cost])))))
         take-fn (fn [delta _mark]
                   (let [before (bk/event-count book)
                         side (if (pos? delta) bk/bid bk/ask)
@@ -1381,8 +1440,25 @@
                       [(if (pos? delta) filled (- filled)) (fx/fdiv cost filled)])))]
     (-> (reduce
          (fn [ex' acct]
-           (let [r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
-                                  (:markets ex') (:liq-params ex') take-fn)]
+           (let [;; Version 3: an account being liquidated stops quoting on
+                 ;; this market first. Its own resting orders would otherwise
+                 ;; be makers to its own liquidation — and keep backing
+                 ;; nothing.
+                 ;; Only where it holds a position this sweep can close, on a
+                 ;; perp book, and not while cooling down: `scan` picks
+                 ;; accounts by the account-wide test, and cancelling on every
+                 ;; book it is swept on left spot orders gone with their
+                 ;; reservations still committed.
+                 c (:clearing ex')
+                 ex' (if (and v3?
+                              (not (om/spot-market? mkt-spec))
+                              (not (zero? (:size (cl/position c acct market) 0)))
+                              (not (liq/cooling-down? c acct market (:ts ex') (:liq-params ex'))))
+                       (do (bk/cancel-all! book acct)
+                           (update-oo ex' om/clear acct market))
+                       ex')
+                 r (liq/liquidate (:clearing ex') acct market mark (:ts ex')
+                                  (:markets ex') (:liq-params ex') (if v3? (quote-fn acct (:clearing ex')) take-fn))]
              (assoc ex' :clearing (:state r))))
          ex
          (if (or stale? (not (pos? mark)))
