@@ -628,14 +628,17 @@ the instant they fill (a bid above the mark, an ask below it). An order is
 refused (`:insufficient-margin`, code 19) unless, after it, equity less bonds
 less spot-committed quote covers that requirement — or it does not make the
 shortfall any larger. The part of an order that would take liquidity is priced
-exactly by walking the book read-only; only what would rest counts as resting.
-Reduce-only orders and fired triggers are never refused. Free collateral
+exactly by reading the book's queues read-only — the account's own orders it
+would take net to nothing — and only what would rest counts as resting.
+Reduce-only orders and fired triggers are never refused. Nothing opens on a
+market that has no mark yet: a market listed without an oracle cannot trade
+until it has a price. Free collateral
 subtracts the requirement, so what backs a resting order cannot be withdrawn,
 transferred, bonded or spent on spot. Scale ladders are checked whole. At the
 height version 2 activates, the resting perp orders of any account that cannot
 back them — placed unchecked under version 1 — are cancelled. The resting
 quantities are a cache derived from the books (outside the root, rebuilt on
-restore and whenever a block's fills overflow the book's event buffer), so a
+restore, kept from the queues rather than the block's fill buffer), so a
 version-1 chain's state and roots are unchanged.
 
 ## The bridge: collateral that came from somewhere
