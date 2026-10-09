@@ -166,3 +166,16 @@
                (block 2 [{:tx :oracle :market 1 :price 97}]))]
     (is (= 50 (bk/level-qty (get-in ex [:books 0]) bk/ask 10)) "the spot order is still there")
     (is (= 50 (get-in ex [:clearing :committed 1 77])) "and still backed")))
+
+(deftest a-long-is-never-sold-below-bankruptcy
+  ;; Review of #42: long 3 at 100 on 10 of collateral is bankrupt at 96.67.
+  ;; A floored limit of 96 took a bid there and left a deficit of 2.
+  (let [ex (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                   {:tx :deposit :account 1 :amount 10}
+                                   {:tx :deposit :account 2 :amount 100000}
+                                   {:tx :deposit :account 3 :amount 100000}
+                                   (order 2 bk/ask 100 3) (order 1 bk/bid 100 3)])
+               (block 2 [(order 3 bk/bid 96 3)])
+               (block 3 [{:tx :oracle :market 1 :price 97}]))]
+    (is (= 3 (resting ex bk/bid 96)) "the bid below bankruptcy is the vault's business, not the book's")
+    (is (open-interest-balances? ex))))
