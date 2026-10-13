@@ -586,11 +586,16 @@
    :resting (bk/resting-count (get-in ex [:books market]))})
 
 (defn fills-since
-  "Fills produced in the current block from index `from` onward. The event
-  buffer is reset per block, so this is a block-scoped view, not history — a
-  client wanting history keeps its own, or replays the log."
+  "Fills produced in the current block from index `from` onward. A
+  block-scoped view, not history — a client wanting history keeps its own,
+  or replays the log.
+
+  Read from `:block-fills`, the fills settlement recorded, and not from the
+  book's event buffer: that stops recording at `ev-cap`, and since protocol
+  version 3 settlement does not, so the buffer could omit fills a position
+  already holds."
   [ex market from]
-  (vec (drop from (bk/fills (get-in ex [:books market])))))
+  (vec (drop from (get-in ex [:block-fills market] []))))
 
 (defn account-state
   "Everything a client needs to render a portfolio and decide what it may do

@@ -1,0 +1,129 @@
+(ns torihiki.spot-reservation-test
+  "From protocol version 4 a spot reservation is exactly what the account's
+  resting spot orders back — however the orders filled or left the book."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.api :as api]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.state :as st]))
+
+(def perp (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}) :taker-fee-rate 0 :maker-fee-rate 0))
+(def spot (assoc (cl/market {:id 3 :max-leverage 1 :tick 1 :lot 1})
+                 :kind :spot :asset 77 :taker-fee-rate 0 :maker-fee-rate 0))
+
+(defn- chain [version ev-cap]
+  (cond-> (st/new-exchange {:markets [perp spot] :book-opts {:n-levels 256 :cap 4096 :ev-cap ev-cap}})
+    (> version 1) (assoc-in [:protocol :version] version)))
+(defn- block [ex h txs] (st/apply-block ex {:height h :ts h :txs txs} nil))
+(defn- o [a side level qty & [flags]] {:tx :order :account a :market 3 :side side :level level :qty qty :flags (or flags 0)})
+(defn- funded [version]
+  (-> (block (chain version 4096) 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                            (for [a (range 1 5)] {:tx :deposit :account a :amount 100000})))
+      (as-> e (reduce #(assoc-in %1 [:clearing :balances %2 77] 1000) e (range 1 5)))))
+(defn- committed [ex a] (into {} (remove (comp zero? val)) (get-in ex [:clearing :committed a] {})))
+(defn- backed [ex a] (st/spot-resting-backing ex 3 a))
+(defn- exact? [ex] (every? #(= (backed ex %) (committed ex %)) (range 1 5)))
+
+(deftest a-buy-that-fills-better-than-its-limit-reserves-nothing-after
+  (testing "version 3: the difference stays reserved behind no order"
+    (let [ex (block (funded 3) 2 [(o 1 bk/ask 50 10) (o 2 bk/bid 60 10)])]
+      (is (= {0 100} (committed ex 2)))))
+  (testing "version 4"
+    (let [ex (block (funded 4) 2 [(o 1 bk/ask 50 10) (o 2 bk/bid 60 10)])]
+      (is (= 1010 (get-in ex [:clearing :balances 2 77])) "it bought")
+      (is (empty? (committed ex 2)))
+      (is (exact? ex)))))
+
+(deftest an-ioc-remainder-reserves-nothing
+  (let [ex (block (funded 4) 2 [(o 1 bk/ask 50 5) (o 2 bk/bid 50 10 bk/flag-ioc)])]
+    (is (empty? (committed ex 2)))
+    (is (exact? ex))))
+
+(deftest what-rests-is-reserved-at-its-own-price
+  (let [ex (block (funded 4) 2 [(o 1 bk/ask 50 5) (o 2 bk/bid 60 10)])]
+    (is (= {0 300} (committed ex 2)) "5 bought at 50, 5 resting at 60")
+    (is (exact? ex))))
+
+(deftest cancel-all-gives-reservations-back
+  (let [ex (block (funded 4) 2 [(o 1 bk/bid 40 10) (o 1 bk/ask 70 5)])
+        ex (block ex 3 [{:tx :cancel-all :account 1 :market 3}])]
+    (is (empty? (committed ex 1)))
+    (is (exact? ex))))
+
+(deftest amends-move-reservations-with-the-order
+  ;; A fresh chain for each: the book is mutable, so two branches from one
+  ;; state would share it.
+  (let [fresh #(block (funded 4) 2 [(o 1 bk/bid 40 10)])
+        oid-of #(:oid (first (bk/level-orders (get-in % [:books 3]) bk/bid 40)))]
+    (testing "smaller in place"
+      (let [ex (fresh) ex (block ex 3 [{:tx :amend :account 1 :market 3 :oid (oid-of ex) :level 40 :qty 4}])]
+        (is (= {0 160} (committed ex 1)))
+        (is (exact? ex))))
+    (testing "to a new price"
+      (let [ex (fresh) ex (block ex 3 [{:tx :amend :account 1 :market 3 :oid (oid-of ex) :level 45 :qty 10}])]
+        (is (= {0 450} (committed ex 1)))
+        (is (exact? ex))))))
+
+(deftest taking-your-own-order-releases-only-that-order
+  (let [ex (block (funded 4) 2 [(o 1 bk/ask 42 5) (o 1 bk/bid 46 12)])]
+    (is (= {0 322} (committed ex 1)) "7 resting at 46; the ask it took is gone with its reservation")
+    (is (exact? ex))))
+
+(deftest version-4-reconciles-what-the-old-rules-leaked
+  (let [genesis (vec (for [[i w] (map-indexed vector ["w1" "w2" "w3" "w4"])]
+                       {:witness w :pubkey (str "key-" w) :account (+ 100 i)}))
+        ex (st/new-exchange {:markets [perp spot] :book-opts {:n-levels 256 :cap 4096 :ev-cap 4096}
+                             :validators {:genesis genesis :epoch-length 1000}
+                             :protocol {:notice 100 :ttl 500}})
+        ex (-> (block ex 1 (concat (for [a (range 1 5)] {:tx :deposit :account a :amount 100000})
+                                   [{:tx :upgrade-propose :account 100 :version 4 :activation 200}
+                                    {:tx :upgrade-vote :account 101 :proposal 1}
+                                    {:tx :upgrade-vote :account 102 :proposal 1}]))
+               (as-> e (reduce #(assoc-in %1 [:clearing :balances %2 77] 1000) e (range 1 5)))
+               (block 2 [(o 1 bk/ask 50 10) (o 2 bk/bid 60 10) (o 3 bk/bid 30 5)]))]
+    (is (= {0 100} (committed ex 2)) "leaked under the old rules")
+    (let [ex (block ex 200 [])]
+      (is (= 4 (get-in ex [:protocol :version])))
+      (is (empty? (committed ex 2)) "given back at activation")
+      (is (= {0 150} (committed ex 3)) "a real reservation stays")
+      (is (exact? ex)))))
+
+(defn- lcg [seed] (mod (+ (* seed 1103515245) 12345) 2147483648))
+
+(deftest reservations-stay-exact-through-anything
+  (doseq [ev-cap [4096 3]]
+    (loop [ex (-> (block (chain 4 ev-cap) 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                                     (for [a (range 1 5)] {:tx :deposit :account a :amount 100000})))
+                  (as-> e (reduce #(assoc-in %1 [:clearing :balances %2 77] 1000) e (range 1 5))))
+           h 2 r 11]
+      (when (< h 120)
+        (let [[txs r] (reduce
+                       (fn [[txs r] _]
+                         (let [r (lcg r) pick (fn [n k] (mod (quot r k) n))
+                               a (inc (pick 4 1)) side (pick 2 7) level (+ 40 (pick 21 13)) qty (inc (pick 30 17))
+                               mine (for [s [bk/bid bk/ask] l (range 35 66)
+                                          x (bk/level-orders (get-in ex [:books 3]) s l)
+                                          :when (= a (long (:owner x)))] (assoc x :level l))
+                               x (when (seq mine) (nth (vec mine) (pick (count mine) 29)))]
+                           [(conj txs (case (pick 7 101)
+                                        (0 1) (o a side level qty)
+                                        2 (o a side level qty bk/flag-ioc)
+                                        3 (if x {:tx :cancel :account a :market 3 :oid (:oid x)} (o a side level qty))
+                                        4 (if x {:tx :amend :account a :market 3 :oid (:oid x) :level (:level x) :qty (max 1 (quot (:qty x) 2))} (o a side level qty))
+                                        5 (if x {:tx :amend :account a :market 3 :oid (:oid x) :level level :qty qty} (o a side level qty))
+                                        6 {:tx :cancel-all :account a :market 3}))
+                            r]))
+                       [[] r] (range 6))
+              ex (block ex h txs)]
+          (is (exact? ex) (str "ev-cap " ev-cap " height " h " after " (pr-str txs)))
+          (recur ex (inc h) r))))))
+
+(deftest the-fill-view-holds-every-fill
+  ;; The book's buffer stops at ev-cap; settlement (v3) does not, and the view
+  ;; now follows settlement.
+  (let [ex (-> (block (chain 3 4) 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                            (for [a (range 1 8)] {:tx :deposit :account a :amount 100000})))
+               (block 2 (for [a (range 1 7)] {:tx :order :account a :market 1 :side bk/ask :level 100 :qty 10 :flags 0})))
+        ex (st/apply-tx ex {:tx :order :account 7 :market 1 :side bk/bid :level 100 :qty 60 :flags 0})]
+    (is (= 6 (count (api/fills-since ex 1 0))))
+    (is (= 60 (reduce + 0 (map :qty (api/fills-since ex 1 0)))))))
