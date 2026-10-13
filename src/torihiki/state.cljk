@@ -613,8 +613,8 @@
 (defn- record-fills
   "Append the fills an order settled to the block's fill view
   (`:block-fills`, outside the root): unlike the book's event buffer it holds
-  every fill, so `api/fills-since` shows what settlement did. (A node's tape
-  should read it too; torihiki-node still reads the buffer.)"
+  every fill, so `api/fills-since` and torihiki-node's tape and candles show
+  what settlement did."
   [ex market fills]
   (if (seq fills)
     (update-in ex [:block-fills market] (fnil into []) fills)
