@@ -830,7 +830,7 @@ the Kotoba build yet. `src/torihiki/fixed.cljk` is what the engine runs.
 
 ## Platform
 
-`.cljc` throughout. The JVM path is the one that meets the throughput target;
+`.cljk` (formerly `.cljc`) throughout. The JVM path is the one that meets the throughput target;
 the ClojureScript path exists so a browser or a Worker can replay and verify a
 block without trusting a validator. `torihiki.slab` documents the one place
 they differ (`long[]` versus `Float64Array`) and why the i53 domain makes them
