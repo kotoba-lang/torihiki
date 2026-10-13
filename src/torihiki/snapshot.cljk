@@ -89,6 +89,8 @@
       ;; `restore` rebuilds it, which also covers a snapshot taken before it
       ;; existed.
       (dissoc :open-orders)
+      ;; A view of the current block's fills, not state.
+      (dissoc :block-fills)
       (update :books (fn [bs] (into {} (map (fn [[m b]] [m (bk/snapshot b)])) bs)))))
 
 (defn restore

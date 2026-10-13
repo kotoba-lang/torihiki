@@ -58,6 +58,13 @@
   queues it took, not from the block's event buffer (`settled-fills`)."
   3)
 
+(def ^:const spot-version
+  "Protocol version 4. From it a spot order reserves exactly what its resting
+  part backs — not its limit times its full size — every way an order leaves
+  the book gives its reservation back (fills, cancel, cancel-all, amend), and
+  the reservations are derived afresh from the books when it activates."
+  4)
+
 (def ^:const liquidator-account -2) ; the synthetic taker liquidations trade as
 
 ;; ── construction ────────────────────────────────────────────────────────────
@@ -603,6 +610,55 @@
     [0 (fx/notional level qty)]
     [(get-in ex [:markets market :asset]) qty]))
 
+(defn- record-fills
+  "Append the fills an order settled to the block's fill view
+  (`:block-fills`, outside the root): unlike the book's event buffer it holds
+  every fill, so `api/fills-since` shows what settlement did. (A node's tape
+  should read it too; torihiki-node still reads the buffer.)"
+  [ex market fills]
+  (if (seq fills)
+    (update-in ex [:block-fills market] (fnil into []) fills)
+    ex))
+
+(defn spot-resting-backing
+  "What `acct`'s resting orders on spot `market` back, as `{asset amount}`.
+  Walks the occupied levels, as `bk/cancel-all!` does."
+  [ex market acct]
+  (let [book (get-in ex [:books market])]
+    (reduce
+     (fn [m side]
+       (loop [l (bk/best book side) m m]
+         (if (neg? l)
+           m
+           (recur (bk/next-occupied book side l)
+                  (reduce (fn [m {:keys [owner qty]}]
+                            (if (= acct (long owner))
+                              (let [[asset amount] (spot-backing ex market side l qty)]
+                                (update m asset (fnil + 0) amount))
+                              m))
+                          m (bk/level-orders book side l))))))
+     {} [bk/bid bk/ask])))
+
+(defn rebuild-spot-commitments
+  "Every account's spot reservations, derived from the spot books."
+  [ex]
+  (let [all (reduce
+             (fn [acc [mkt book]]
+               (if-not (spot? ex mkt)
+                 acc
+                 (reduce (fn [acc side]
+                           (loop [l (bk/best book side) acc acc]
+                             (if (neg? l)
+                               acc
+                               (recur (bk/next-occupied book side l)
+                                      (reduce (fn [acc {:keys [owner qty]}]
+                                                (let [[asset amount] (spot-backing ex mkt side l qty)]
+                                                  (update-in acc [(long owner) asset] (fnil + 0) amount)))
+                                              acc (bk/level-orders book side l))))))
+                         acc [bk/bid bk/ask])))
+             {} (sort-by key (:books ex)))]
+    (assoc-in ex [:clearing :committed] all)))
+
 (defn- apply-tx-spot-order
   [ex account market side level qty flags]
   ;; Refused whole, not clamped.
@@ -626,13 +682,18 @@
             before (bk/event-count book)
             base (get-in ex [:markets market :asset])
             mkt (get-in ex [:markets market])
-            _ (bk/place! book side level qty flags account)
+            oid (bk/place! book side level qty flags account)
             fills (settled-fills ex book before takes account side)
-            ;; Committed first, then released per fill: an order that fills
-            ;; immediately never rests, and doing it in this order means the
-            ;; two paths do not need to know which happened.
-            ex (update ex :clearing cl/commit-spot account asset need)]
-        (reduce
+            v4? (>= (gov/active-version ex) spot-version)
+            ;; Below version 4: committed first at the order's limit and full
+            ;; size, then released per fill at the FILL's price — so a buy that
+            ;; filled better than its limit, or an IOC remainder, left quote
+            ;; reserved behind no order, for good. From version 4 the taker's
+            ;; own fills release nothing and only what rests is reserved.
+            ex (if v4? ex (update ex :clearing cl/commit-spot account asset need))
+            ex (record-fills ex market fills)]
+        (cond->
+         (reduce
          (fn [ex' {:keys [taker-owner maker-owner level qty taker-side]}]
            (let [buyer (if (= taker-side bk/bid) taker-owner maker-owner)
                  seller (if (= taker-side bk/bid) maker-owner taker-owner)
@@ -643,11 +704,21 @@
                  (update :clearing cl/spot-fill buyer seller base qty level b-rate s-rate)
                  ;; Both sides release what this fill consumed of their
                  ;; reservation: the buyer's quote and the seller's asset.
-                 (update :clearing cl/release-spot buyer 0 (fx/notional level qty))
-                 (update :clearing cl/release-spot seller base qty)
+                 ;; From version 4 only the MAKER had one — by role, not by
+                 ;; account, so an order that takes its owner's own resting
+                 ;; order releases that order's reservation and nothing else.
+                 (cond-> (or (not v4?) (not= taker-side bk/bid))
+                   (update :clearing cl/release-spot buyer 0 (fx/notional level qty)))
+                 (cond-> (or (not v4?) (= taker-side bk/bid))
+                   (update :clearing cl/release-spot seller base qty))
                  (assoc-in [:last market] level))))
          ex
-         fills)))))
+         fills)
+          v4? (as-> e (let [rest (when-let [o (bk/order-of book oid)] (:qty o))]
+                        (if (and rest (pos? rest))
+                          (let [[asset amount] (spot-backing e market side level rest)]
+                            (update e :clearing cl/commit-spot account asset amount))
+                          e))))))))
 
 (declare update-oo)
 
@@ -697,6 +768,7 @@
         before (bk/event-count book)
         oid (bk/place! book side level qty flags account)
         fills (settled-fills ex book before takes account side)
+        ex (record-fills ex market fills)
         mkt (get-in ex [:markets market])
         h (:height ex 0)
         ;; The resting quantities follow the book: the makers' orders this
@@ -1129,11 +1201,19 @@
         cur (get-in ex [:markets market])]
     (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec)))
       ex
+      (if (and (>= (gov/active-version ex) spot-version)
+               (or (and (contains? spec :kind) (not= (:kind spec) (:kind cur)))
+                   (and (contains? spec :asset) (not= (:asset spec) (:asset cur))))
+               (pos? (bk/resting-count (get-in ex [:books market]))))
+        ;; From version 4: what an order backs depends on the market's kind and
+        ;; asset, so neither changes under resting orders — their reservations
+        ;; would be in the wrong asset, or not reservations at all.
+        ex
       (let [ex (assoc-in ex [:markets market] (merge cur (dissoc spec :id :tick :lot)))
             ;; `:kind` can change here, and the resting-order cache covers
             ;; perp books only, so it is derived again.
             oo (om/rebuild (:books ex) (:markets ex))]
-        (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo))))))
+        (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo)))))))
 
 (defmethod apply-tx :authorize-agent
   [ex {:keys [account agent expires]}]
@@ -1192,8 +1272,14 @@
   ;; takes a maker out of the market. Without it, pulling N quotes costs N
   ;; transactions, each with its own nonce, and the last one lands after the
   ;; move the maker was trying to get out of the way of.
-  (bk/cancel-all! (get-in ex [:books market]) account)
-  (update-oo ex om/clear account market))
+  ;; From version 4 a spot book's reservations come back with the orders;
+  ;; below it they stayed committed behind nothing.
+  (let [released (when (and (>= (gov/active-version ex) spot-version) (spot? ex market))
+                   (spot-resting-backing ex market account))]
+    (bk/cancel-all! (get-in ex [:books market]) account)
+    (-> (reduce (fn [e [asset amount]] (update e :clearing cl/release-spot account asset amount))
+                ex (sort-by key released))
+        (update-oo om/clear account market))))
 
 (defmethod apply-tx :amend
   [ex {:keys [market oid account level qty]}]
@@ -1209,9 +1295,14 @@
       ;; separate path.
       (and (= level (:level cur)) (< qty (:qty cur)))
       (let [removed (bk/reduce-to! book oid account qty)]
-        (cond-> ex
+        (cond
           (not (spot? ex market))
-          (update-oo om/adjust account market (:side cur) level (- removed))))
+          (update-oo ex om/adjust account market (:side cur) level (- removed))
+          ;; From version 4 the part removed gives its reservation back.
+          (>= (gov/active-version ex) spot-version)
+          (let [[asset amount] (spot-backing ex market (:side cur) level removed)]
+            (update ex :clearing cl/release-spot account asset amount))
+          :else ex))
 
       ;; Anything else is a new order at the back of the line, so it IS one.
       ;; Delegating rather than re-implementing: placing has to run fills
@@ -1222,9 +1313,15 @@
       (let [cancelled (bk/cancel! book oid account)]
         (if (zero? cancelled)
           ex
-          (apply-tx (cond-> ex
+          (apply-tx (cond
                       (not (spot? ex market))
-                      (update-oo om/adjust account market (:side cur) (:level cur) (- cancelled)))
+                      (update-oo ex om/adjust account market (:side cur) (:level cur) (- cancelled))
+                      ;; From version 4 the cancelled order's reservation comes
+                      ;; back before the new one takes its own.
+                      (>= (gov/active-version ex) spot-version)
+                      (let [[asset amount] (spot-backing ex market (:side cur) (:level cur) cancelled)]
+                        (update ex :clearing cl/release-spot account asset amount))
+                      :else ex)
                     {:tx :order :account account :market market
                      :side (:side cur) :level level :qty qty :flags 0}))))))
 
@@ -1383,6 +1480,8 @@
         ;; What the liquidator's slices take from makers' resting orders, read
         ;; off the queues before each slice (see `apply-tx-order`).
         taken (volatile! [])
+        ;; Below version 3, the fills the old slice read from the buffer.
+        old-fills (volatile! [])
         mark (get-in ex [:marks market] (get-in ex [:oracle market] 0))
         ;; A stale oracle stops liquidation. Closing somebody's position at a
         ;; price nobody currently vouches for is irreversible; waiting is not.
@@ -1452,6 +1551,7 @@
                         _ (vswap! taken conj [side (:takes (om/consume book side limit (fx/abs* delta) bk/flag-ioc))])
                         _ (bk/place! book side limit (fx/abs* delta) bk/flag-ioc liquidator-account)
                         fills (drop before (bk/fills book))
+                        _ (vswap! old-fills into fills)
                         filled (reduce + 0 (map :qty fills))
                         cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) fills))]
                     (if (zero? filled)
@@ -1485,7 +1585,14 @@
            (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))
         ;; The liquidator's slices took makers' resting orders.
         (as-> e (reduce (fn [e [side takes]] (update-oo e om/take-consumed market side takes))
-                        e @taken)))))
+                        e @taken))
+        ;; And they are fills: into the block's fill view, like any order's.
+        (as-> e (record-fills e market (if v3?
+                                         (for [[side takes] @taken
+                                               {:keys [owner level qty]} takes]
+                                           {:taker-owner liquidator-account :maker-owner owner
+                                            :level level :qty qty :taker-side side})
+                                         @old-fills))))))
 
 (defmethod apply-tx :liquidate
   [ex {:keys [market]}]
@@ -1533,6 +1640,8 @@
   ([ex {:keys [height ts txs]} {:keys [verify-fn chain-id derive-account vote-verify-fn]
                                 :as _opts}]
    (let [ex (-> ex (assoc :height height :ts ts) (assoc :rejected [])
+                ;; The block's fill view starts empty, like the book's buffer.
+                (dissoc :block-fills)
                 ;; A scheduled protocol version takes effect BEFORE the block's
                 ;; transactions, so every rule in block `at` is the new one.
                 (as-> e (let [before (gov/active-version e)
@@ -1542,13 +1651,18 @@
                           ;; withdrawn at the height version 2 starts, or
                           ;; they could fill into exactly the position the
                           ;; new rule exists to prevent.
-                          (if (and (< before om/version) (om/active? e))
-                            (-> e
-                                ;; Derived afresh before it is first read, so
+                          (cond-> e
+                            ;; Version 4: reservations derived afresh from the
+                            ;; spot books, which also gives back what the old
+                            ;; rules leaked. First, so that a jump past version
+                            ;; 2 judges perp orders against what is really free.
+                            (and (< before spot-version) (>= (gov/active-version e) spot-version))
+                            rebuild-spot-commitments
+                            (and (< before om/version) (om/active? e))
+                            (-> ;; Derived afresh before it is first read, so
                                 ;; nothing kept under version 1 is trusted.
                                 (assoc :open-orders (om/rebuild (:books e) (:markets e)))
-                                cancel-unbacked-orders)
-                            e)))
+                                cancel-unbacked-orders))))
                 ;; For `:equivocation-evidence` only, and removed before the
                 ;; block returns: a function is not state.
                 (cond-> vote-verify-fn (assoc ::vote-verify-fn vote-verify-fn)))
