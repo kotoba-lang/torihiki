@@ -477,8 +477,13 @@ operator:
 
 Storage (`put!`/`get-fn`) and signing (`sign-fn`/`verify-fn`) are injected,
 so this namespace performs no I/O and imports no crypto. The second one
-matters: `kotoba-lang/ed25519` is JVM-only, and importing it would stop the
-browser that wants to check the log from being able to.
+mattered when it was written: `kotoba-lang/ed25519` was then JVM-only, and
+importing it would have stopped the browser that wants to check the log from
+being able to. That repository is now
+[`kotoba-lang/org-ietf-ed25519`](https://github.com/kotoba-lang/org-ietf-ed25519)
+and its `ed25519.sign` is portable `.cljk` — `kotoba-lang/tsunagi` depends on
+it and runs its tests under `kbb --backend sci` — so the platform is no longer
+the reason. Injection still keeps the signer a caller's choice.
 
 This is a **sequencer, not consensus**. One writer decides the order; nothing
 here votes or tolerates a Byzantine peer. Saying otherwise would be the lie
@@ -735,7 +740,7 @@ AMU_HOME=<kotoba-lang/amu> KOTOBA_CHECKOUTS=<siblings> \
 It compiles JVM-free to **wasm32 and aarch64-macos**. The wasm is executed --
 through `amu`'s own shipped `browser-host.mjs`, not a host written for the
 test, which would be a stub of the thing under test -- and every export is
-compared against the `.cljc`. **The native artifact compiles and was not
+compared against `src/torihiki/fixed.cljk`. **The native artifact compiles and was not
 run**, so nothing here claims it agrees.
 
 ### The book, native, without a JVM
@@ -859,8 +864,8 @@ Why not `.kotoba`, given this workspace's runtime priority? Because as of
 2026-08-01 the native backend cannot host this: records are rewritten into
 stack slots at codegen time and cannot cross a function boundary, there is no
 provider or capability mechanism at all, and the recursive value work is still
-ahead. `.cljc` is the honest choice today, and the migration target is
-recorded rather than assumed.
+ahead. `.cljc` was the honest choice then (the sources have since been
+renamed `.cljk`), and the migration target is recorded rather than assumed.
 
 ## What is not here
 
