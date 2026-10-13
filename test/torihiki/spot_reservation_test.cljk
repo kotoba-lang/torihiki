@@ -127,3 +127,32 @@
         ex (st/apply-tx ex {:tx :order :account 7 :market 1 :side bk/bid :level 100 :qty 60 :flags 0})]
     (is (= 6 (count (api/fills-since ex 1 0))))
     (is (= 60 (reduce + 0 (map :qty (api/fills-since ex 1 0)))))))
+
+(deftest a-market-cannot-change-kind-or-asset-under-resting-orders
+  ;; Review of #47: the reservations would be in the wrong asset.
+  (let [ex (-> (funded 4) (assoc :bridge-authority 77))
+        ex (block ex 2 [(o 1 bk/ask 60 50)
+                        {:tx :amend-market :account 77 :market 3 :spec {:asset 88}}
+                        {:tx :amend-market :account 77 :market 3 :spec {:kind :perp}}])]
+    (is (= 77 (get-in ex [:markets 3 :asset])))
+    (is (= :spot (get-in ex [:markets 3 :kind])))
+    (is (exact? ex))))
+
+(deftest an-unfundable-spot-amend-leaves-the-order-alone
+  (let [ex (block (funded 4) 2 [(o 1 bk/bid 40 10)])
+        oid (:oid (first (bk/level-orders (get-in ex [:books 3]) bk/bid 40)))]
+    (is (= :bad-amount (api/validate ex {:tx :amend :account 1 :market 3 :oid oid :level 40 :qty 2501})))
+    (is (nil? (api/validate ex {:tx :amend :account 1 :market 3 :oid oid :level 40 :qty 2500}))
+        "100000 of quote, with the old order's 400 given back")))
+
+(deftest version-1-and-2-record-a-liquidation-fill-once
+  ;; Review of #47: the old slice's fill was recorded twice in the view.
+  (let [ex (-> (block (chain 2 4096) 1 [{:tx :oracle :market 1 :price 100}
+                                       {:tx :deposit :account 1 :amount 1000}
+                                       {:tx :deposit :account 2 :amount 100000}
+                                       {:tx :deposit :account 3 :amount 100000}
+                                       {:tx :order :account 2 :market 1 :side bk/ask :level 100 :qty 300 :flags 0}
+                                       {:tx :order :account 1 :market 1 :side bk/bid :level 100 :qty 300 :flags 0}])
+               (block 2 [{:tx :order :account 3 :market 1 :side bk/bid :level 97 :qty 300 :flags 0}
+                         {:tx :oracle :market 1 :price 97}]))]
+    (is (= 300 (reduce + 0 (map :qty (filter #(= -2 (:taker-owner %)) (api/fills-since ex 1 0))))))))

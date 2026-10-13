@@ -30,6 +30,7 @@
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.order-margin :as om]
+            [torihiki.governance :as gov]
             [torihiki.auth :as auth]
             [torihiki.oracle :as orc]
             [torihiki.validators :as vals]))
@@ -97,6 +98,28 @@
 
 (defn- perp? [ex market]
   (let [k (get-in ex [:markets market :kind])] (not (or (= :spot k) (= "spot" k)))))
+
+(defn- spot-amend-funds
+  "From protocol version 4, a spot amend that becomes a new order must be one
+  the account can fund once the order it replaces has given its reservation
+  back — or the cancel would go through and the new order silently fail,
+  losing the old one. Refused here, before either."
+  [ex {:keys [account market oid level qty]}]
+  (when (and (>= (gov/active-version ex) 4) (not (perp? ex market)))
+    (let [cur (bk/order-of (get-in ex [:books market]) oid)]
+      (when (and cur (= account (:owner cur))
+                 (not (and (= level (:level cur)) (< qty (:qty cur)))))
+        (let [buy? (= (:side cur) bk/bid)
+              asset (if buy? 0 (get-in ex [:markets market :asset]))
+              back (if buy? (* (:level cur) (:qty cur)) (:qty cur))
+              need (if buy? (* level qty) qty)
+              c (:clearing ex)
+              have (+ back (if buy?
+                             (min (- (get-in c [:accounts account :collateral] 0)
+                                     (get-in c [:committed account 0] 0))
+                                  (om/free-collateral ex account))
+                             (cl/balance c account asset)))]
+          (when (> need have) :bad-amount))))))
 
 (defn- amend-margin
   "An amend that cannot keep its place is a cancel and a new order; from
@@ -185,7 +208,8 @@
         ;; the same check `:order` gets, because that is what an amend
         ;; becomes whenever it cannot keep its place in the queue.
         :else (or (validate-order-shape ex market (assoc t :side 0 :flags 0))
-                  (amend-margin ex t)))
+                  (amend-margin ex t)
+                  (spot-amend-funds ex t)))
 
       (= tx :cancel-trigger)
       (if-not (integer? (:id t)) :missing-field nil)

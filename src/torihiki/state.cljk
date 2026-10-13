@@ -613,8 +613,8 @@
 (defn- record-fills
   "Append the fills an order settled to the block's fill view
   (`:block-fills`, outside the root): unlike the book's event buffer it holds
-  every fill, so `api/fills-since` and a node's tape show what settlement
-  did."
+  every fill, so `api/fills-since` shows what settlement did. (A node's tape
+  should read it too; torihiki-node still reads the buffer.)"
   [ex market fills]
   (if (seq fills)
     (update-in ex [:block-fills market] (fnil into []) fills)
@@ -1201,11 +1201,19 @@
         cur (get-in ex [:markets market])]
     (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec)))
       ex
+      (if (and (>= (gov/active-version ex) spot-version)
+               (or (and (contains? spec :kind) (not= (:kind spec) (:kind cur)))
+                   (and (contains? spec :asset) (not= (:asset spec) (:asset cur))))
+               (pos? (bk/resting-count (get-in ex [:books market]))))
+        ;; From version 4: what an order backs depends on the market's kind and
+        ;; asset, so neither changes under resting orders — their reservations
+        ;; would be in the wrong asset, or not reservations at all.
+        ex
       (let [ex (assoc-in ex [:markets market] (merge cur (dissoc spec :id :tick :lot)))
             ;; `:kind` can change here, and the resting-order cache covers
             ;; perp books only, so it is derived again.
             oo (om/rebuild (:books ex) (:markets ex))]
-        (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo))))))
+        (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo)))))))
 
 (defmethod apply-tx :authorize-agent
   [ex {:keys [account agent expires]}]
@@ -1579,11 +1587,12 @@
         (as-> e (reduce (fn [e [side takes]] (update-oo e om/take-consumed market side takes))
                         e @taken))
         ;; And they are fills: into the block's fill view, like any order's.
-        (as-> e (record-fills e market (concat @old-fills
-                                               (for [[side takes] @taken
-                                                     {:keys [owner level qty]} takes]
-                                                 {:taker-owner liquidator-account :maker-owner owner
-                                                  :level level :qty qty :taker-side side})))))))
+        (as-> e (record-fills e market (if v3?
+                                         (for [[side takes] @taken
+                                               {:keys [owner level qty]} takes]
+                                           {:taker-owner liquidator-account :maker-owner owner
+                                            :level level :qty qty :taker-side side})
+                                         @old-fills))))))
 
 (defmethod apply-tx :liquidate
   [ex {:keys [market]}]
@@ -1643,16 +1652,17 @@
                           ;; they could fill into exactly the position the
                           ;; new rule exists to prevent.
                           (cond-> e
+                            ;; Version 4: reservations derived afresh from the
+                            ;; spot books, which also gives back what the old
+                            ;; rules leaked. First, so that a jump past version
+                            ;; 2 judges perp orders against what is really free.
+                            (and (< before spot-version) (>= (gov/active-version e) spot-version))
+                            rebuild-spot-commitments
                             (and (< before om/version) (om/active? e))
                             (-> ;; Derived afresh before it is first read, so
                                 ;; nothing kept under version 1 is trusted.
                                 (assoc :open-orders (om/rebuild (:books e) (:markets e)))
-                                cancel-unbacked-orders)
-                            ;; Version 4: reservations derived afresh from the
-                            ;; spot books, which also gives back what the old
-                            ;; rules leaked.
-                            (and (< before spot-version) (>= (gov/active-version e) spot-version))
-                            rebuild-spot-commitments)))
+                                cancel-unbacked-orders))))
                 ;; For `:equivocation-evidence` only, and removed before the
                 ;; block returns: a function is not state.
                 (cond-> vote-verify-fn (assoc ::vote-verify-fn vote-verify-fn)))
