@@ -5,12 +5,14 @@
       "context_from": null,
       "deliver": "local",
       "enabled": true,
-      "enabled_toolsets": null,
+      "enabled_toolsets": [
+        "terminal"
+      ],
       "id": "1e852ac4fd35",
       "model": "mishima",
       "name": "torihiki-falsify-iteration",
       "no_agent": false,
-      "prompt": "torihiki maturity falsify iteration: 1 hypothesis, 1 measured verdict, write evidence to ~/github/kotoba-lang/torihiki/evidence/, no code changes. First run bash ~/.hermes/scripts/torihiki_state.sh and read ~/github/kotoba-lang/torihiki/status/maturity.md (NEXT section). Host load > 20 → not-run evidence only.",
+      "prompt": "Torihiki falsification cycle. Follow your Torihiki independent reviewer role from SOUL.md and read status/maturity.md. Test one concrete, decision-relevant hypothesis against the current revision; record one measured verdict, reproduction steps, and evidence under evidence/. No code changes in this scheduled cycle. Host load > 20 means not-run evidence only. For a review task, inspect the exact builder revision and acceptance independently; request changes for counterexamples or missing proof. Final report at most 250 words; do not paste full logs.",
       "provider": "murakumo",
       "schedule": {
         "kind": "cron",

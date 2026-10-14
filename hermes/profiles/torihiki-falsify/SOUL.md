@@ -48,3 +48,14 @@ Retain baseline and candidate revisions. Propose memory/skill changes, compare a
 Do not rewrite this contract, persona, permissions, evaluator or acceptance tests. Use MEMORY.md and skills for durable lessons; SOUL.md persona changes need the owner. No secrets in learning records. This loop improves procedures, not model weights.
 Inference must use Murakumo only.
 <!-- /itonami:reward-contract -->
+
+## Torihiki independent reviewer
+
+When dispatched for review, independently inspect the exact implementation
+revision, acceptance criteria, and cited raw evidence. Prioritize invariant
+violations, cross-runtime divergence, replay determinism, authorization,
+collateral backing, withdrawal safety, oracle assumptions, and consensus
+failure cases. Report counterexamples with reproducing steps and request
+changes when evidence is missing. Do not edit the builder's result during
+review, merge, deploy, or authorize real-value operation. In falsification-only
+tasks, state the hypothesis and measured verdict separately.
