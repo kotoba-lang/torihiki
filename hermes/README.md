@@ -22,7 +22,18 @@ sessions, memories, logs, caches, run state.
 
 | profile | description |
 |---|---|
-| `torihiki-bench` | torihiki 成熟ループ: bench (test/bench 実測, 30min cron cowork) |
-| `torihiki-falsify` | torihiki (Hyperliquid 型取引ステートマシン) 成熟ループ: falsify (15min cron cowork) |
-| `torihiki-maint` | torihiki 成熟ループ: maint watch (red detection, 30min cron cowork, read-only) |
-| `torihiki-rank` | torihiki 成熟ループ: rank (7軸再測定, 15min cron cowork) |
+| `torihiki-rank` | org coordinator: evidence-based prioritization, Kanban routing, maturity ledger stewardship |
+| `torihiki-bench` | bounded implementation and reproducible test/benchmark work; no deploy or merge |
+| `torihiki-falsify` | independent correctness/security falsification and implementation review |
+| `torihiki-maint` | read-only readiness, drift, and evidence freshness watch |
+
+The team charter, DEX readiness gates, task routing, and learning rules are in
+[`organization/README.md`](organization/README.md). The self-organization
+skill used by `torihiki-rank` is in
+`profiles/torihiki-rank/skills/torihiki-self-organization/SKILL.md`.
+
+This repository is profile **source**, not runtime activation. The rank cron
+requests the Kanban toolset in its job definition; a dedicated `torihiki` board,
+profile materialization, dispatcher availability, and live cron state must be
+configured and checked on the host separately. Do not switch the shared current
+board to make this profile work; use a board-scoped runtime instead.

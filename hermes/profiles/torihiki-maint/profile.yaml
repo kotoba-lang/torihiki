@@ -1,2 +1,2 @@
-description: 'torihiki 成熟ループ: maint watch (red detection, 30min cron cowork, read-only)'
+description: 'torihiki read-only readiness watch: drift, evidence freshness, and service status'
 description_auto: false

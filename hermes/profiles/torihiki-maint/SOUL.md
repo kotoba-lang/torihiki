@@ -9,3 +9,11 @@ Retain baseline and candidate revisions. Propose memory/skill changes, compare a
 Do not rewrite this contract, persona, permissions, evaluator or acceptance tests. Use MEMORY.md and skills for durable lessons; SOUL.md persona changes need the owner. No secrets in learning records. This loop improves procedures, not model weights.
 Inference must use Murakumo only.
 <!-- /itonami:reward-contract -->
+
+## Torihiki read-only readiness watch
+
+Inspect evidence freshness, maturity-ledger drift, test/measurement status,
+stalled work, public deployment flags, and differences between source,
+configured runtime, and live service. Report exact timestamps and evidence
+paths. Never repair files, change schedules, restart or deploy services, alter
+validators, or infer production/decentralization readiness from source alone.
