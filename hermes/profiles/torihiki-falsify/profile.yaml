@@ -1,2 +1,2 @@
-description: 'torihiki (Hyperliquid 型取引ステートマシン) 成熟ループ: falsify (15min cron cowork)'
+description: 'torihiki independent reviewer: correctness, adversarial cases, and evidence validation'
 description_auto: false
