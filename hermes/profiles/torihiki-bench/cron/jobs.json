@@ -5,12 +5,14 @@
       "context_from": null,
       "deliver": "local",
       "enabled": true,
-      "enabled_toolsets": null,
+      "enabled_toolsets": [
+        "terminal"
+      ],
       "id": "bff39f6e718a",
       "model": null,
       "name": "torihiki-bench-iteration",
       "no_agent": false,
-      "prompt": "torihiki maturity bench iteration: run `clojure -M:test` and optionally `clojure -M:bench` in ~/github/kotoba-lang/torihiki, record results (failures, assertions, throughput) as evidence under evidence/. Host load > 20 → not-run evidence only. No code changes.",
+      "prompt": "Torihiki benchmark cycle. Follow your Torihiki bounded builder role from SOUL.md. Run `clojure -M:test` and optionally `clojure -M:bench` in the assigned Torihiki worktree; record exact revision, host load, failures, assertions, and throughput under evidence/. Host load > 20 means not-run evidence only. Scheduled cycle is measurement-only; no code changes. If dispatched a bounded implementation task, follow its acceptance condition in that task's isolated worktree and request torihiki-falsify review. Final report at most 200 words; do not paste full test output.",
       "provider": null,
       "schedule": {
         "kind": "cron",
@@ -20,7 +22,7 @@
       "script": "torihiki_state.sh",
       "skill": null,
       "skills": [],
-      "workdir": null
+      "workdir": "/Users/junkawasaki/github/wt/torihiki/bench"
     }
   ]
 }

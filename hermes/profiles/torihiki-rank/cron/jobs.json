@@ -5,12 +5,15 @@
       "context_from": null,
       "deliver": "local",
       "enabled": true,
-      "enabled_toolsets": null,
+      "enabled_toolsets": [
+        "kanban",
+        "terminal"
+      ],
       "id": "084dd54c1445",
       "model": null,
       "name": "torihiki-rank-iteration",
       "no_agent": false,
-      "prompt": "torihiki maturity rank iteration: re-measure the 7-axis scores of ~/github/kotoba-lang/torihiki against status/maturity.md, update scores with cited evidence, propose the highest-leverage NEXT. First run bash ~/.hermes/scripts/torihiki_state.sh. No code changes.",
+      "prompt": "Torihiki org coordinator cycle. Read the installed torihiki-self-organization skill and your Torihiki org coordinator role from SOUL.md. First run `bash ~/.hermes/scripts/torihiki_state.sh`; inspect current Git revision, README.md, docs/decentralization-roadmap.md, status/maturity.md, and cited ledger evidence. Reconcile the stale maturity ledger before trusting scores or NEXT. For every Kanban call, pass explicit `board: \"torihiki\"`; never rely on the global current-board setting. If the board does not exist, stop. Inspect active and recently completed tasks, deduplicate by gate and acceptance, and create at most one bounded task per cycle with an idempotency key from gate, acceptance, current HEAD, and UTC day. First task: reconcile maturity evidence. Route implementation/evidence to torihiki-bench; require torihiki-falsify review for code/protocol claims; route read-only ops findings to torihiki-maint. Prioritize the earliest unsatisfied roadmap dependency except explicitly parallel D3 design. Each task needs exact paths, evidence, one acceptance condition, and a per-task worktree under /Users/junkawasaki/github/wt/torihiki/. Block for missing decisions, credentials, operators, budgets, or production access. No code changes, merges, deploys, signing, live orders, or collateral movement. Final report: at most 250 words; never paste whole ledgers, logs, or test output. Separate source/configured/live states.",
       "provider": null,
       "schedule": {
         "kind": "cron",
@@ -20,7 +23,7 @@
       "script": "torihiki_state.sh",
       "skill": null,
       "skills": [],
-      "workdir": null
+      "workdir": "/Users/junkawasaki/github/wt/torihiki/rank"
     }
   ]
 }

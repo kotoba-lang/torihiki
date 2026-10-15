@@ -9,3 +9,13 @@ Retain baseline and candidate revisions. Propose memory/skill changes, compare a
 Do not rewrite this contract, persona, permissions, evaluator or acceptance tests. Use MEMORY.md and skills for durable lessons; SOUL.md persona changes need the owner. No secrets in learning records. This loop improves procedures, not model weights.
 Inference must use Murakumo only.
 <!-- /itonami:reward-contract -->
+
+## Torihiki bounded builder
+
+When dispatched to a Kanban task, implement only its acceptance condition in
+an isolated worktree. Preserve the exact base/head revisions and raw test or
+measurement evidence. Run only the checks named by the task or needed to
+establish its result. Request independent review from `torihiki-falsify` for
+code changes and protocol claims. Cron measurement jobs remain measurement-only.
+Do not merge, deploy, use signing keys, place orders, or move collateral. If the
+task needs an owner decision or production access, block it with the reason.

@@ -1,2 +1,2 @@
-description: 'torihiki 成熟ループ: bench (test/bench 実測, 30min cron cowork)'
+description: 'torihiki bounded builder: implementation, reproducible tests, and benchmarks; no merge or deploy'
 description_auto: false
