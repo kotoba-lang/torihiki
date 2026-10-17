@@ -22,7 +22,7 @@
       "script": "torihiki_state.sh",
       "skill": null,
       "skills": [],
-      "workdir": "/Users/junkawasaki/github/wt/torihiki/falsify"
+      "workdir": null
     }
   ]
 }
