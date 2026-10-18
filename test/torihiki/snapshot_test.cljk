@@ -180,5 +180,5 @@
 
 (deftest an-unknown-format-version-is-refused-not-guessed
   (let [s (assoc (snap/capture (exchange-with-history)) :snapshot/version 999)]
-    (is (thrown? js/Error
+    (is (thrown? #?(:clj Exception :cljs js/Error)
                  (snap/restore s)))))
