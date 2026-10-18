@@ -134,7 +134,10 @@
            st
            (let [p (payment size oracle-price rate)]
              (-> st
-                 (update-in [:accounts acct :collateral] (fnil - 0) p)
-                 (update :funding-residue (fnil + 0) p))))))
+                 (update-in [:accounts acct :collateral] fx/acc (- p))
+                 ;; the residue is an accumulator: sadd, not +. falsify-10
+                 ;; walked it past 2^53 with honest settles and got two
+                 ;; different roots from the same log, no throw anywhere.
+                 (update :funding-residue fx/acc p))))))
      state
      accts)))

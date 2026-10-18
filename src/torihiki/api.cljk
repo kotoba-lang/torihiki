@@ -29,6 +29,7 @@
   (:require [torihiki.principal :as pr]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
+            [torihiki.fixed :as fx]
             [torihiki.order-margin :as om]
             [torihiki.governance :as gov]
             [torihiki.auth :as auth]
@@ -59,6 +60,29 @@
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
+(defn- account-ok?
+  "An account id must be a slab-storable i53 integer. The book keeps owners in
+  an i53 slab (`torihiki.slab`), so an id outside the domain cannot be stored
+  and the rejection must happen HERE, as `:bad-account`, rather than deeper in
+  the engine as a throw — one malformed transaction would otherwise halt every
+  validator at the same place (the `validate` contract at the top of this
+  namespace)."
+  [id]
+  (and (integer? id) (fx/in-domain? id)))
+
+(defn- spec-ok?
+  "Every INTEGER a market spec carries must be slab-storable. A spec value
+  outside the domain is a tick, lot or rate the engine will multiply later,
+  and the product check in `torihiki.fixed` is the wrong place to find out.
+  Non-integer numbers pass through here — they are judged where they are
+  used; this only caps what would be stored in an i53 field."
+  [v]
+  (cond
+    (number? v) (or (not (integer? v)) (fx/in-domain? v))
+    (map? v) (every? spec-ok? (vals v))
+    (or (vector? v) (set? v)) (every? spec-ok? v)
+    :else true))
+
 (defn- market-exists? [ex m] (contains? (:markets ex) m))
 
 (defn- publishers [ex] (vals/publishers ex))
@@ -72,8 +96,14 @@
   [ex market {:keys [side level qty flags]}]
   (cond
     (not (int-in? side 0 1)) :bad-side
-    (not (and (integer? qty) (pos? qty))) :bad-quantity
+    (not (int-in? qty 1 fx/i53-max)) :bad-quantity
     (not (int-in? level 0 (dec (n-levels ex market)))) :bad-price-level
+    ;; The notional a fill will compute is `level x qty` (`torihiki.fixed/
+    ;; notional`), so it is capped HERE rather than discovered inside a fill:
+    ;; two in-domain orders crossing at a high level produced an out-of-domain
+    ;; notional mid-apply (falsify-7), where a throw is a halted chain.
+    ;; Division, not multiplication — `level x qty` may itself overflow.
+    (and (pos? level) (> qty (quot fx/i53-max level))) :bad-amount
     (not (int-in? (or flags 0) 0 7)) :bad-flags
     :else nil))
 
@@ -202,7 +232,7 @@
 
       (= tx :amend)
       (cond
-        (not (integer? account)) :bad-account
+        (not (account-ok? account)) :bad-account
         (not (nat-int? (:oid t))) :missing-field
         ;; The new resting shape has to be a legal order in its own right —
         ;; the same check `:order` gets, because that is what an amend
@@ -216,7 +246,7 @@
 
       (= tx :trigger)
       (cond
-        (not (integer? account)) :bad-account
+        (not (account-ok? account)) :bad-account
         (not (and (integer? (:trigger-price t)) (pos? (:trigger-price t))))
         :bad-trigger-price
         (not (contains? #{:above :below} (:direction t))) :bad-trigger-direction
@@ -257,7 +287,7 @@
 
       (= tx :oracle-submit)
       (cond
-        (not (integer? account)) :bad-account
+        (not (account-ok? account)) :bad-account
         (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
         (not (contains? (publishers ex) account)) :not-a-publisher
         :else nil)
@@ -266,8 +296,8 @@
 
     :deposit
     (cond
-      (not (integer? account)) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? account)) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       ;; Collateral has to come from somewhere. With a bridge authority
       ;; configured, only it may credit an account — a deposit is the chain
       ;; recording that value arrived somewhere else, and an account that can
@@ -313,8 +343,8 @@
 
     :withdraw
     (cond
-      (not (integer? account)) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? account)) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       ;; Bridge mode: the contract pays an address, so the claim must name
       ;; one, and a malformed one is refused here rather than signed by every
       ;; validator and refused by the contract.
@@ -332,7 +362,7 @@
 
     (:authorize-agent :revoke-agent)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (string? (:agent t))) :missing-field
       ;; A base64 Ed25519 public key is 44 characters. Checking the shape here
       ;; keeps an unusable authorisation out of the state root rather than
@@ -346,9 +376,9 @@
 
     (:bond :unbond)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:validator t))) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       :else nil)
 
     :collect-unbonded
@@ -356,37 +386,37 @@
 
     (:vault-deposit :vault-withdraw)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:vault t))) :bad-account
       (and (= tx :vault-deposit)
-           (not (and (integer? (:amount t)) (pos? (:amount t))))) :bad-amount
+           (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
       (and (= tx :vault-withdraw)
            (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
       :else nil)
 
     :create-sub-account
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:sub t))) :bad-account
       :else nil)
 
     :transfer
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:to t))) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       :else nil)
 
     :set-leverage
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (and (integer? (:leverage t)) (pos? (:leverage t)))) :missing-field
       :else nil)
 
     :attest-reserves
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (integer? (:amount t)) (not (neg? (:amount t))))) :bad-amount
       :else nil)
 
@@ -398,30 +428,30 @@
     ;; only says the transaction is the shape it claims to be.
     :deposit-attest
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       (not (integer? (:credit t))) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       (not (and (string? (:asset t)) (seq (:asset t)))) :missing-field
       :else nil)
 
     ;; Contract code, published into the chain.
     :evm-deploy
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (string? (:code t)) (seq (:code t)))) :missing-field
       (odd? (count (:code t))) :missing-field
       :else nil)
 
     :set-referrer
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:referrer t))) :bad-account
       :else nil)
 
     :scale
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
       (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
@@ -449,7 +479,7 @@
 
     :twap
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
       (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
@@ -465,20 +495,20 @@
 
     :cancel-twap
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:id t))) :missing-field
       :else nil)
 
     :amend-market
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (map? (:spec t))) :missing-field
       :else nil)
 
     :list-market
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (integer? market) (pos? market))) :unknown-market
       ;; Already listed is refused here rather than in the engine so a client
       ;; sees why, and so the engine's no-op stays a safety net rather than
@@ -495,36 +525,36 @@
     ;; directly, which skips this function, and so never saw it.
     :upgrade-propose
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (integer? (:version t)) (pos? (:version t)))) :missing-field
       (not (and (integer? (:activation t)) (pos? (:activation t)))) :missing-field
       :else nil)
 
     :upgrade-vote
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:proposal t))) :missing-field
       :else nil)
 
     :withdraw-attest
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:claim t))) :missing-field
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       (not (and (string? (:dest t)) (seq (:dest t)))) :missing-field
-      (and (some? (:amount t)) (not (and (integer? (:amount t)) (pos? (:amount t))))) :bad-amount
+      (and (some? (:amount t)) (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
       :else nil)
 
     :withdraw-invalidate-attest
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:claim t))) :missing-field
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       :else nil)
 
     (:withdraw-settle :withdraw-cancel)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:claim t))) :missing-field
       ;; Who may settle and who may cancel is decided in `torihiki.state`,
       ;; where the claim itself is in hand: settling needs the bridge, and
@@ -539,7 +569,7 @@
     ;; answerable from the transaction's shape, which is all this judges.
     (:principal-claim :principal-confirm)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (pr/well-formed-principal? (:principal t))) :malformed-principal
       (and (= (:tx t) :principal-confirm)
            (not (integer? (:subject t)))) :bad-account
@@ -547,7 +577,7 @@
 
     :principal-rotate
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:subject t))) :bad-account
       (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
@@ -556,25 +586,25 @@
     ;; `:subject` field would invite a client to cancel somebody else's.
     :principal-rotate-cancel
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       :else nil)
 
     (:validator-register :validator-rotate-key)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (string? (:witness t))) :missing-field
       (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
 
     :validator-retire
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (string? (:witness t))) :missing-field
       :else nil)
 
     :equivocation-evidence
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (string? (:witness t))) :missing-field
       (not (integer? (:evidence-height t))) :missing-field
       (not (integer? (:view t))) :missing-field

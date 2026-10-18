@@ -204,8 +204,13 @@
             {:state (-> (if commit
                           (commit state)
                           (cl/apply-fill state acct mkt filled avg-price 0))
-                        (update-in [:accounts acct :collateral] (fnil - 0) fee)
-                        (update :insurance-fund (fnil + 0) fee))
+                        (update-in [:accounts acct :collateral] fx/acc (- fee))
+                        ;; accumulators, both: sadd, not (fnil + 0). The fee
+                        ;; itself is small — falsify-13 crossed 2^53 by
+                        ;; ACCUMULATING it, fund = 2^53 + 1, and the two
+                        ;; runtimes then held different funds and different
+                        ;; roots with no throw.
+                        (update :insurance-fund fx/acc fee))
              :closed filled
              :stage :book})
           ;; stage 2: hand the slice to the backstop vault at the mark
@@ -221,8 +226,8 @@
               (let [fund (get state' :insurance-fund 0)
                     covered (min fund shortfall)
                     state'' (-> state'
-                                (update :insurance-fund - covered)
-                                (update-in [:accounts acct :collateral] (fnil + 0) covered))]
+                                (update :insurance-fund fx/acc (- covered))
+                                (update-in [:accounts acct :collateral] fx/acc covered))]
                 (if (= covered shortfall)
                   {:state state'' :closed delta :stage :insurance :covered covered}
                   ;; stage 4: socialise the remainder onto profitable
