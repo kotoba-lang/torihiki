@@ -49,10 +49,23 @@
 (deftest no-order-can-halt-version-1
   ;; Review of #41: the cache kept notionals, and level x qty past 2^53 threw
   ;; inside apply-block — on version 1, where nothing reads the cache.
+  ;;
+  ;; PROTOCOL CHANGE (falsify-7, i53 overflow fix package): `level x qty` past
+  ;; the i53 ceiling is now REFUSED at validate with `:bad-amount` instead of
+  ;; resting. The property this test guards — no order may HALT the chain —
+  ;; still holds and is now joined by a stated refusal: the fill path cannot
+  ;; compute the notional of a crossing pair without leaving the domain
+  ;; (falsify-7 measured the throw at `fx/notional` mid-apply), so the boundary
+  ;; is where it stops (`torihiki.api/validate-order-shape`).
   (let [ex (block (funded 1) 2 [(order 1 bk/bid 255 40000000000000)])]
-    (is (= 40000000000000 (resting ex bk/bid 255)))
+    (is (= #{:bad-amount} (rejected ex)))
+    (is (zero? (resting ex bk/bid 255)))
     (is (in-sync? ex))
-    (is (in-sync? (snap/restore (snap/capture ex))) "nor can a restore")))
+    (is (in-sync? (snap/restore (snap/capture ex))) "nor can a restore"))
+  ;; and the largest order that still fits the domain rests as it always did
+  (let [max-qty (quot fx/i53-max 255)
+        ex (block (funded 1) 2 [(order 1 bk/bid 255 max-qty)])]
+    (is (= max-qty (resting ex bk/bid 255)))))
 
 ;; ── version 2: what is refused ─────────────────────────────────────────────
 

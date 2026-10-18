@@ -168,9 +168,11 @@
   (check :mul-rate rate)
   (if (or (zero? amount) (zero? rate))
     0
-    (let [neg? (not= (neg? amount) (neg? rate))
-          a (if (neg? amount) (- amount) amount)
-          b (if (neg? rate) (- rate) rate)
+    (let [amount-neg? (neg? amount)
+          rate-neg? (neg? rate)
+          neg-out? (not= amount-neg? rate-neg?)
+          a (if amount-neg? (- amount) amount)
+          b (if rate-neg? (- rate) rate)
           qs (quot b rate-scale)
           rs (rem b rate-scale)
           qa (quot a rate-scale)
@@ -186,7 +188,7 @@
                         {:where :mul-rate :value [amount rate] :i53-max i53-max})))
       (let [m (+ (* a qs) (* qa rs) (quot p 10000) (quot tail rate-scale))
             exact? (zero? (rem tail rate-scale))
-            floor-m (if neg?
+            floor-m (if neg-out?
                       (if exact? (- m) (- (inc m)))
                       m)]
         (check :mul-rate floor-m)))))

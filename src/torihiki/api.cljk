@@ -186,13 +186,13 @@
       (not (market-exists? ex market)) :unknown-market
 
       (= tx :order)
-      (or (when-not (integer? account) :bad-account)
+      (or (when-not (account-ok? account) :bad-account)
           ;; A builder fee is a number the trader may not have read. The cap is
           ;; what stands between an interface earning from routing and an
           ;; interface taking the account.
           (when (some? (:builder t))
             (cond
-              (not (integer? (:builder t))) :bad-account
+              (not (account-ok? (:builder t))) :bad-account
               (not (and (integer? (:builder-fee t)) (pos? (:builder-fee t))))
               :missing-field
               (> (:builder-fee t) max-builder-fee-rate) :builder-fee-too-high))
@@ -228,7 +228,7 @@
       ;; Nothing but the market and the signer, both already checked. There is
       ;; no id to get wrong, which is the point: a maker pulling out does not
       ;; want a transaction that can be refused for a shape reason.
-      (when-not (integer? account) :bad-account)
+      (when-not (account-ok? account) :bad-account)
 
       (= tx :amend)
       (cond
@@ -247,7 +247,7 @@
       (= tx :trigger)
       (cond
         (not (account-ok? account)) :bad-account
-        (not (and (integer? (:trigger-price t)) (pos? (:trigger-price t))))
+        (not (int-in? (:trigger-price t) 1 fx/i53-max))
         :bad-trigger-price
         (not (contains? #{:above :below} (:direction t))) :bad-trigger-direction
         (not (map? (:order t))) :bad-trigger-order
@@ -258,7 +258,7 @@
 
       (= tx :oracle)
       (cond
-        (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
+        (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
         ;; With publishers configured, the direct setter is closed. Leaving
         ;; both doors open would make the aggregate decorative — an attacker
         ;; would simply use the one that does not aggregate.
@@ -288,7 +288,7 @@
       (= tx :oracle-submit)
       (cond
         (not (account-ok? account)) :bad-account
-        (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
+        (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
         (not (contains? (publishers ex) account)) :not-a-publisher
         :else nil)
 
@@ -332,13 +332,22 @@
       ;;
       ;; Omitted, the deposit pays the signer, which is what it did before a
       ;; bridge could exist.
-      (and (some? (:credit t)) (not (integer? (:credit t)))) :bad-account
+      (and (some? (:credit t)) (not (account-ok? (:credit t)))) :bad-account
       ;; Only a bridge may pay somebody else. Without this, any account could
       ;; credit any other on a chain with no authority configured — harmless
       ;; there in isolation, and a way to obscure where collateral came from
       ;; on a chain where the mint is supposed to be the only source.
       (and (some? (:credit t)) (nil? (:bridge-authority ex))
            (not= (:credit t) account)) :not-the-bridge
+      ;; Balance-domain gate (falsify-8): a deposit whose credit would take
+      ;; `collateral` past the i53 ceiling is refused HERE, with a reason.
+      ;; Two in-domain deposits stacked past 2^53 and the two runtimes held
+      ;; different collateral — root divergence, no throw anywhere. The
+      ;; engine's `torihiki.clearing/deposit` refuses the same deposit as a
+      ;; no-op; this clause is what tells the client why.
+      (> (+ (get-in (:clearing ex) [:accounts (or (:credit t) account) :collateral] 0)
+            (:amount t))
+         fx/i53-max) :bad-amount
       :else nil)
 
     :withdraw
@@ -370,24 +379,24 @@
       (not= 44 (count (:agent t))) :missing-field
       (and (= tx :authorize-agent)
            (some? (:expires t))
-           (not (and (integer? (:expires t)) (pos? (:expires t)))))
+           (not (int-in? (:expires t) 1 fx/i53-max)))
       :missing-field
       :else nil)
 
     (:bond :unbond)
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:validator t))) :bad-account
+      (not (account-ok? (:validator t))) :bad-account
       (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       :else nil)
 
     :collect-unbonded
-    (if (integer? account) nil :bad-account)
+    (if (account-ok? account) nil :bad-account)
 
     (:vault-deposit :vault-withdraw)
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:vault t))) :bad-account
+      (not (account-ok? (:vault t))) :bad-account
       (and (= tx :vault-deposit)
            (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
       (and (= tx :vault-withdraw)
@@ -403,7 +412,7 @@
     :transfer
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:to t))) :bad-account
+      (not (account-ok? (:to t))) :bad-account
       (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       :else nil)
 
@@ -430,7 +439,7 @@
     (cond
       (not (account-ok? account)) :bad-account
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
-      (not (integer? (:credit t))) :bad-account
+      (not (account-ok? (:credit t))) :bad-account
       (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       (not (and (string? (:asset t)) (seq (:asset t)))) :missing-field
       :else nil)
@@ -446,7 +455,7 @@
     :set-referrer
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:referrer t))) :bad-account
+      (not (account-ok? (:referrer t))) :bad-account
       :else nil)
 
     :scale
@@ -454,14 +463,14 @@
       (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
-      (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
+      (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
       (not (and (integer? (:level t)) (not (neg? (:level t))))) :bad-price-level
       ;; A ladder of one is an order, and this is not the way to send one.
       (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
       :missing-field
       ;; A step of zero stacks every rung on one level, which is an order for
       ;; count x qty wearing a ladder's clothes.
-      (not (and (integer? (:step t)) (pos? (:step t)))) :missing-field
+      (not (int-in? (:step t) 1 fx/i53-max)) :missing-field
       ;; From version 2 the ladder is checked WHOLE, as it is placed whole:
       ;; refusing it here is what keeps the engine from placing the rungs it
       ;; can back and silently dropping the rest.
@@ -482,7 +491,7 @@
       (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
-      (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
+      (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
       ;; A schedule of one slice is an order, and a schedule of none is
       ;; nothing. Both are better refused than quietly turned into something
       ;; the trader did not ask for.
@@ -504,6 +513,9 @@
       (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (map? (:spec t))) :missing-field
+      ;; every integer a spec carries must be slab-storable — it is a tick,
+      ;; lot or rate the engine will multiply later (see `spec-ok?`)
+      (not (spec-ok? (:spec t))) :missing-field
       :else nil)
 
     :list-market
@@ -515,8 +527,9 @@
       ;; the only check.
       (contains? (:markets ex) market) :unknown-market
       (not (map? (:spec t))) :missing-field
-      (not (and (integer? (:tick (:spec t))) (pos? (:tick (:spec t))))) :missing-field
-      (not (and (integer? (:lot (:spec t))) (pos? (:lot (:spec t))))) :missing-field
+      (not (spec-ok? (:spec t))) :missing-field
+      (not (int-in? (:tick (:spec t)) 1 fx/i53-max)) :missing-field
+      (not (int-in? (:lot (:spec t)) 1 fx/i53-max)) :missing-field
       :else nil)
 
     ;; It had no case here, so through `apply-block` — the only path a

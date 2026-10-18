@@ -1,0 +1,194 @@
+(ns torihiki.overflow-gates-test
+  "The i53 overflow fix package, pinned by REASON and by VALUE.
+
+  Everything here corresponds to a measured failure, not a hypothetical:
+  falsify-6/7 (a throw inside apply-block halts every validator), falsify-8
+  (stacked deposits past 2^53 fork the runtimes), falsify-9 through falsify-13
+  (accumulators — :deficit, :funding-residue, :fees-collected, :insurance-fund,
+  collateral — walked past 2^53 with honest traffic and produced two different
+  state roots from one log, no throw anywhere), and falsify-11's secondary
+  finding (the reducing fill's `entry-notional x closed` product: bare overflow
+  on the JVM, silent rounding on JS).
+
+  The gates refuse with a keyword from `torihiki.api/reasons` or clamp to a
+  pinned value. Nothing in this file may pass because something threw."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.funding :as fnd]
+            [torihiki.liquidation :as liq]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+;; ── the accumulator primitive ───────────────────────────────────────────────
+
+(deftest accumulation-saturates-instead-of-forking
+  (testing "sadd is exact inside the domain and clamps at its edges"
+    (is (= 5 (fx/sadd 2 3)))
+    (is (= 0 (fx/acc nil 0)) "nil accumulates as 0, like (fnil + 0)")
+    (is (= fx/i53-max (fx/sadd fx/i53-max 1)))
+    (is (= fx/i53-max (fx/sadd fx/i53-max 1000000)))
+    (is (= fx/i53-min (fx/sadd fx/i53-min -1))))
+  (testing "the falsify-13 crossing value (2^53 + 1) can no longer be stored"
+    (is (= fx/i53-max (fx/acc (- fx/i53-max 1) 2)))))
+
+;; ── products ────────────────────────────────────────────────────────────────
+
+(deftest mul-rate-computes-without-the-product
+  (testing "exact where the old direct product was exact"
+    (is (= 100000 (fx/mul-rate 1000000 (fx/pct 10))))
+    (is (= 3 (fx/mul-rate 7 (fx/pct 50))) "floor, toward negative infinity")
+    (is (= 0 (fx/mul-rate 3 1)) "below one unit, floored to zero"))
+  (testing "floor semantics on the negative side"
+    (is (= -1 (fx/mul-rate -3 1)))
+    (is (= -100000 (fx/mul-rate -1000000 (fx/pct 10)))))
+  (testing "the product of amount x rate-scale is exactly amount — this used
+            to be a product of ~9e24: bare overflow on the JVM, rounding on JS"
+    (is (= fx/i53-max (fx/mul-rate fx/i53-max fx/rate-scale)))
+    (is (= 100000000000 (fx/mul-rate 100000000000 fx/rate-scale))))
+  (testing "an out-of-domain RESULT is refused the same way on both runtimes,
+            by the same :where, instead of overflowing one and rounding the other"
+    (let [where (try (fx/mul-rate fx/i53-max (* 2 fx/rate-scale)) :no-throw
+                     (catch #?(:clj Exception :cljs js/Error) e
+                       (:where (ex-data e))))]
+      (is (= :mul-rate where)))
+    (let [where (try (fx/mul-rate (inc fx/i53-max) 0) :no-throw
+                     (catch #?(:clj Exception :cljs js/Error) e
+                       (:where (ex-data e))))]
+      (is (= :mul-rate where) "an out-of-domain input is refused up front"))))
+
+(deftest pmul-bounds-the-product-before-computing-it
+  (is (= 12 (fx/pmul 3 4)))
+  (is (= 0 (fx/pmul 0 999)))
+  (testing "falsify-11's 7.2e14 x 1e12 clamps deterministically on both runtimes"
+    (is (= fx/i53-max (fx/pmul 720000000000000 1000000000000)))
+    (is (= fx/i53-min (fx/pmul -720000000000000 1000000000000)))))
+
+;; ── the accumulators in the engine ──────────────────────────────────────────
+
+(deftest fees-collected-never-leaves-the-domain
+  ;; falsify-11: fees are small; the ACCUMULATOR crossed 2^53 and forked.
+  (let [s (-> (cl/new-state)
+              (cl/deposit 1 1000000)
+              (assoc :fees-collected (- fx/i53-max 1)))
+        s' (cl/apply-fill s 1 1 10 500 (fx/pct 10))]
+    (is (= fx/i53-max (:fees-collected s')))))
+
+(deftest funding-residue-never-leaves-the-domain
+  ;; falsify-10: honest settles walked the residue to 2^53 + 1.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :positions 1] {:size 10 :entry-notional 5000})
+              (assoc-in [:accounts 1 :collateral] 1000000)
+              (assoc :funding-residue (- fx/i53-max 1)))
+        s' (fnd/apply-funding s 1 500 (fx/pct 4))]
+    (is (= fx/i53-max (:funding-residue s')))
+    (is (fx/in-domain? (get-in s' [:accounts 1 :collateral])))))
+
+(deftest insurance-fund-never-leaves-the-domain
+  ;; falsify-13: stage-1 fees accumulated the fund to 2^53 + 1.
+  (let [s (-> (cl/new-state)
+              (cl/deposit 1 1000000)
+              (assoc-in [:accounts 1 :positions 1] {:size 10 :entry-notional 5000})
+              (assoc :insurance-fund (- fx/i53-max 1)))
+        r (liq/liquidate s 1 1 600 1 {} liq/default-params
+                         (fn [_delta _mark] [-10 600]))]
+    (is (= fx/i53-max (:insurance-fund (:state r))) "stage 1 fee, saturated")
+    (is (= :book (:stage r)))))
+
+;; ── deposits: the falsify-8 regression ──────────────────────────────────────
+
+(deftest deposit-refuses-rather-than-throws
+  (let [s (cl/new-state)]
+    (is (= s (cl/deposit s 1 (inc fx/i53-max)))
+        "out-of-domain amount is a no-op, not a throw (falsify-6 class)")
+    (is (= s (cl/deposit s 1 0)))
+    (is (= s (cl/deposit s 1 -5)))))
+
+(deftest deposits-cannot-stack-past-the-ceiling
+  ;; falsify-8: two in-domain deposits took collateral to 2 x i53-max and the
+  ;; runtimes then held different numbers. The gate refuses the deposit whose
+  ;; credit would cross the ceiling.
+  (let [s (-> (cl/new-state) (cl/deposit 1 (- fx/i53-max 100)))]
+    (is (= (- fx/i53-max 100) (get-in s [:accounts 1 :collateral])))
+    (is (= (- fx/i53-max 100)
+           (get-in (cl/deposit s 1 200) [:accounts 1 :collateral]))
+        "the overflowing deposit is refused whole")
+    (is (= (- fx/i53-max 50)
+           (get-in (cl/deposit s 1 50) [:accounts 1 :collateral]))
+        "and a deposit that fits still lands")))
+
+;; ── deficit: the falsify-12 halt regression ─────────────────────────────────
+
+(deftest settle-deficit-moves-only-what-fits
+  (testing "an ordinary hole moves whole, collateral lands at zero"
+    (let [s (-> (cl/new-state) (assoc-in [:accounts 1 :collateral] -100))
+          s' (cl/settle-deficit s 1)]
+      (is (zero? (get-in s' [:accounts 1 :collateral])))
+      (is (= 100 (get-in s' [:accounts 1 :deficit])))))
+  (testing "an out-of-domain hole caps instead of throwing
+            (falsify-12: fx/check :deficit halted apply-block mid-sweep)"
+    (let [s (-> (cl/new-state) (assoc-in [:accounts 1 :collateral] (- fx/i53-max)))
+          s' (cl/settle-deficit s 1)]
+      (is (zero? (get-in s' [:accounts 1 :collateral])))
+      (is (= fx/i53-max (get-in s' [:accounts 1 :deficit])))))
+  (testing "a deficit already at the ceiling keeps the residue on collateral —
+            total, deterministic, and the identity collateral - deficit holds"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:accounts 1 :collateral] -100)
+                (assoc-in [:accounts 1 :deficit] fx/i53-max))
+          s' (cl/settle-deficit s 1)]
+      (is (= -100 (get-in s' [:accounts 1 :collateral])))
+      (is (= fx/i53-max (get-in s' [:accounts 1 :deficit]))))))
+
+;; ── the reducing fill's product (falsify-11's secondary finding) ────────────
+
+(deftest a-reducing-fill-on-a-huge-basis-does-not-halt
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :positions 1]
+                        {:size 2000000000000 :entry-notional 720000000000000})
+              (assoc-in [:accounts 1 :collateral] 1000000000000))
+        s' (cl/apply-fill s 1 1 -1000000000000 720 0)]
+    (is (= 1000000000000 (:size (cl/position s' 1 1))))
+    (is (fx/in-domain? (:entry-notional (cl/position s' 1 1))))
+    (is (fx/in-domain? (get-in s' [:accounts 1 :collateral])))))
+
+;; ── validate: every gate refuses with its reason ────────────────────────────
+
+(defn- ex-for []
+  {:markets {1 {:kind :perp}}
+   :books {1 {:n-levels 64}}
+   :clearing (cl/new-state)})
+
+(deftest validate-caps-every-amount-price-and-qty
+  (let [ex (ex-for)]
+    (is (= :bad-amount (api/validate ex {:tx :deposit :account 1 :amount (inc fx/i53-max)})))
+    (is (= :bad-amount (api/validate ex {:tx :deposit :account 1 :amount 0})))
+    (is (= :bad-account (api/validate ex {:tx :deposit :account (inc fx/i53-max) :amount 5})))
+    (is (= :bad-quantity
+           (api/validate ex {:tx :order :account 1 :market 1 :side 0 :level 1
+                             :qty (inc fx/i53-max)})))
+    (is (= :bad-amount
+           (api/validate ex {:tx :order :account 1 :market 1 :side 0 :level 2
+                             :qty (inc (quot fx/i53-max 2))}))
+        "level x qty would exceed the ceiling (falsify-7)")
+    (is (= :bad-price-level
+           (api/validate ex {:tx :oracle :account 1 :market 1 :price (inc fx/i53-max)})))
+    (is (= :bad-trigger-price
+           (api/validate ex {:tx :trigger :account 1 :market 1
+                             :trigger-price (inc fx/i53-max) :direction :above
+                             :order {:side 0 :level 1 :qty 1}})))
+    (is (= :missing-field
+           (api/validate ex {:tx :list-market :account 1 :market 2
+                             :spec {:tick (inc fx/i53-max) :lot 1}})))
+    (is (= :missing-field
+           (api/validate ex {:tx :amend-market :account 1 :market 1
+                             :spec {:max-leverage (inc fx/i53-max)}})))
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 100})) "in-domain still passes")))
+
+(deftest validate-refuses-a-deposit-past-the-balance-ceiling
+  ;; falsify-8's gate at the boundary: the client is TOLD (:bad-amount), and
+  ;; the engine refuses the same deposit as a no-op.
+  (let [ex (-> (ex-for)
+               (assoc-in [:clearing :accounts 1 :collateral] (- fx/i53-max 10)))]
+    (is (= :bad-amount (api/validate ex {:tx :deposit :account 1 :amount 20})))
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 5})))))
