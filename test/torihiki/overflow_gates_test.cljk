@@ -6,9 +6,11 @@
   (stacked deposits past 2^53 fork the runtimes), falsify-9 through falsify-13
   (accumulators — :deficit, :funding-residue, :fees-collected, :insurance-fund,
   collateral — walked past 2^53 with honest traffic and produced two different
-  state roots from one log, no throw anywhere), and falsify-11's secondary
-  finding (the reducing fill's `entry-notional x closed` product: bare overflow
-  on the JVM, silent rounding on JS).
+  state roots from one log, no throw anywhere), falsify-11's secondary finding
+  (the reducing fill's `entry-notional x closed` product: bare overflow on the
+  JVM, silent rounding on JS), and falsify-14 (the merkle-sum AGGREGATE over
+  in-domain account collaterals: the node preimage stringifies the sum, so the
+  root hash itself forked).
 
   The gates refuse with a keyword from `torihiki.api/reasons` or clamp to a
   pinned value. Nothing in this file may pass because something threw."
@@ -18,7 +20,11 @@
             [torihiki.funding :as fnd]
             [torihiki.liquidation :as liq]
             [torihiki.api :as api]
-            [torihiki.state :as st]))
+            [torihiki.state :as st]
+            [torihiki.commit :as cm]
+            [merkle-sum.core :as ms]
+            [kotoba.bytes :as b]
+            [kotoba.bytes.sha256 :as sha]))
 
 ;; ── the accumulator primitive ───────────────────────────────────────────────
 
@@ -192,3 +198,85 @@
                (assoc-in [:clearing :accounts 1 :collateral] (- fx/i53-max 10)))]
     (is (= :bad-amount (api/validate ex {:tx :deposit :account 1 :amount 20})))
     (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 5})))))
+
+;; ── the merkle aggregate (falsify-14) ──────────────────────────────────────
+;;
+;; falsify-14 (frame 452): IN-DOMAIN account collaterals aggregated past the
+;; ceiling inside the merkle-sum tree. Every node preimage stringifies its
+;; children's sums, so an intermediate node sum of 2^53+1 — an odd value past
+;; the ceiling — hashed as "9007199254740993" on the JVM and
+;; "9007199254740992" on JS: the two runtimes hashed different preimages and
+;; the ROOT HASH forked. Not a scalar field diverging quietly — the
+;; authenticated log itself. The fold saturates now, like every accumulator.
+
+(defn- agg-leaves
+  "Three account leaves with the given collateral sums — falsify-14's shape."
+  [s1 s2 s3]
+  [{:id "04:01:0000000000000001" :bytes [1] :sum s1}
+   {:id "04:01:0000000000000002" :bytes [2] :sum s2}
+   {:id "04:01:0000000000000003" :bytes [3] :sum s3}])
+
+(defn- thash
+  "The hasher commit.cljk injects into merkle-sum — SHA-256 over the string.
+  Re-declared here so the expected node hashes below are built from merkle-sum's
+  own preimage spec, not from the code under test."
+  [s]
+  (sha/sha256-hex (b/utf8-encode s)))
+
+(deftest the-merkle-aggregate-saturates-like-every-accumulator
+  (testing "below the ceiling the tree is byte-identical to merkle-sum's own"
+    (let [ls (agg-leaves 100 200 300)]
+      (is (= (:root (ms/build-tree thash
+                                   (mapv (fn [l] (assoc l :hash (cm/leaf-hash l)
+                                                        :sum (:sum l 0)))
+                                         ls)
+                                   {:id->str identity}))
+             (:root (cm/tree ls))))))
+  (testing "the falsify-14 fork shape: the pair node's sum is 2^53+1, and that
+            sum is what the ROOT preimage stringifies. It clamps now, so both
+            runtimes hash the same preimage."
+    (let [ls (agg-leaves fx/i53-max 2 1)
+          [l1 l2 l3] ls
+          h1 (cm/leaf-hash l1) h2 (cm/leaf-hash l2) h3 (cm/leaf-hash l3)
+          ;; the clamped pair-node sum is a VALUE pin: it used to be
+          ;; 9007199254740993 in the preimage on the JVM, 9007199254740992 on JS
+          expected (ms/node-hash thash
+                                 (ms/node-hash thash h1 fx/i53-max h2 2)
+                                 fx/i53-max h3 1)]
+      (is (= expected (cm/root ls)))
+      (is (= fx/i53-max (:sum (:root (cm/tree ls)))))
+      (is (every? (fn [node] (fx/in-domain? (:sum node)))
+                  (mapcat identity (:levels (cm/tree ls))))
+          "every node sum — leaf, internal, root — stays in the domain")))
+  (testing "three full-size collaterals aggregate to the ceiling, not past it"
+    (let [ls (agg-leaves fx/i53-max fx/i53-max fx/i53-max)]
+      (is (= fx/i53-max (cm/reserves ls)) "was 27021597764222973")
+      (is (= fx/i53-max (:sum (:root (cm/tree ls))))))))
+
+(deftest reserves-and-shortfall-report-clamped-values
+  (let [ls (agg-leaves fx/i53-max fx/i53-max fx/i53-max)]
+    (is (= fx/i53-max (cm/shortfall ls 0)) "the total clamps before it subtracts")
+    (is (= (- fx/i53-max 100) (cm/shortfall ls 100)))
+    (is (= 0 (cm/shortfall ls (inc fx/i53-max)))
+        "an attestation past the ceiling clamps into the domain first"))
+  (testing "below the ceiling nothing changes"
+    (let [ls (agg-leaves 100 200 300)]
+      (is (= 600 (cm/reserves ls)))
+      (is (= 450 (cm/shortfall ls 150)))
+      (is (nil? (cm/shortfall ls nil)) "nil is still not zero"))))
+
+(deftest a-clamped-trees-proofs-fail-closed
+  (testing "an in-domain tree proves exactly as before"
+    (let [ls (agg-leaves 100 200 300)
+          p (cm/proof ls "04:01:0000000000000002")]
+      (is (true? (cm/verify p {:hash (cm/root ls) :sum (cm/reserves ls)})))
+      (is (true? (cm/verify p (cm/root ls))) "hash-only root, total from the proof")))
+  (testing "a saturated tree refuses every proof on both runtimes alike —
+            merkle-sum's verify recomputes with plain + and lands on the other
+            side of every clamp the fold made, so the root hash cannot be
+            re-derived. That is the right failure: the OLD tree VERIFIED here."
+    (doseq [ls [(agg-leaves fx/i53-max fx/i53-max fx/i53-max)
+                (agg-leaves fx/i53-max 2 1)]]
+      (let [p (cm/proof ls "04:01:0000000000000002")]
+        (is (false? (cm/verify p {:hash (cm/root ls) :sum (cm/reserves ls)})))
+        (is (false? (cm/verify p (cm/root ls))))))))
