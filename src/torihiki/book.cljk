@@ -85,6 +85,41 @@
                  ev-level ev-qty ev-taker-side
                  ctl])
 
+(def ^:const max-n-levels
+  "The largest price ladder the four-level bit ladder addresses (32^4)."
+  1048576)
+
+(def ^:const max-slots
+  "The largest order slab the five-level bit ladder addresses (2^25). Also the
+  ceiling on `ev-cap`, which is an allocation like any other and reached no
+  bound at all."
+  33554432)
+
+(defn book-opts-ok?
+  "True when `opts` is nil or a `new-book` option map whose numbers are
+  positive integers the allocator can actually allocate.
+
+  `new-book` enforces these constraints by THROWING — right for a programmer,
+  fatal for a chain: its transaction caller is `apply-tx :list-market`, and a
+  throw inside apply-block halts every validator at the same place (the
+  falsify-6/7 class, measured on `:deposit`/`:order`). `torihiki.api/validate`
+  refuses such a transaction with `:missing-field`; `apply-tx` no-ops on this
+  predicate, so the throw stays loud in tools and tests but is unreachable
+  from a transaction."
+  [opts]
+  (or (nil? opts)
+      (and (map? opts)
+           (let [{:keys [n-levels cap ev-cap]} opts]
+             (and (or (nil? n-levels)
+                      (and (integer? n-levels) (pos? n-levels)
+                           (zero? (rem n-levels 32)) (<= n-levels max-n-levels)))
+                  (or (nil? cap)
+                      (and (integer? cap) (pos? cap)
+                           (zero? (rem cap 32)) (<= cap max-slots)))
+                  (or (nil? ev-cap)
+                      (and (integer? ev-cap) (pos? ev-cap)
+                           (<= ev-cap max-slots))))))))
+
 (defn new-book
   "Allocate a book. `n-levels` is the size of the price ladder in ticks and
   must be a multiple of 32 no greater than 32^4; `cap` is the maximum number
@@ -93,9 +128,9 @@
     :or {n-levels 65536 cap 1048576 ev-cap 65536}}]
   (when (pos? (rem n-levels 32))
     (throw (ex-info "n-levels must be a multiple of 32" {:n-levels n-levels})))
-  (when (> n-levels 1048576)
+  (when (> n-levels max-n-levels)
     (throw (ex-info "n-levels exceeds what a four-level bit ladder addresses"
-                    {:n-levels n-levels :max 1048576})))
+                    {:n-levels n-levels :max max-n-levels})))
   ;; The order slab is now addressed by a bit ladder too, so it takes the same
   ;; two constraints the price ladder always had.
   (when (pos? (rem cap 32))
@@ -105,9 +140,9 @@
   ;; ladder — so the slot ladder needs one more level than the price ladder.
   ;; Shrinking the benchmark to fit a four-level ladder would have been
   ;; tailoring the measurement to the implementation.
-  (when (> cap 33554432)
+  (when (> cap max-slots)
     (throw (ex-info "cap exceeds what a five-level bit ladder addresses"
-                    {:cap cap :max 33554432})))
+                    {:cap cap :max max-slots})))
   (let [w0 (quot n-levels 32)
         w1 (inc (quot (dec w0) 32))
         w2 (inc (quot (dec w1) 32))

@@ -1259,7 +1259,12 @@
   (let [bridge (:bridge-authority ex)]
     (if (or (nil? bridge) (not= account bridge)
             (contains? (:markets ex) market)
-            (not (map? spec)))
+            (not (map? spec))
+            ;; The safety net behind `torihiki.api/validate`'s `:missing-field`:
+            ;; `new-book` enforces its shape constraints by THROWING, and a
+            ;; throw in here is a halted chain, so the transaction is refused
+            ;; whole before the allocator sees it.
+            (not (bk/book-opts-ok? book-opts)))
       ex
       (-> ex
           (assoc-in [:markets market] (assoc spec :id market))
@@ -2220,7 +2225,10 @@
    ;; The root is supposed to make what was refused as agreed as what was
    ;; executed, and for these five it agreed only that something was.
    ;; 19: protocol version 2, `torihiki.order-margin`. Appended.
-   :insufficient-margin 19})
+   :insufficient-margin 19
+   ;; 20: the validate-layer rate cap (`torihiki.api/rates-ok?`), the rate-cap
+   ;; clause of the i53 fix package. Appended.
+   :rate-too-high 20})
 
 (defn- encode-rejections
   [rejected]
