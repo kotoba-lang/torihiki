@@ -47,7 +47,8 @@
   Liveness slashing. A validator that is merely offline costs the chain its
   rounds and is not punished here; equivocation is the one offence that is
   unambiguous from signatures alone."
-  (:require [torihiki.clearing :as cl]))
+  (:require [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]))
 
 (def ^:const min-set-size
   "Four: the smallest set that tolerates one Byzantine member (n = 3f + 1)."
@@ -265,7 +266,7 @@
   (let [take! (fn [c acct amount]
                 (let [have (get-in c [:accounts acct :collateral] 0)
                       amt (min amount (max 0 have))]
-                  [(update-in c [:accounts acct :collateral] (fnil - 0) amt) amt]))
+                  [(update-in c [:accounts acct :collateral] fx/acc (- amt)) amt]))
         ;; live bonds
         [c total]
         (reduce (fn [[c total] acct]
@@ -337,7 +338,7 @@
                      (min own (quot (* total slash-reward-percent) 100)))
             clearing (cond-> clearing
                        (pos? reward) (cl/deposit account reward)
-                       true (update :insurance-fund (fnil + 0) (- total reward)))]
+                       true (update :insurance-fund fx/acc (- total reward)))]
         (-> ex
             (assoc :clearing clearing)
             (assoc-in [:validators witness :jailed?] true)

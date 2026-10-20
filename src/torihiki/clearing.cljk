@@ -212,7 +212,7 @@
   (let [amount (long amount)]
     (if (or (not (pos? amount)) (> amount (long free)))
       state
-      (update-in state [:bonds acct validator] (fnil + 0) amount))))
+      (update-in state [:bonds acct validator] fx/acc amount))))
 
 (defn unbond
   "Begin unbonding `amount` from `validator`. It leaves the bond now and
@@ -227,7 +227,7 @@
     (if (or (not (pos? amount)) (> amount have))
       state
       (-> state
-          (update-in [:bonds acct validator] - amount)
+          (update-in [:bonds acct validator] fx/acc (- amount))
           (update-in [:unbonding acct] (fnil conj [])
                      {:validator validator :amount amount
                       :at (+ (long height) unbond-delay-blocks)})))))
@@ -291,8 +291,8 @@
           (-> state
               (update-in [:accounts acct :collateral] fx/acc (- amount))
               (update-in [:accounts vault :collateral] fx/acc amount)
-              (update-in [:vaults vault :shares acct] (fnil + 0) minted)
-              (update-in [:vaults vault :total-shares] (fnil + 0) minted)))))))
+              (update-in [:vaults vault :shares acct] fx/acc minted)
+              (update-in [:vaults vault :total-shares] fx/acc minted)))))))
 
 (defn vault-withdraw
   "Burn `shares` of `acct`'s holding in `vault` and pay out their share of its
@@ -316,8 +316,8 @@
           (-> state
               (update-in [:accounts vault :collateral] fx/acc (- payout))
               (update-in [:accounts acct :collateral] fx/acc payout)
-              (update-in [:vaults vault :shares acct] - shares)
-              (update-in [:vaults vault :total-shares] - shares)))))))
+              (update-in [:vaults vault :shares acct] fx/acc (- shares))
+              (update-in [:vaults vault :total-shares] fx/acc (- shares))))))))
 
 (defn family
   "The owner an account belongs to: itself, or the account it is a sub-account
@@ -405,7 +405,7 @@
     (-> state
         (assoc-in [:accounts acct :positions mkt] pos')
         (update-in [:accounts acct :collateral] fx/acc (- realized fee))
-        (update-in [:open-interest mkt] (fnil + 0) oi-delta)
+        (update-in [:open-interest mkt] fx/acc oi-delta)
         ;; The venue keeps the fee, less the referrer's share.
         ;;
         ;; Out of what the exchange keeps, never out of what the trader pays:
@@ -538,12 +538,12 @@
   whichever filled first — the other nine would create the asset out of
   nothing when they filled."
   [state acct asset amount]
-  (update-in state [:committed acct asset] (fnil + 0) (long amount)))
+  (update-in state [:committed acct asset] fx/acc (long amount)))
 
 (defn release-spot
   "Give back a reservation — the order filled, or was cancelled."
   [state acct asset amount]
-  (update-in state [:committed acct asset] (fnil - 0) (long amount)))
+  (update-in state [:committed acct asset] fx/acc (- (long amount))))
 
 (defn spot-fill
   "Settle one spot fill: `qty` of `asset` at `price`, buyer to seller.
@@ -561,9 +561,9 @@
     (-> state
         ;; buyer: pays quote, receives asset
         (update-in [:accounts buyer :collateral] fx/acc (- (+ quote-amt bf)))
-        (update-in [:balances buyer asset] (fnil + 0) qty)
+        (update-in [:balances buyer asset] fx/acc qty)
         ;; seller: gives asset, receives quote
-        (update-in [:balances seller asset] (fnil - 0) qty)
+        (update-in [:balances seller asset] fx/acc (- qty))
         (update-in [:accounts seller :collateral] fx/acc (- quote-amt sf))
         (update :fees-collected fx/acc (+ bf sf)))))
 
@@ -638,13 +638,13 @@
         rec (get-in state [:volume acct])]
     (assoc-in state [:volume acct]
               (cond
-                (nil? rec) {:epoch e :cur notional :prev 0}
-                (= (:epoch rec 0) e) (update rec :cur (fnil + 0) notional)
+                (nil? rec) {:epoch e :cur (fx/acc 0 notional) :prev 0}
+                (= (:epoch rec 0) e) (update rec :cur fx/acc notional)
                 ;; One epoch on: what was current becomes previous.
-                (= (:epoch rec 0) (dec e)) {:epoch e :cur notional :prev (:cur rec 0)}
+                (= (:epoch rec 0) (dec e)) {:epoch e :cur (fx/acc 0 notional) :prev (:cur rec 0)}
                 ;; Further than that and both windows are stale, so neither is
                 ;; carried — a gap in trading is a gap in volume.
-                :else {:epoch e :cur notional :prev 0}))))
+                :else {:epoch e :cur (fx/acc 0 notional) :prev 0}))))
 
 (defn fee-rates-for
   "`[taker maker]` for `acct` on `market`, given its rolling volume.
@@ -759,7 +759,7 @@
       (if (> (+ coll amount) fx/i53-max)
         state
         (cond-> state
-          (pos? repaid) (update-in [:accounts acct :deficit] - repaid)
+          (pos? repaid) (update-in [:accounts acct :deficit] fx/acc (- repaid))
           true (update-in [:accounts acct :collateral] fx/acc (- amount repaid)))))))
 
 (defn withdraw

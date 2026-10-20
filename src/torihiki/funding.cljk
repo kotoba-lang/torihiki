@@ -80,7 +80,7 @@
         ;; crosses 2^53 would fork the runtimes exactly like the falsify-8..13
         ;; sites — one more (fnil + 0), one more fork.
         (update :sum fx/acc p)
-        (update :n (fnil inc 0)))))
+        (update :n fx/acc 1))))
 
 (def empty-accumulator {:sum 0 :n 0})
 

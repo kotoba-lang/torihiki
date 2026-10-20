@@ -21,6 +21,8 @@
             [torihiki.liquidation :as liq]
             [torihiki.api :as api]
             [torihiki.state :as st]
+            [torihiki.book :as bk]
+            [torihiki.validators :as vals]
             [torihiki.commit :as cm]
             [merkle-sum.core :as ms]
             [kotoba.bytes :as b]
@@ -383,3 +385,124 @@
     (is (= fx/i53-max (:sum (fnd/sample {:sum (- fx/i53-max 1) :n 0} 2)))))
   (testing "and at the floor"
     (is (= fx/i53-min (:sum (fnd/sample {:sum (inc fx/i53-min) :n 0} -2))))))
+
+;; ── the accumulator sweep: no raw fold remains ─────────────────────────────
+;;
+;; The fix package above routed the six measured falsify-8..13 sites through
+;; `fx/acc`. The same `(fnil + 0)` class survived that sweep in more folds:
+;; bonds, vault shares, open interest, spot reservations, spot balances,
+;; rolling volume, the deficit pay-down, the slash path (delegator collateral
+;; and the OTHER writer of :insurance-fund — falsify-13's own field), and the
+;; funding sample count — plus the two derived spot-commitment sums in
+;; torihiki.state. Every one of them crosses 2^53 by honest folding and then
+;; holds a value JS cannot mirror: one more (fnil + 0), one more fork. All of
+;; them go through `torihiki.fixed/acc` now. The pins are VALUES (the clamp);
+;; there are no refusals here because a clamp is total.
+
+(deftest bonds-saturate-at-the-ceiling
+  (let [s (cl/bond (cl/new-state) 1 2 (- fx/i53-max 1) fx/i53-max)
+        s' (cl/bond s 1 2 2 fx/i53-max)]
+    (is (= (- fx/i53-max 1) (get-in s [:bonds 1 2])) "below the ceiling, unchanged")
+    (is (= fx/i53-max (get-in s' [:bonds 1 2]))
+        "was i53-max + 1 — one more (fnil + 0), one more fork")
+    (is (fx/in-domain? (get-in s' [:bonds 1 2])))))
+
+(deftest vault-shares-saturate-like-every-accumulator
+  ;; total-shares and per-account shares are two more folds of the same class.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :collateral] 100)
+              (assoc-in [:vaults 2 :total-shares] (- fx/i53-max 1))
+              (assoc-in [:vaults 2 :shares 1] (- fx/i53-max 1)))
+        s' (cl/vault-deposit s 1 2 2)]
+    (is (= fx/i53-max (get-in s' [:vaults 2 :total-shares])))
+    (is (= fx/i53-max (get-in s' [:vaults 2 :shares 1])))
+    (is (fx/in-domain? (get-in s' [:vaults 2 :shares 1])))))
+
+(deftest open-interest-saturates-at-the-ceiling
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :collateral] 1000000)
+              (assoc-in [:open-interest 1] (- fx/i53-max 1)))
+        s' (cl/apply-fill s 1 1 2 10 0)]
+    (is (= fx/i53-max (get-in s' [:open-interest 1])))))
+
+(deftest spot-reservations-saturate-in-both-directions
+  (is (= fx/i53-max
+         (get-in (cl/commit-spot (assoc-in (cl/new-state) [:committed 1 0]
+                                           (- fx/i53-max 1))
+                                 1 0 2)
+                 [:committed 1 0]))
+      "was i53-max + 1")
+  (is (= fx/i53-min
+         (get-in (cl/release-spot (assoc-in (cl/new-state) [:committed 1 0]
+                                            (inc fx/i53-min))
+                                  1 0 2)
+                 [:committed 1 0]))
+      "was i53-min - 1"))
+
+(deftest spot-balances-saturate-in-both-directions
+  (let [s (-> (cl/new-state)
+              (assoc-in [:balances 1 7] (- fx/i53-max 1))
+              (assoc-in [:balances 2 7] (inc fx/i53-min))
+              (assoc-in [:accounts 1 :collateral] 1000000)
+              (assoc-in [:accounts 2 :collateral] 1000000))
+        s' (cl/spot-fill s 1 2 7 2 10 0 0)]
+    (is (= fx/i53-max (get-in s' [:balances 1 7])) "buyer's credit, clamped")
+    (is (= fx/i53-min (get-in s' [:balances 2 7])) "seller's debit, clamped")))
+
+(deftest rolling-volume-saturates-at-the-ceiling
+  (let [s (assoc-in (cl/new-state) [:volume 1] {:epoch 0 :cur (- fx/i53-max 1) :prev 0})]
+    (is (= fx/i53-max (:cur (get-in (cl/add-volume s 1 0 2) [:volume 1])))
+        "the running fold was i53-max + 1")))
+(deftest rolling-volume-clamps-on-the-way-in-too
+  (is (= fx/i53-max (:cur (get-in (cl/add-volume (cl/new-state) 1 0 (inc fx/i53-max))
+                                  [:volume 1])))
+      "the first write is an accumulator write like any other")
+  (is (= 12 (:cur (get-in (-> (cl/new-state) (cl/add-volume 1 0 5) (cl/add-volume 1 0 7))
+                          [:volume 1])))
+      "below the ceiling folding is unchanged"))
+
+(deftest the-slash-path-fund-is-an-accumulator-too
+  ;; falsify-13's field has a SECOND writer: the slash path folds
+  ;; `total - reward` into :insurance-fund. It crossed 2^53 exactly like the
+  ;; liquidation stage-1 fee did, with no throw anywhere.
+  (let [cl0 (-> (cl/new-state)
+                (assoc :insurance-fund (- fx/i53-max 1))
+                (assoc-in [:bonds 103 102] 1000)
+                (assoc-in [:accounts 103 :collateral] 1000))
+        ex {:clearing cl0 :validators {"w3" {:account 102}} :height 5}
+        ex' (vals/slash ex {:account 500 :witness "w3" :evidence-height 4 :view 7})]
+    (is (= fx/i53-max (get-in ex' [:clearing :insurance-fund]))))
+  (testing "below the ceiling the slash accounting is unchanged"
+    (let [cl0 (-> (cl/new-state)
+                  (assoc-in [:bonds 103 102] 1000)
+                  (assoc-in [:accounts 103 :collateral] 1000))
+          ex {:clearing cl0 :validators {"w3" {:account 102}} :height 5}
+          ex' (vals/slash ex {:account 500 :witness "w3" :evidence-height 4 :view 7})]
+      (is (= 1000 (get-in ex' [:clearing :insurance-fund])) "reporter reward is 0 here")
+      (is (zero? (get-in ex' [:clearing :accounts 103 :collateral]))))))
+
+(deftest the-funding-sample-count-is-gated-too
+  (is (= fx/i53-max (:n (fnd/sample {:sum 0 :n fx/i53-max} 1)))
+      "a counter is an accumulator; it folds one more (inc) at the wall")
+  (is (= 3 (:n (-> fnd/empty-accumulator (fnd/sample 1) (fnd/sample 1) (fnd/sample 1))))))
+
+(deftest derived-spot-commitment-sums-saturate
+  ;; The two derived sums in torihiki.state — the per-account view and the
+  ;; rebuild that WRITES :clearing :committed (so it enters the state root) —
+  ;; fold backing amounts with plain +. One owner, two resting sells: honest
+  ;; book, and the sum crosses 2^53.
+  (let [b (bk/new-book {:n-levels 64 :cap 64 :ev-cap 64})
+        _ (bk/place! b bk/ask 10 (- fx/i53-max 1) 0 1)
+        _ (bk/place! b bk/ask 11 2 0 1)
+        ex {:markets {1 {:kind :spot :asset 7}} :books {1 b}}
+        ex' (st/rebuild-spot-commitments ex)]
+    (is (= {7 fx/i53-max} (st/spot-resting-backing ex 1 1)))
+    (is (= fx/i53-max (get-in ex' [:clearing :committed 1 7]))))
+  (testing "below the ceiling the rebuild is unchanged"
+    (let [b (bk/new-book {:n-levels 64 :cap 64 :ev-cap 64})
+          _ (bk/place! b bk/ask 10 5 0 1)
+          _ (bk/place! b bk/ask 11 7 0 1)
+          ex {:markets {1 {:kind :spot :asset 7}} :books {1 b}}
+          ex' (st/rebuild-spot-commitments ex)]
+      (is (= {7 12} (st/spot-resting-backing ex 1 1)))
+      (is (= 12 (get-in ex' [:clearing :committed 1 7]))))))
