@@ -50,6 +50,7 @@
     :not-a-publisher
     :oracle-is-aggregated
     :not-the-bridge
+    :bad-cid
     :malformed-principal})
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
@@ -297,6 +298,17 @@
       (not (integer? account)) :bad-account
       (not (integer? (:to t))) :bad-account
       (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      :else nil)
+
+    ;; An anchor: a content-addressed checkpoint (receipt CID) into the append-only
+    ;; log. Shape-gated only — it moves no money and touches no market, and the
+    ;; validation contract above is SHAPE and RANGE, not authorisation. Who may
+    ;; anchor cheaply is a governance question (same class as :oracle-publishers)
+    ;; and can be tightened later without changing this shape.
+    :anchor
+    (cond
+      (not (integer? account)) :bad-account
+      (not (and (string? (:cid t)) (<= 1 (count (:cid t)) 128))) :bad-cid
       :else nil)
 
     :set-leverage

@@ -673,6 +673,15 @@
   (update ex :clearing cl/transfer account to amount
           (cl/free-collateral (:clearing ex) account (:marks ex) (:markets ex))))
 
+(defmethod apply-tx :anchor
+  [ex {:keys [account cid]}]
+  ;; Append-only anchor log: a content-addressed checkpoint (a fleet-ci receipt
+  ;; CID) posted at this ts. It moves no money and mutates no market — it only
+  ;; records that `cid` was committed at this point in the log, which is what
+  ;; makes a receipt a non-repudiable time series (CI-3). Shape is gated in
+  ;; torihiki.api/validate-shape (:bad-cid bounds the field).
+  (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)}))
+
 (defmethod apply-tx :set-leverage
   [ex {:keys [account market leverage]}]
   ;; A trader asking for a stricter margin requirement than the market
@@ -1568,6 +1577,8 @@
    ;; refused an order over the open-interest cap committed to the SAME bytes.
    ;; The root is supposed to make what was refused as agreed as what was
    ;; executed, and for these five it agreed only that something was.
+   ;; 19: the anchor refusal (:bad-cid). Appended like everything after 18.
+   :bad-cid 19
    })
 
 (defn- encode-rejections

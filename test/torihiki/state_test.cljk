@@ -1323,6 +1323,20 @@
     (is (empty? missing) (str "reasons with no code: " (vec missing))))
   (is (= (count (set (vals st/reason-codes))) (count st/reason-codes))
       "two reasons share a code, so they are indistinguishable in the root"))
+
+(deftest an-anchor-appends-to-the-log
+  ;; CI-3: an anchor is a content-addressed checkpoint (a fleet-ci receipt CID).
+  ;; It moves no money and mutates no market — it lands in the append-only log.
+  (let [ex {:ts 42}
+        ex' (st/apply-tx ex {:tx :anchor :account 7 :cid "bafytest"})]
+    (is (= [{:cid "bafytest" :account 7 :ts 42}] (:anchors ex')))
+    (is (= 42 (:ts ex')) "the exchange clock is not touched")
+    (is (= (:clearing ex) (:clearing ex')) "no money moves"))
+  (is (nil? (api/validate {} {:tx :anchor :account 1 :cid "bafytest"})))
+  (is (= :bad-account (api/validate {} {:tx :anchor :account "a" :cid "bafytest"})))
+  (is (= :bad-cid (api/validate {} {:tx :anchor :account 1 :cid ""})))
+  (is (= :bad-cid (api/validate {} {:tx :anchor :account 1 :cid (apply str (repeat 129 "x"))}))
+      "the field is bounded so one tx cannot park a document on the root"))
 (deftest a-spot-market-listed-through-json-is-still-spot
   ;; JSON has no keywords: `:kind :spot` goes out and "spot" comes back.
   ;; Comparing only to the keyword would list a spot market and run it as a
