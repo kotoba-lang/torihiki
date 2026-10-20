@@ -75,7 +75,11 @@
   (if (nil? p)
     acc
     (-> acc
-        (update :sum (fnil + 0) p)
+        ;; The sum is an accumulator: sadd, not (fnil + 0). It folds every
+        ;; sample in the hour and lands in state as :funding, so a sum that
+        ;; crosses 2^53 would fork the runtimes exactly like the falsify-8..13
+        ;; sites — one more (fnil + 0), one more fork.
+        (update :sum fx/acc p)
         (update :n (fnil inc 0)))))
 
 (def empty-accumulator {:sum 0 :n 0})

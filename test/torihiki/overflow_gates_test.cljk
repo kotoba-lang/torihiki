@@ -280,3 +280,106 @@
       (let [p (cm/proof ls "04:01:0000000000000002")]
         (is (false? (cm/verify p {:hash (cm/root ls) :sum (cm/reserves ls)})))
         (is (false? (cm/verify p (cm/root ls))))))))
+
+;; ── rates and book sizing at the validate layer ─────────────────────────────
+;;
+;; The accumulator fix bounded every sum and made mul-rate exact, but two
+;; VALIDATED transactions could still halt apply-block — the falsify-6/7
+;; class, arriving through doors the earlier gates left open:
+;;
+;;   1. A market spec carrying a rate above 100%. Fee, margin and tier rates
+;;      are multiplied against in-domain amounts (`torihiki.fixed/mul-rate`),
+;;      and `amount x rate / rate-scale` for a rate past rate-scale leaves the
+;;      domain — where mul-rate throws, mid-fill, inside the block.
+;;   2. A `:list-market` whose `:book-opts` `new-book` rejects by THROWING
+;;      (its n-levels/cap shape constraints) or by allocating (ev-cap reached
+;;      no bound at all). The throw lands in apply-block from a transaction
+;;      that passed validate.
+
+(deftest rate-caps-refuse-above-the-ceiling
+  (let [ex (ex-for)]
+    (testing "a rate past 100% is refused with its REASON"
+      (is (= :rate-too-high
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :taker-fee-rate (inc fx/rate-scale)}})))
+      (is (= :rate-too-high
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :maintenance-margin-rate (* 2 fx/rate-scale)}})))
+      (is (= :rate-too-high
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:fee-tiers [{:min-volume 0
+                                                   :maker-fee-rate (inc fx/rate-scale)}]}}))
+          "tiers are rates too, wherever they nest")
+      (is (= :rate-too-high
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:taker-fee-rate (- (inc fx/rate-scale))}}))))
+    (testing "the ceiling is a VALUE: exactly rate-scale (100%) passes, and so
+              does a rebate of the same magnitude"
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1
+                                         :taker-fee-rate fx/rate-scale}})))
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {:maker-fee-rate (- fx/rate-scale)}})))
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {:fee-tiers [{:min-volume 0
+                                                      :taker-fee-rate (fx/bps 3)}]}}))))))
+
+(deftest book-opts-the-engine-would-throw-on-are-refused-at-the-door
+  (let [ex (assoc (ex-for) :bridge-authority 1)]
+    (testing "REASON for every shape new-book rejects by throwing or allocating"
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:n-levels -32}}))
+          "a negative multiple of 32 clears new-book's rem check and dies in alloc")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:n-levels 33}})))
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:n-levels (inc 1048576)}})))
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:cap 40000000}})))
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:ev-cap (inc fx/i53-max)}}))
+          "ev-cap reached an allocation and nothing bounded it")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:n-levels 65536.5}}))
+          "a float n-levels allocates one size on the JVM and another on JS")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1}
+                               :book-opts {:n-levels "65536"}}))))
+    (testing "VALUE: no opts at all, and the documented bounds, still pass"
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1}})))
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1}
+                                  :book-opts {:n-levels 1048576
+                                              :cap 33554432
+                                              :ev-cap 65536}}))))
+    (testing "the engine's answer is the no-op safety net, not a throw"
+      (is (= ex (st/apply-tx ex {:tx :list-market :account 1 :market 2
+                                 :spec {:tick 1 :lot 1}
+                                 :book-opts {:n-levels -32}}))))))
+
+(deftest the-funding-sample-sum-is-an-accumulator-like-every-other
+  (testing "below the ceiling folding is unchanged"
+    (is (= {:sum 5 :n 2} (-> fnd/empty-accumulator
+                             (fnd/sample 2)
+                             (fnd/sample 3)))))
+  (testing "VALUE: the sum saturates at the ceiling instead of crossing 2^53 —
+            a (fnil + 0) walked out of the domain in every falsify-8..13 site"
+    (is (= fx/i53-max (:sum (fnd/sample {:sum (- fx/i53-max 1) :n 0} 2)))))
+  (testing "and at the floor"
+    (is (= fx/i53-min (:sum (fnd/sample {:sum (inc fx/i53-min) :n 0} -2))))))
