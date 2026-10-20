@@ -52,6 +52,7 @@
   reports the number either way rather than pretending the distinction is
   this namespace's to make."
   (:require [merkle-sum.core :as ms]
+            [torihiki.fixed :as fx]
             [kotoba.bytes :as b]
             [kotoba.bytes.sha256 :as sha]))
 
@@ -75,21 +76,82 @@
   [{:keys [id bytes]}]
   (sha/sha256-hex (into (b/utf8-encode (str "leaf|" id "|")) bytes)))
 
+;; ── the aggregate: why the fold saturates ──────────────────────────────────
+;;
+;; merkle-sum folds node sums with a plain `+`, which is right for a library
+;; whose sums are somebody else's numbers. Ours are not: the root's sum is the
+;; total of every account's collateral, and a total is exactly the value that
+;; leaves the i53 domain with no single write being wrong. falsify-14 (frame
+;; 452) measured three IN-DOMAIN collaterals aggregating past the ceiling —
+;; and because every node preimage stringifies its children's sums, an
+;; intermediate node sum of 2^53+1 hashed as "9007199254740993" on the JVM and
+;; "9007199254740992" on JS: the two runtimes hashed DIFFERENT preimages and
+;; the root hash forked. Not a scalar field diverging quietly — the signed log
+;; itself.
+;;
+;; So the fold here saturates at every node — the same verdict as every
+;; accumulator in the engine (see torihiki.fixed for why clamp and not check: a
+;; throw is the falsify-6/7 class, one signed transaction halting every
+;; validator). merkle-sum still owns the preimage format and the proof
+;; algorithms; its `level-up` is mirrored below only so the sums are ours.
+;; Below the ceiling the tree is byte-identical to `ms/build-tree`'s (pinned by
+;; test). A tree whose total is past the ceiling reports a clamped `reserves`,
+;; and its inclusion proofs fail to verify — on both runtimes alike, which is
+;; what makes that the right failure: `ms/verify` recomputes with plain `+` and
+;; lands on the wrong side of every clamp the fold made, so a proof of a
+;; clamped tree is refused by any merkle-sum verifier, here or elsewhere.
+
+(defn- clamp-sum
+  "A leaf's sum clamped into the i53 domain before it can take part in a fold.
+  Saturating accumulation is exact only with both terms in-domain; clamping the
+  leaf first makes that true for every node below it, whatever handed the leaf
+  in. For `canonical-leaves` input (collateral, already capped by `fx/acc`) this
+  is a no-op."
+  [s]
+  (fx/acc 0 (or s 0)))
+
+(defn- level-up
+  "Combine one level pairwise, saturating the sums with `fx/acc`; an odd
+  trailing node carries up as-is — never duplicated, since duplication
+  double-counts. The pairing and the node preimage are merkle-sum's `level-up`;
+  only the fold is different, and why is above."
+  [nodes]
+  (loop [nodes nodes acc []]
+    (cond
+      (empty? nodes) acc
+      (= 1 (count nodes)) (conj acc (first nodes))
+      :else
+      (let [[l r & more] nodes]
+        (recur more
+               (conj acc {:hash (ms/node-hash hash-hex (:hash l) (:sum l) (:hash r) (:sum r))
+                          :sum (fx/acc (:sum l) (:sum r))}))))))
+
 (defn tree
   "Build the tree over `leaves` (`[{:id .. :bytes ..}]`).
 
-  `:id->str identity` because the ids are already the strings that sort into
-  the canonical order — merkle-sum's default `str` would be a no-op on them,
-  but saying so is what keeps a later id type change from silently reordering
-  the tree.
+  The sort (`:id` string order — the ids are already the strings that sort
+  into the canonical order) and the node preimages are merkle-sum's; the sums
+  are folded through `fx/acc`, so no node sum — leaf, internal, or root — ever
+  leaves the i53 domain (falsify-14). Below the ceiling the tree is
+  byte-identical to `ms/build-tree`'s.
 
   A leaf carries the sum `canonical-leaves` gave it — collateral on an account
   leaf, zero on the rest, because a book or a nonce is not a quantity of money
   and adding it into the total would make the total mean nothing."
   [leaves]
-  (ms/build-tree hash-hex
-                 (mapv (fn [l] (assoc l :hash (leaf-hash l) :sum (:sum l 0))) leaves)
-                 {:id->str identity}))
+  (let [sorted (vec (sort-by :id (mapv (fn [l] (assoc l :hash (leaf-hash l)
+                                                      :sum (clamp-sum (:sum l))))
+                                       leaves)))]
+    (if (empty? sorted)
+      {:leaves [] :levels [] :root {:hash (ms/empty-root-hash hash-hex) :sum 0}}
+      (let [levels (loop [level sorted acc [sorted]]
+                     (if (= 1 (count level))
+                       acc
+                       (let [next-level (level-up level)]
+                         (recur next-level (conj acc next-level)))))]
+        {:leaves sorted
+         :levels levels
+         :root (first (peek levels))}))))
 
 (defn root
   "The tree's root hash for `leaves`."
@@ -107,13 +169,23 @@
 
   nil is not zero. A chain with no attestation has not said its reserves are
   fine; it has said nothing, and reporting that as a shortfall of zero would
-  turn silence into a claim."
+  turn silence into a claim.
+
+  Both sides fold through `fx/acc` (falsify-14 named this `reduce` as the same
+  unchecked sum as the tree's): the total saturates at the i53 ceiling, and an
+  attestation past the ceiling clamps into the domain before it subtracts, so
+  the number a reader gets is the same on both runtimes."
   [leaves attested]
   (when attested
-    (- (reduce + 0 (map #(:sum % 0) leaves)) (long attested))))
+    (fx/acc (reduce fx/acc 0 (map #(:sum % 0) leaves))
+            (- (fx/acc 0 (long attested))))))
 
 (defn reserves
   "The total collateral committed by `leaves` — the root's sum.
+
+  Saturated at the i53 ceiling like every other accumulator in the engine
+  (falsify-14): a total past the ceiling reports the ceiling rather than a
+  number the two runtimes would hold differently.
 
   This is the liability side of proof of reserves, and it is the half a chain
   can produce by itself: every account's collateral, authenticated, with each

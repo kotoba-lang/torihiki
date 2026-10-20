@@ -1,0 +1,181 @@
+(ns torihiki.liquidation-makers-test
+  "From protocol version 3 a liquidation slice is a real trade: quoted first,
+  executed only when the book absorbs it above bankruptcy, and every maker it
+  takes is credited."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.order-margin :as om]
+            [torihiki.state :as st]))
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate 0 :maker-fee-rate 0))
+
+(defn- chain [version]
+  (cond-> (st/new-exchange {:markets [mkt] :book-opts {:n-levels 256 :cap 4096 :ev-cap 4096}})
+    (> version 1) (assoc-in [:protocol :version] version)))
+
+(defn- block [ex h txs] (st/apply-block ex {:height h :ts (* 100 h) :txs txs} nil))
+(defn- order [a side level qty]
+  {:tx :order :account a :market 1 :side side :level level :qty qty :flags 0})
+(defn- size [ex a] (:size (cl/position (:clearing ex) a 1)))
+(defn- open-interest-balances? [ex]
+  (zero? (reduce + 0 (map #(get-in % [:positions 1 :size] 0) (vals (get-in ex [:clearing :accounts]))))))
+(defn- resting [ex side level] (bk/level-qty (get-in ex [:books 1]) side level))
+
+(defn- setup
+  "Account 1 long 300 from 100 on 1000 of collateral; account 2 short the
+  other side; account 3, a maker, bids 300 at `bid-level`. Then the mark
+  falls to `mark`."
+  [version bid-level mark]
+  (-> (block (chain version) 1 [{:tx :oracle :market 1 :price 100}
+                                {:tx :deposit :account 1 :amount 1000}
+                                {:tx :deposit :account 2 :amount 100000}
+                                {:tx :deposit :account 3 :amount 100000}
+                                (order 2 bk/ask 100 300) (order 1 bk/bid 100 300)])
+      (block 2 [(order 3 bk/bid bid-level 300)])
+      (block 3 [{:tx :oracle :market 1 :price mark}])))
+
+(deftest stage-1-credits-the-maker
+  ;; Mark 97: equity 100 < maintenance 363, so account 1 is liquidated. The
+  ;; maker's bid at 97 is above bankruptcy (≈96.7), so the book absorbs it.
+  (let [ex (setup 3 97 97)]
+    (is (zero? (size ex 1)) "the liquidated position is closed")
+    (is (= 300 (size ex 3)) "the maker holds the other side")
+    (is (zero? (resting ex bk/bid 97)) "its order was taken")
+    (is (open-interest-balances? ex) "every long has a short")
+    (is (= (om/rebuild (:books ex) (:markets ex)) (or (:open-orders ex) {})))))
+
+(deftest stage-2-leaves-the-book-alone
+  ;; The only bid is at 50, far past bankruptcy: the slice goes to the vault
+  ;; at the mark and the maker's order must not be consumed for nothing.
+  (let [ex (setup 3 50 97)]
+    (is (zero? (size ex 1)))
+    (is (= 300 (resting ex bk/bid 50)) "the book was not touched")
+    (is (zero? (size ex 3)) "the maker traded nothing")
+    (is (open-interest-balances? ex))))
+
+(deftest a-liquidated-account-stops-quoting
+  (let [ex (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                   {:tx :deposit :account 1 :amount 1000}
+                                   {:tx :deposit :account 2 :amount 100000}
+                                   {:tx :deposit :account 3 :amount 100000}
+                                   (order 2 bk/ask 100 300) (order 1 bk/bid 100 300)])
+               (block 2 [(order 1 bk/ask 120 10) (order 3 bk/bid 97 300)])
+               (block 3 [{:tx :oracle :market 1 :price 97}]))]
+    (is (zero? (resting ex bk/ask 120)) "its own resting order is cancelled")
+    (is (open-interest-balances? ex))))
+
+(deftest version-2-is-what-it-was
+  ;; The finding, kept as the version-2 behaviour: the maker's order is
+  ;; consumed and the maker is never credited.
+  (let [ex (setup 2 97 97)]
+    (is (zero? (size ex 1)))
+    (is (zero? (resting ex bk/bid 97)))
+    (is (zero? (size ex 3)) "the bug: the maker got nothing")
+    (is (not (open-interest-balances? ex)))))
+
+(declare money)
+
+(defn- lcg [seed] (mod (+ (* seed 1103515245) 12345) 2147483648))
+
+(deftest positions-always-balance-through-liquidations
+  ;; Thin collateral and a swinging oracle so that liquidations happen often,
+  ;; through the book and through the vault.
+  (doseq [ev-cap [4096 6]]
+    (loop [ex (block (assoc-in (st/new-exchange {:markets [mkt] :book-opts {:n-levels 256 :cap 4096 :ev-cap ev-cap}})
+                               [:protocol :version] 3)
+                     1 [{:tx :oracle :market 1 :price 100}
+                        {:tx :deposit :account 1 :amount 400} {:tx :deposit :account 2 :amount 400}
+                        {:tx :deposit :account 3 :amount 400} {:tx :deposit :account 4 :amount 100000}])
+           h 2 r 7 liqs 0]
+      (if (< h 200)
+        (let [[txs r] (reduce (fn [[txs r] _]
+                                (let [r (lcg r) pick (fn [n k] (mod (quot r k) n))]
+                                  [(conj txs (case (pick 6 101)
+                                               (0 1 2) (order (inc (pick 4 1)) (pick 2 7) (+ 85 (pick 31 13)) (inc (pick 80 17)))
+                                               3 {:tx :cancel-all :account (inc (pick 4 1)) :market 1}
+                                               4 {:tx :oracle :market 1 :price (+ 85 (pick 31 41))}
+                                               5 {:tx :liquidate :market 1}))
+                                   r]))
+                              [[] r] (range 5))
+              ex' (block ex h txs)
+              liqs (+ liqs (count (filter #(and (not (zero? (or (size ex %) 0))) (zero? (or (size ex' %) 0))) [1 2 3])))]
+          (is (open-interest-balances? ex') (str "ev-cap " ev-cap " height " h))
+          (is (= (money ex) (money ex')) (str "money at " h " after " (pr-str txs)))
+          (is (= (om/rebuild (:books ex') (:markets ex')) (or (:open-orders ex') {})) (str "cache at " h))
+          (recur ex' (inc h) r liqs))
+        (is (pos? liqs) "the run exercised liquidations")))))
+
+(defn- money
+  "Everything the exchange owes or holds: collateral less deficits, fees,
+  the insurance fund, less what positions cost to open. A trade moves money
+  between these; nothing may create or destroy it."
+  [ex]
+  (let [c (:clearing ex)]
+    (+ (reduce + 0 (for [[_ a] (:accounts c)]
+                     (- (+ (:collateral a 0) (- (:deficit a 0)))
+                        (reduce + 0 (map :entry-notional (vals (:positions a {})))))))
+       (:fees-collected c 0) (:insurance-fund c 0))))
+
+(deftest a-slice-across-levels-creates-no-money
+  ;; Review of #42: one averaged, floored fill for the liquidated account
+  ;; against makers at their own levels minted (or lost) the remainder.
+  (let [ex (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                   {:tx :deposit :account 1 :amount 10}
+                                   {:tx :deposit :account 2 :amount 100000}
+                                   {:tx :deposit :account 3 :amount 100000}
+                                   (order 2 bk/bid 100 3) (order 1 bk/ask 100 3)])
+               (block 2 [(order 3 bk/ask 101 1) (order 3 bk/ask 103 2)]))
+        before (money ex)
+        ;; 103: equity 1 is under maintenance (3.9); bankruptcy is 103.3, so
+        ;; both asks (101 and 103) are takeable
+        ex (block ex 3 [{:tx :oracle :market 1 :price 103}])]
+    (is (zero? (size ex 1)) "the short was liquidated")
+    (is (= before (money ex)))
+    (is (open-interest-balances? ex))))
+
+(deftest no-slice-past-bankruptcy
+  ;; Review of #42: the quote ran to the end of the ladder, so a stink bid
+  ;; collected the trader's remaining margin now that makers are paid.
+  (let [ex (setup 3 97 97)
+        ex2 (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                    {:tx :deposit :account 1 :amount 1000}
+                                    {:tx :deposit :account 2 :amount 100000}
+                                    {:tx :deposit :account 3 :amount 100000}
+                                    (order 2 bk/ask 100 300) (order 1 bk/bid 100 300)])
+                (block 2 [(order 3 bk/bid 97 100) (order 3 bk/bid 1 200)])
+                (block 3 [{:tx :oracle :market 1 :price 97}]))]
+    (is (= 300 (size ex 3)))
+    (is (= 200 (resting ex2 bk/bid 1)) "the stink bid took nothing")
+    (is (open-interest-balances? ex2))))
+
+(deftest spot-orders-survive-a-liquidation-elsewhere
+  ;; Review of #42: cancelling on every book an account was swept on left its
+  ;; spot orders gone with their reservations still committed.
+  (let [spot (assoc (cl/market {:id 0 :max-leverage 1 :tick 1 :lot 1})
+                    :kind :spot :asset 77 :taker-fee-rate 0 :maker-fee-rate 0)
+        ex (-> (st/new-exchange {:markets [spot mkt] :book-opts {:n-levels 256 :cap 4096 :ev-cap 4096}})
+               (assoc-in [:protocol :version] 3)
+               (assoc-in [:clearing :balances 1 77] 50)
+               (block 1 [{:tx :oracle :market 1 :price 100}
+                         {:tx :deposit :account 1 :amount 1000}
+                         {:tx :deposit :account 2 :amount 100000}
+                         {:tx :order :account 1 :market 0 :side bk/ask :level 10 :qty 50 :flags 0}
+                         (order 2 bk/ask 100 300) (order 1 bk/bid 100 300)])
+               (block 2 [{:tx :oracle :market 1 :price 97}]))]
+    (is (= 50 (bk/level-qty (get-in ex [:books 0]) bk/ask 10)) "the spot order is still there")
+    (is (= 50 (get-in ex [:clearing :committed 1 77])) "and still backed")))
+
+(deftest a-long-is-never-sold-below-bankruptcy
+  ;; Review of #42: long 3 at 100 on 10 of collateral is bankrupt at 96.67.
+  ;; A floored limit of 96 took a bid there and left a deficit of 2.
+  (let [ex (-> (block (chain 3) 1 [{:tx :oracle :market 1 :price 100}
+                                   {:tx :deposit :account 1 :amount 10}
+                                   {:tx :deposit :account 2 :amount 100000}
+                                   {:tx :deposit :account 3 :amount 100000}
+                                   (order 2 bk/ask 100 3) (order 1 bk/bid 100 3)])
+               (block 2 [(order 3 bk/bid 96 3)])
+               (block 3 [{:tx :oracle :market 1 :price 97}]))]
+    (is (= 3 (resting ex bk/bid 96)) "the bid below bankruptcy is the vault's business, not the book's")
+    (is (open-interest-balances? ex))))

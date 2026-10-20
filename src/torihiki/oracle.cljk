@@ -130,3 +130,24 @@
   (if (pos? reference)
     (fx/fdiv (* (fx/abs* (- price reference)) fx/rate-scale) reference)
     0))
+
+(defn aggregate-weighted
+  "The validator-set oracle (roadmap D4): `weights` is `{publisher weight}` for
+  exactly the publishers allowed to speak — the active set's operators — so a
+  submission from anybody else, or from a validator that has left the set, is
+  not even read.
+
+  A price needs fresh submissions holding MORE THAN 2/3 of the total weight,
+  not a head count. That is the same threshold the chain's blocks need, for
+  the same reason: below it, one third of the set could be absent or lying
+  and the price would still move. Two of four equal validators offline is
+  stale, not a price.
+
+  The price is the stake-weighted median of what is fresh."
+  [submissions weights now max-age]
+  (let [f (fresh submissions (set (keys weights)) now max-age)
+        total (reduce + 0 (vals weights))
+        have (reduce + 0 (map (fn [[pub _]] (get weights pub 0)) f))]
+    (if (and (pos? total) (> (* 3 have) (* 2 total)))
+      {:price (weighted-median f #(get weights % 0)) :n (count f) :weighted? true :stale? false}
+      {:price nil :n (count f) :weighted? true :stale? true})))

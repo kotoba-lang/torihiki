@@ -1,0 +1,105 @@
+(ns torihiki.settlement-test
+  "From protocol version 3 every fill is settled, however many fills the
+  block has already made."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.state :as st]))
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate 0 :maker-fee-rate 0))
+(def spot (assoc (cl/market {:id 3 :max-leverage 1 :tick 1 :lot 1})
+                 :kind :spot :asset 77 :taker-fee-rate 0 :maker-fee-rate 0))
+
+(defn- chain [version ev-cap]
+  (cond-> (st/new-exchange {:markets [mkt spot] :book-opts {:n-levels 256 :cap 4096 :ev-cap ev-cap}})
+    (> version 1) (assoc-in [:protocol :version] version)))
+(defn- block [ex h txs] (st/apply-block ex {:height h :ts h :txs txs} nil))
+(defn- order [a m side level qty] {:tx :order :account a :market m :side side :level level :qty qty :flags 0})
+(defn- size [ex a] (:size (cl/position (:clearing ex) a 1) 0))
+
+(defn- six-makers-one-taker [version]
+  ;; ev-cap 4: the block's buffer holds four fills; the taker makes six.
+  (-> (block (chain version 4) 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                         (for [a (range 1 8)] {:tx :deposit :account a :amount 100000})))
+      (block 2 (for [a (range 1 7)] (order a 1 bk/ask 100 10)))
+      (block 3 [(order 7 1 bk/bid 100 60)])))
+
+(deftest every-fill-is-settled
+  (let [ex (six-makers-one-taker 3)]
+    (is (= 60 (size ex 7)) "the taker holds all 60")
+    (is (every? #(= -10 (size ex %)) (range 1 7)) "each maker is short its 10")
+    (is (zero? (reduce + 0 (map #(size ex %) (range 1 8)))))))
+
+(deftest version-2-is-what-it-was
+  ;; The finding, kept: the fills past the buffer matched and settled nobody.
+  (let [ex (six-makers-one-taker 2)]
+    (is (= 40 (size ex 7)))
+    (is (zero? (bk/level-qty (get-in ex [:books 1]) bk/ask 100)) "though the book is empty")))
+
+(deftest spot-fills-past-the-buffer-are-settled
+  (let [ex (-> (block (chain 3 2) 1 (for [a (range 1 6)] {:tx :deposit :account a :amount 100000}))
+               (as-> e (reduce #(assoc-in %1 [:clearing :balances %2 77] 10) e (range 1 5)))
+               (block 2 (for [a (range 1 5)] (order a 3 bk/ask 50 10)))
+               (block 3 [(order 5 3 bk/bid 50 40)]))]
+    (is (= 40 (get-in ex [:clearing :balances 5 77])) "the buyer received all 40")
+    (is (every? #(zero? (get-in ex [:clearing :balances % 77])) (range 1 5)))
+    (is (every? #(zero? (get-in ex [:clearing :committed % 77] 0)) (range 1 5)) "no reservation left behind")))
+
+(deftest settlement-matches-the-buffer-when-it-does-not-overflow
+  ;; Same fills, same results as reading the buffer, on a block that fits.
+  (let [run (fn [v] (let [ex (-> (block (chain v 4096) 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                                                (for [a (range 1 5)] {:tx :deposit :account a :amount 100000})))
+                                 (block 2 [(order 1 1 bk/ask 101 5) (order 2 1 bk/ask 102 7) (order 1 1 bk/ask 102 3)])
+                                 (block 3 [(order 3 1 bk/bid 102 12) (order 4 1 bk/bid 102 3) (order 1 1 bk/bid 101 1)]))]
+                      (:clearing ex)))]
+    (is (= (dissoc (run 2) :open-orders) (dissoc (run 3) :open-orders)))))
+
+;; ── random equivalence ─────────────────────────────────────────────────────
+
+(defn- lcg [seed] (mod (+ (* seed 1103515245) 12345) 2147483648))
+
+(def ^:private fee-mkt (assoc mkt :taker-fee-rate 350000 :maker-fee-rate 100000))
+
+(defn- random-run
+  "A run of random perp and spot orders (IOC, post-only, reduce-only,
+  cancel-all, triggers) with fees, on `version` and `ev-cap`. Returns what
+  settlement decides."
+  [version ev-cap seed]
+  (let [ex (cond-> (st/new-exchange {:markets [fee-mkt spot] :book-opts {:n-levels 256 :cap 4096 :ev-cap ev-cap}})
+             (> version 1) (assoc-in [:protocol :version] version))
+        ex (-> (block ex 1 (concat [{:tx :oracle :market 1 :price 100}]
+                                   (for [a (range 1 5)] {:tx :deposit :account a :amount 10000000})))
+               (as-> e (reduce #(assoc-in %1 [:clearing :balances %2 77] 100000) e (range 1 5))))]
+    (loop [ex ex h 2 r seed]
+      (if (> h 14)
+        (select-keys ex [:clearing :last :rejected])
+        (let [[txs r] (reduce
+                       (fn [[txs r] _]
+                         (let [r (lcg r) pick (fn [n k] (mod (quot r k) n))
+                               a (inc (pick 4 1)) side (pick 2 7)
+                               flags ([0 0 0 bk/flag-ioc bk/flag-post-only bk/flag-reduce-only] (pick 6 11))]
+                           [(conj txs (case (pick 8 101)
+                                        (0 1 2 3) (order a 1 side (+ 90 (pick 21 13)) (inc (pick 40 17)))
+                                        4 (assoc (order a 1 side (+ 90 (pick 21 13)) (inc (pick 40 17))) :flags flags)
+                                        5 (order a 3 side (+ 40 (pick 21 13)) (inc (pick 40 17)))
+                                        6 {:tx :cancel-all :account a :market 1}
+                                        7 {:tx :trigger :account a :market 1 :trigger-price (+ 95 (pick 11 29))
+                                           :direction (if (zero? side) :above :below)
+                                           :order {:side side :level (if (zero? side) 255 0) :qty (inc (pick 20 31))}}))
+                            r]))
+                       [[] r] (range 30))]
+          (recur (block ex h txs) (inc h) r))))))
+
+(deftest version-3-settles-exactly-what-the-buffer-did-when-it-fits
+  (doseq [seed (range 1 9)]
+    (is (= (random-run 2 4096 seed) (random-run 3 4096 seed)) (str "seed " seed))))
+
+(deftest version-3-does-not-depend-on-the-buffer
+  (doseq [seed (range 1 9)]
+    (is (= (random-run 3 4096 seed) (random-run 3 3 seed)) (str "seed " seed))))
+
+(deftest the-small-buffer-really-overflows
+  ;; Otherwise the test above would prove nothing: on version 2 the same runs
+  ;; lose fills.
+  (is (some #(not= (random-run 2 4096 %) (random-run 2 3 %)) (range 1 9))))

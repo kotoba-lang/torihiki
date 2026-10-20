@@ -7,7 +7,7 @@
   this workspace, and the wrong one here. Resting an order allocates; matching
   against it allocates again; a hash-map keyed by order id allocates a third
   time and then hands back an ITERATION ORDER THAT IS NOT SPECIFIED — the same
-  hazard already recorded in this workspace's CLAUDE.md for
+  hazard already recorded in this workspace's AGENTS.md for
   `css.core/declarations`, where a map silently stops being ordered past eight
   entries. In a renderer that produces a cosmetic diff. In a replicated state
   machine it produces two validators with two different state roots.

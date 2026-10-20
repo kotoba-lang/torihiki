@@ -1,0 +1,331 @@
+(ns torihiki.fuzz-seeded-test
+  "The seeded fuzz harness, permanently connected to the suite.
+
+  `evidence/fuzz-seeded.cljk` (falsify-3) raises adversarial block sequences
+  and prints digests for the cross-runtime byte-identity measurement. It
+  lives in evidence/, so it runs only when a measurement frame runs it: the
+  engine could change under it and no test would notice. This file is that
+  generator, suite-frozen, wired into both suites — and it asserts
+  INVARIANTS rather than digests. A pinned digest breaks on every legitimate
+  engine change (the i53 fix package moved the digests with its refusals);
+  the invariants the engine promises hold through any change that keeps its
+  promises, which is exactly what makes them worth running forever.
+
+  Per seed the fold asserts:
+  - it COMPLETES — apply-block is total, so no adversarial sequence may
+    throw out of it (a throw inside apply-block is a halted chain; see
+    `torihiki.api`'s ns docstring);
+  - every accumulated money value in the final state is inside the i53
+    domain — falsify-8 through falsify-13 walked accumulators past 2^53 with
+    honest traffic, no throw anywhere, and the two runtimes then held
+    different numbers in one state root;
+  - every recorded rejection reason is a keyword from `torihiki.api/reasons`
+    (the taxonomy is closed — a reason outside it is a client parsing a
+    string that does not exist);
+  - the mid-fold snapshot round-trip reproduces both roots.
+
+  Two traffic modes. `:mirror` is the evidence generator unchanged.
+  `:heavy` draws deposits across the whole i53 scale, so the accumulators
+  reach the ceiling through real apply-block traffic — the falsify-8 class,
+  end to end — and the ceiling must hold.
+
+  Determinism: folding one seed twice yields identical digests. The fold is
+  1152 adversarial transactions plus a snapshot round-trip, over a
+  generator whose only randomness is xorshift32 (32-bit bitwise math only —
+  identical on both runtimes by specification; a multiply-based PRNG would
+  not be, and the reasoning is in evidence/fuzz-seeded.cljk).
+
+  The generator below is a frozen copy of evidence/fuzz-seeded.cljk's; the
+  digest oracle stays where it is. If the two ever drift, the measurement
+  bot's digest baselines and this suite stop covering the same traffic —
+  which is a finding, not a silent divergence, because this docstring says
+  which file it mirrors.
+
+  Red-green, measured before landing (2026-10-19, branch
+  bot/torihiki-fix-20261019-0020): with the pre-fix engine's src (2a79ec5,
+  before the i53 fix package) swapped into the worktree,
+  `kbb -M:test -n torihiki.fuzz-seeded-test` returned 4 tests / 107
+  assertions with 23 failures (reproduced on two runs): 16 heavy-mode
+  folds walked a money value out of the i53 domain (one per seed), the
+  balance-ceiling deposit LANDED instead of being refused (0 rejections),
+  and the over-cap order RESTED instead of being refused (resting-count 1).
+  At HEAD (74f38b0) the same run is 4 tests / 107 assertions, 0 failures,
+  0 errors — and the full suite including this file is 482 tests / 3415
+  assertions 0F/0E on `kbb -M:test` (sci) and, on the JVM leg
+  (`clojure -M:test` over a renamed .cljk->.cljc copy with the kotoba-lang
+  dep shims), 482 / 3415 with the same counters. A test that never failed
+  is theatre; these failed by the exact classes the fix package closed."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.api :as api]
+            [torihiki.book :as bk]
+            [torihiki.snapshot :as snap]
+            [torihiki.state :as st]))
+
+;; ── the generator (frozen copy of evidence/fuzz-seeded.cljk) ────────────────
+
+(defn xorshift32
+  "One xorshift32 step. Both runtimes define <<, >> and xor on 32-bit
+  integers identically, so the state sequence is bit-identical."
+  [x]
+  (-> x
+      (bit-xor (bit-shift-left x 13))
+      (bit-xor (unsigned-bit-shift-right x 17))
+      (bit-xor (bit-shift-left x 5))
+      (bit-and 0xFFFFFFFF)))
+
+(defn rng-draw
+  "Draws one uniform integer in [0, n) from state atom a; returns the draw."
+  [a n]
+  (let [s (swap! a xorshift32)]
+    (mod (bit-and (unsigned-bit-shift-right s 1) 0x7FFFFFFF) n)))
+
+(def accounts [1 2 3 4 5 6])
+(def n-levels 1024)
+(def cap 4096)
+(def ev-cap 4096)
+
+(defn fresh []
+  (st/new-exchange {:market {:id 1 :max-leverage 40 :tick 1 :lot 1}
+                    :book-opts {:n-levels n-levels :cap cap :ev-cap ev-cap}}))
+
+(defn harvest-oids
+  "Live `{:oid :owner}` pairs, sorted by oid — an unordered fold here would
+  be exactly the nondeterminism the engine forbids."
+  [ex]
+  (let [b (get-in ex [:books 1])]
+    (sort-by :oid
+             (for [side [0 1]
+                   l (range 128 n-levels 64)
+                   o (bk/level-orders b side l)]
+               (select-keys o [:oid :owner])))))
+
+(defn- maybe-bad-order
+  "A slice of orders is malformed on purpose: bad side, zero qty, or a level
+  off the ladder. validate must refuse them and the refusal must be identical
+  on both runtimes."
+  [a tx]
+  (case (rng-draw a 20)
+    0 (assoc tx :side 2)
+    1 (assoc tx :qty 0)
+    2 (assoc tx :level n-levels)
+    tx))
+
+(defn gen-tx
+  "One adversarial transaction from the live state's harvested oids.
+  The case arms partition 0..99; their weights are the adversarial mix."
+  [a live]
+  (case (rng-draw a 100)
+    ;; 0-7: deposits
+    (0 1 2 3 4 5 6 7)
+    {:tx :deposit :account (nth accounts (rng-draw a 6))
+     :amount (inc (* 10000 (rng-draw a 500)))}
+    ;; 8-14: oracle moves the price hard — drives marks, margin, liquidation
+    (8 9 10 11 12 13 14)
+    {:tx :oracle :market 1 :price (+ 200 (* 20 (rng-draw a 80)))}
+    ;; 15-54: orders around 500 with wide tails so both sides cross
+    (15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34
+        35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54)
+    (maybe-bad-order a
+                     {:tx :order :market 1
+                      :account (nth accounts (rng-draw a 6))
+                      :side (rng-draw a 2)
+                      :level (+ 250 (* 5 (rng-draw a 101)))
+                      :qty (inc (rng-draw a 40))})
+    ;; 55-74: cancels — right owner, wrong owner, or a bogus oid
+    (55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74)
+    (let [r (rng-draw a 10)]
+      (if (or (empty? live) (< r 2))
+        {:tx :cancel :market 1 :account (nth accounts (rng-draw a 6))
+         :oid (rng-draw a 100000)}
+        (let [o (nth live (rng-draw a (count live)))]
+          {:tx :cancel :market 1
+           :account (if (< r 4) (nth accounts (rng-draw a 6)) (:owner o))
+           :oid (:oid o)})))
+    ;; 75-80: cancel-all
+    (75 76 77 78 79 80)
+    {:tx :cancel-all :market 1 :account (nth accounts (rng-draw a 6))}
+    ;; 81-87: amend a live order (falls back to a fresh order when none rest)
+    (81 82 83 84 85 86 87)
+    (if (empty? live)
+      {:tx :order :market 1 :account (nth accounts (rng-draw a 6))
+       :side (rng-draw a 2) :level (+ 250 (* 5 (rng-draw a 101)))
+       :qty (inc (rng-draw a 40))}
+      (let [o (nth live (rng-draw a (count live)))]
+        {:tx :amend :market 1 :account (:owner o) :oid (:oid o)
+         :level (+ 250 (* 5 (rng-draw a 101))) :qty (inc (rng-draw a 40))}))
+    ;; 88-92: triggers above or below
+    (88 89 90 91 92)
+    {:tx :trigger :market 1 :account (nth accounts (rng-draw a 6))
+     :trigger-price (+ 300 (* 10 (rng-draw a 60)))
+     :direction (if (zero? (rng-draw a 2)) :above :below)
+     :order {:side (rng-draw a 2) :level (+ 250 (* 5 (rng-draw a 101)))
+             :qty (inc (rng-draw a 40))}}
+    ;; 93-95: cancel-trigger (the id is usually nonsense — refusals count too)
+    (93 94 95)
+    {:tx :cancel-trigger :market 1 :id (rng-draw a 500)}
+    ;; 96-98: liquidate / funding settle — mostly no-ops, sometimes not
+    (96 97 98)
+    {:tx (if (zero? (rng-draw a 2)) :liquidate :funding-settle)
+     :market 1 :account (nth accounts (rng-draw a 6))}
+    ;; 99: filler deposit
+    {:tx :deposit :account (nth accounts (rng-draw a 6))
+     :amount (inc (* 10000 (rng-draw a 500)))}))
+
+(defn- gen-tx-heavy
+  "`gen-tx` with every deposit redrawn across the whole i53 scale. Deposits
+  are the one domain-scale input validate admits, so this is the traffic
+  that falsify-8 stacked to 2 x i53-max — here it must be refused at the
+  balance ceiling instead.
+
+  `rng-draw` tops out at 2^31 (its state is 32-bit), so two draws compose
+  the wide value: `(hi x 2^27) + lo`, exact in i53 on both runtimes (the
+  product stays below 2^53 by construction — a wider multiply would be the
+  very unfixed arithmetic this engine forbids). The draw lands in
+  [1, 2^53 - 2^27], the ceiling half of the domain."
+  [a live]
+  (let [tx (gen-tx a live)]
+    (if (= :deposit (:tx tx))
+      (assoc tx :amount (inc (+ (* 134217728 (rng-draw a 67108863))
+                                (rng-draw a 134217728))))
+      tx)))
+
+;; ── the fold ───────────────────────────────────────────────────────────────
+
+(def n-blocks 24)
+(def txs-per-block 48)
+(def n-seeds 16)
+
+(defn fold
+  "Folds `n-blocks` adversarial blocks over one exchange; a snapshot/restore
+  round-trip sits mid-fold. Returns the digest vector (flat root, state
+  root, resting count, rejection count, fill count, snapshot-parity flag),
+  every rejection reason seen, and the final exchange."
+  [mode seed]
+  (let [s0 (bit-and seed 0xFFFFFFFF)
+        a (atom (if (zero? s0) 0x9E3779B9 s0))
+        draw (if (= mode :heavy) gen-tx-heavy gen-tx)
+        ex0 (st/apply-block
+             (fresh)
+             {:height 0 :ts 0
+              :txs (vec (for [ac accounts]
+                          {:tx :deposit :account ac :amount 1000000000}))})]
+    (loop [ex ex0, live [], h 1, b 0, prev-fills 0, rej 0, rejs [], snap-ok true]
+      (if (= b n-blocks)
+        (let [b1 (get-in ex [:books 1])]
+          {:digest [(str (st/flat-root ex)) (str (st/state-root ex))
+                    (str (bk/resting-count b1)) (str rej)
+                    (str prev-fills) (str snap-ok)]
+           :rejections rejs
+           :ex ex})
+        (let [blk {:height h :ts (* 1000 (inc h))
+                   :txs (vec (repeatedly 48 #(draw a live)))}
+              ex' (st/apply-block ex blk)
+              fills' (- (bk/event-count (get-in ex' [:books 1])) prev-fills)
+              live' (harvest-oids ex')
+              rej-maps (:rejected ex')
+              rej' (+ rej (count rej-maps))]
+          (if (= b 11)
+            ;; mid-fold snapshot round-trip: capture is pure data out, restore
+            ;; pure data in, so the roots on both sides must agree byte for byte
+            (let [r (snap/restore (snap/capture ex'))
+                  ok? (and (= (str (st/flat-root ex')) (str (st/flat-root r)))
+                           (= (str (st/state-root ex')) (str (st/state-root r))))]
+              (recur (snap/restore (snap/capture ex')) live' (inc h) (inc b)
+                     (bk/event-count (get-in ex' [:books 1])) rej'
+                     (into rejs rej-maps) (and snap-ok ok?)))
+            (recur ex' live' (inc h) (inc b)
+                   (+ prev-fills fills') rej' (into rejs rej-maps) snap-ok)))))))
+
+;; ── the invariants ─────────────────────────────────────────────────────────
+
+(defn- bad-value
+  "The first `[path value]` whose value is outside the i53 domain, else nil.
+  Walks the accumulated money fields — the falsify-8..13 class: collateral,
+  :deficit, :fees-collected, :funding-residue, :insurance-fund, cost basis,
+  and the per-account satellite sums. Not a blanket walk of `ex`: the merkle
+  aggregates in `torihiki.commit` are sums over leaves, not stored money,
+  and falsify-14 is a different (open) question about those."
+  [ex]
+  (let [cl (:clearing ex)
+        ok? (fn [path v] (when-not (and (integer? v) (fx/in-domain? v))
+                           [path v]))]
+    (or (ok? [:fees-collected] (:fees-collected cl 0))
+        (ok? [:funding-residue] (:funding-residue cl 0))
+        (ok? [:insurance-fund] (:insurance-fund cl 0))
+        (some (fn [[m v]] (ok? [:open-interest m] v)) (:open-interest cl))
+        (some
+         (fn [[acct a]]
+           (or (ok? [:accounts acct :collateral] (:collateral a 0))
+               (ok? [:accounts acct :deficit] (:deficit a 0))
+               (some (fn [[m p]]
+                       (or (ok? [:accounts acct :positions m :size] (:size p))
+                           (ok? [:accounts acct :positions m :entry-notional]
+                                (:entry-notional p))
+                           (when-some [iso (:isolated p)]
+                             (ok? [:accounts acct :positions m :isolated] iso))))
+                     (:positions a))
+               (some (fn [[v amt]] (ok? [:accounts acct :bonds v] amt))
+                     (:bonds a))
+               (some (fn [[asset amt]] (ok? [:accounts acct :balances asset] amt))
+                     (:balances a))
+               (some (fn [[asset amt]] (ok? [:accounts acct :committed asset] amt))
+                     (:committed a))))
+         (:accounts cl)))))
+
+(deftest seeded-fuzz-never-leaves-the-domain
+  (testing "mirror traffic: the evidence generator, 16 seeds, invariants only"
+    (doseq [seed (range n-seeds)]
+      (let [{:keys [digest rejections ex]} (fold :mirror seed)]
+        (is (nil? (bad-value ex))
+            (str "seed " seed ": " (pr-str (bad-value ex))))
+        (is (every? #(contains? api/reasons (:reason %)) rejections)
+            (str "seed " seed ": a rejection reason outside the closed taxonomy"))
+        (is (= "true" (nth digest 5)) (str "seed " seed ": snapshot parity")))))
+  (testing "heavy traffic: deposits across the whole i53 scale reach the
+            ceiling through real blocks and must be refused there, not stored"
+    (doseq [seed (range n-seeds)]
+      (let [{:keys [digest rejections ex]} (fold :heavy seed)]
+        (is (nil? (bad-value ex))
+            (str "seed " seed ": " (pr-str (bad-value ex))))
+        (is (every? #(contains? api/reasons (:reason %)) rejections)
+            (str "seed " seed ": a rejection reason outside the closed taxonomy"))
+        (is (= "true" (nth digest 5)) (str "seed " seed ": snapshot parity"))))))
+
+(deftest seeded-fuzz-fold-is-deterministic
+  (testing "one seed folded twice digests identically — 1152 adversarial
+            transactions and a snapshot round-trip, twice"
+    (doseq [mode [:mirror :heavy]
+            seed [0 15]]
+      (is (= (:digest (fold mode seed)) (:digest (fold mode seed)))
+          (str mode " seed " seed)))))
+
+;; ── the ceiling, end to end through apply-block ────────────────────────────
+
+(deftest apply-block-refuses-a-deposit-past-the-balance-ceiling
+  ;; falsify-8 end to end: the stacked deposit is refused by `:rejected`
+  ;; with its reason, and the balance keeps the last value that fit.
+  (let [ex (st/apply-block (fresh)
+                           {:height 1 :ts 1000
+                            :txs [{:tx :deposit :account 1 :amount fx/i53-max}
+                                  {:tx :deposit :account 1 :amount 1}]})
+        rej (:rejected ex)]
+    (is (= fx/i53-max (get-in ex [:clearing :accounts 1 :collateral]))
+        "VALUE pinned: the first deposit lands exactly at the ceiling")
+    (is (= 1 (count rej)))
+    (is (= :deposit (:tx (first rej))))
+    (is (= :bad-amount (:reason (first rej)))
+        "REASON pinned: the crossing deposit is refused, not stored")))
+
+(deftest apply-block-refuses-an-order-whose-notional-escapes-the-domain
+  ;; falsify-7 end to end: level x qty past i53-max is refused at validate,
+  ;; so the fill that would have thrown inside apply-block cannot exist.
+  (let [ex (st/apply-block (fresh)
+                           {:height 1 :ts 1000
+                            :txs [{:tx :order :account 1 :market 1 :side 0
+                                   :level 2 :qty (inc (quot fx/i53-max 2))}]})
+        rej (:rejected ex)]
+    (is (= 1 (count rej)))
+    (is (= :bad-amount (:reason (first rej))) "REASON pinned")
+    (is (= 0 (bk/resting-count (get-in ex [:books 1])))
+        "and nothing rests — the order never enters the book")))

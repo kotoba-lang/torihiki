@@ -75,8 +75,12 @@
   (if (nil? p)
     acc
     (-> acc
-        (update :sum (fnil + 0) p)
-        (update :n (fnil inc 0)))))
+        ;; The sum is an accumulator: sadd, not (fnil + 0). It folds every
+        ;; sample in the hour and lands in state as :funding, so a sum that
+        ;; crosses 2^53 would fork the runtimes exactly like the falsify-8..13
+        ;; sites — one more (fnil + 0), one more fork.
+        (update :sum fx/acc p)
+        (update :n fx/acc 1))))
 
 (def empty-accumulator {:sum 0 :n 0})
 
@@ -134,7 +138,10 @@
            st
            (let [p (payment size oracle-price rate)]
              (-> st
-                 (update-in [:accounts acct :collateral] (fnil - 0) p)
-                 (update :funding-residue (fnil + 0) p))))))
+                 (update-in [:accounts acct :collateral] fx/acc (- p))
+                 ;; the residue is an accumulator: sadd, not +. falsify-10
+                 ;; walked it past 2^53 with honest settles and got two
+                 ;; different roots from the same log, no throw anywhere.
+                 (update :funding-residue fx/acc p))))))
      state
      accts)))

@@ -1,6 +1,7 @@
 (ns torihiki.commit-test
   "The tree, and the claim that it is a refinement of what came before."
   (:require [kotoba.test :refer [deftest is]]
+            [torihiki.fixed :as fx]
             [torihiki.state :as st]
             [torihiki.commit :as cm]
             [torihiki.parity :as par]
@@ -189,9 +190,17 @@
   ;; So this asserts the property on ids that actually stress it: values on
   ;; both sides of a power of ten, where lexicographic and numeric order
   ;; disagree unless every id is padded to the same width.
+  ;;
+  ;; Collateral used to equal the account id, which put the tree's total
+  ;; (9.3 x 10^15) past the i53 ceiling — unremarkable before falsify-14's
+  ;; clamp, and now a clamped tree whose proofs fail closed by design (that
+  ;; regime is pinned in overflow-gates-test). The ids carry the sorting
+  ;; stress here, so the collaterals come down to where the aggregate fits
+  ;; the domain.
   (let [accts [9 10 99999999999999 100000000000000 34633027260816 9007199254740992]
         e (reduce (fn [e a]
-                    (assoc-in e [:clearing :accounts a] {:collateral a :positions {}}))
+                    (assoc-in e [:clearing :accounts a]
+                              {:collateral (fx/fdiv a 2) :positions {}}))
                   (st/apply-block (par/fresh) par/scenario)
                   accts)
         ids (mapv :id (st/canonical-leaves e))]

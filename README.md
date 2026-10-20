@@ -1,7 +1,18 @@
 # torihiki (取引)
 
-A deterministic, fully on-chain exchange state machine — the open replacement
-for Hyperliquid's closed HyperCore.
+A deterministic exchange state machine, built to run fully on-chain — the open
+replacement for Hyperliquid's closed HyperCore.
+
+**Deployment status: devnet, single operator.** The engine is the on-chain
+design; the deployment is not yet a decentralized exchange. `torihiki-node`
+runs it as one sequencer and as a four-replica BFT set whose four keys one
+party holds; collateral is a faucet grant; nothing can be withdrawn to another
+chain. Every node carries eight flags for `/head` (`:decentralization`) and
+`/.well-known/torihiki` (torihiki-node#38 — merged, not yet deployed: the
+running devnet is stalled and a Durable Object does not pick up a deploy), all
+false until their gates pass in production — see
+[`docs/decentralization-roadmap.md`](docs/decentralization-roadmap.md). Until
+D1–D4 are true, do not describe this as decentralized.
 
 **Tier**: `T2` **Role**: `library` **Status**: execution layer implemented and
 benchmarked; verifiable single-sequencer log implemented; snapshot/restore
@@ -466,8 +477,13 @@ operator:
 
 Storage (`put!`/`get-fn`) and signing (`sign-fn`/`verify-fn`) are injected,
 so this namespace performs no I/O and imports no crypto. The second one
-matters: `kotoba-lang/ed25519` is JVM-only, and importing it would stop the
-browser that wants to check the log from being able to.
+mattered when it was written: `kotoba-lang/ed25519` was then JVM-only, and
+importing it would have stopped the browser that wants to check the log from
+being able to. That repository is now
+[`kotoba-lang/org-ietf-ed25519`](https://github.com/kotoba-lang/org-ietf-ed25519)
+and its `ed25519.sign` is portable `.cljk` — `kotoba-lang/tsunagi` depends on
+it and runs its tests under `kbb --backend sci` — so the platform is no longer
+the reason. Injection still keeps the signer a caller's choice.
 
 This is a **sequencer, not consensus**. One writer decides the order; nothing
 here votes or tolerates a Byzantine peer. Saying otherwise would be the lie
@@ -548,6 +564,114 @@ Still not **incremental**: a root costs the whole state, which is right for
 the kilobytes a normal block touches and wrong for a book holding hundreds of
 thousands of resting orders.
 
+## The validator set is chain state
+
+`torihiki.validators` (roadmap D2). A chain built with
+`:validators {:genesis [...] :epoch-length :min-stake :max-validators}` keeps
+its validator set under the state root instead of in a node's source:
+
+- `:validator-register` / `:validator-rotate-key` / `:validator-retire`, signed
+  by the witness's **operator account**. The consensus key is separate from
+  the account key, so the account can stay cold.
+- The active set changes **only at an epoch boundary**: registered, not
+  retiring, not jailed, at least `:min-stake` bonded to the operator account,
+  largest stake first, ties by name, at most `:max-validators`. Fewer than four
+  qualifying keeps the current set — a turn that would leave a group unable to
+  tolerate one fault is refused, and the queued requests survive it.
+- `:equivocation-evidence` — two different block hashes signed by one
+  consensus key at one height in one view, checked against the key that
+  witness held in that epoch by the node's `:vote-verify-fn` (the engine has no
+  crypto and the vote format belongs to consensus). A proof jails the witness
+  and slashes **every** bond behind its operator account, live and unbonding:
+  5% to the prover, the rest to the insurance fund. Once per offence.
+- Unbonding collateral now stays reserved until collected; before, it was free
+  the moment it left the bond, so a validator could unbond and withdraw before
+  a slash could reach it.
+
+A chain built without `:validators` is untouched: no section `09` in the root,
+and the published digests below do not move.
+
+What this does **not** do yet is make consensus *read* the set. `torihiki-node`
+still runs a fixed four; switching `inga` to each epoch's set at the boundary
+is the next step.
+
+## The validator set is the oracle
+
+Roadmap D4. On a chain with `:validators`, the publishers are the active set's
+operator accounts — nobody configures them, and a validator that leaves the
+set stops being read at the boundary. `orc/aggregate-weighted` takes the
+stake-weighted median of fresh submissions and publishes only when they hold
+**more than 2/3** of the set's weight; below that the oracle is stale and
+liquidation stops. The direct `:oracle` setter is refused outright. Each
+publisher's deviation from the published price is in `api/market-info`
+(`:oracle-deviations`), so a validator persistently far from its peers is
+visible to anyone reading the market.
+
+## Upgrades are voted, not deployed
+
+Roadmap D5 (`torihiki.governance`). On a chain with `:validators`, the
+protocol version is state. An active-set operator proposes
+`{:version v :activation h}` (`v` above the current and scheduled versions,
+`h` at least `:notice` blocks away); operators holding more than 2/3 of the
+set's weight vote; from block `h` on, `gov/active-version` is `v` on every
+replica at once. Proposals lapse after `:ttl`. New rules ship in a binary
+gated on the active version, and a node whose binary does not know it must
+stop (`gov/supported?`) rather than keep producing roots under rules it lacks.
+
+### Version 2: an order must be one the account can back
+
+Through version 1 nothing checked a perp order against margin. Found from the
+terminal on a four-node devnet: a $100k account rested a 50,000,000-lot bid,
+a 1,000,000-lot sell filled into it, and the taker was at negative equity the
+moment it filled.
+
+From version 2 (`torihiki.order-margin`), positions and orders are valued at
+the mark. Per market the requirement is the larger of two scenarios — every
+resting bid fills, or every resting ask does —
+`IM(|S ± orders| × mark)` plus what those orders would lose against the mark
+the instant they fill (a bid above the mark, an ask below it). An order is
+refused (`:insufficient-margin`, code 19) unless, after it, equity less bonds
+less spot-committed quote covers that requirement — or it does not make the
+shortfall any larger. The part of an order that would take liquidity is priced
+exactly by reading the book's queues read-only — the account's own orders it
+would take net to nothing — and only what would rest counts as resting.
+Reduce-only orders and fired triggers are never refused. Nothing opens on a
+market that has no mark yet: a market listed without an oracle cannot trade
+until it has a price. Free collateral
+subtracts the requirement, so what backs a resting order cannot be withdrawn,
+transferred, bonded or spent on spot. Scale ladders are checked whole. At the
+height version 2 activates, the resting perp orders of any account that cannot
+back them — placed unchecked under version 1 — are cancelled. The resting
+quantities are a cache derived from the books (outside the root, rebuilt on
+restore, kept from the queues rather than the block's fill buffer), so a
+version-1 chain's state and roots are unchanged.
+
+## The bridge: collateral that came from somewhere
+
+Roadmap D3. `contracts/src/TorihikiBridge.sol` (Foundry, `cd contracts && forge test`)
+escrows the collateral token on an EVM chain under the control of torihiki's own
+validator set, in the shape of Hyperliquid's Bridge2:
+
+- `deposit(account, amount)` escrows and emits `Deposit`. No relayer is trusted:
+  validators attest the event and the engine credits on a supermajority.
+- A withdrawal pays only with EIP-712 signatures from **more than 2/3** of the
+  contract's validator power, and only after `disputePeriod`. Any single
+  validator can `pause()`; only a 2/3 quorum can `unpause`, `invalidateWithdrawal`
+  or raise the deposit cap.
+- The set names its successor (2/3, after the same dispute period). No owner, no
+  admin key, no proxy. Validator keys there are secp256k1 bridge signers.
+
+The engine side is `torihiki.bridge` (the same EIP-712 digests, pinned against
+the contract and against `cast`; contract events → attestations) and **bridge
+mode**: an exchange built with `:bridge {:contract :evm-chain-id :asset}` (which
+requires `:validators`) refuses `:deposit` from everybody, refuses an owner's
+`:withdraw-cancel` (the claim may already be signed — cancelling it would pay
+twice), requires a `:dest` on every withdrawal, and counts attestations only
+from active-set operators holding more than 2/3 of the set's weight.
+
+Not done: the node's watcher/signer/relayer, publishing the reserves equation
+per block, an external audit, and a testnet deployment.
+
 ## Identity, and the authority it costs
 
 An account id is a function of its key (`torihiki.address/derive`), which is
@@ -616,7 +740,7 @@ AMU_HOME=<kotoba-lang/amu> KOTOBA_CHECKOUTS=<siblings> \
 It compiles JVM-free to **wasm32 and aarch64-macos**. The wasm is executed --
 through `amu`'s own shipped `browser-host.mjs`, not a host written for the
 test, which would be a stub of the thing under test -- and every export is
-compared against the `.cljc`. **The native artifact compiles and was not
+compared against `src/torihiki/fixed.cljk`. **The native artifact compiles and was not
 run**, so nothing here claims it agrees.
 
 ### The book, native, without a JVM
@@ -711,7 +835,7 @@ the Kotoba build yet. `src/torihiki/fixed.cljk` is what the engine runs.
 
 ## Platform
 
-`.cljc` throughout. The JVM path is the one that meets the throughput target;
+`.cljk` (formerly `.cljc`) throughout. The JVM path is the one that meets the throughput target;
 the ClojureScript path exists so a browser or a Worker can replay and verify a
 block without trusting a validator. `torihiki.slab` documents the one place
 they differ (`long[]` versus `Float64Array`) and why the i53 domain makes them
@@ -740,8 +864,8 @@ Why not `.kotoba`, given this workspace's runtime priority? Because as of
 2026-08-01 the native backend cannot host this: records are rewritten into
 stack slots at codegen time and cannot cross a function boundary, there is no
 provider or capability mechanism at all, and the recursive value work is still
-ahead. `.cljc` is the honest choice today, and the migration target is
-recorded rather than assumed.
+ahead. `.cljc` was the honest choice then (the sources have since been
+renamed `.cljk`), and the migration target is recorded rather than assumed.
 
 ## What is not here
 

@@ -139,7 +139,10 @@
       ;; opening from flat, or adding in the same direction
       (or (zero? size) (= (neg? size) (neg? delta)))
       [(assoc pos :size new-size
-                  :entry-notional (+ entry-notional (fx/notional price delta)))
+                  ;; the basis is an accumulator like any other: sadd, not +.
+                  ;; A basis that leaves the domain silently rounds on JS and
+                  ;; forks the two runtimes (falsify-8's class).
+                  :entry-notional (fx/sadd entry-notional (fx/notional price delta)))
        0]
 
       ;; the fill crosses through zero: close the old side entirely, reopen
@@ -155,10 +158,15 @@
       ;; reducing without crossing zero
       :else
       (let [closed (- delta)                                 ; same sign as size
-            closed-basis (fx/fdiv (* entry-notional closed) size)
+            ;; `entry-notional x closed` routinely exceeds 2^53 while the
+            ;; quotient does not (7.2e14 x 1e12 / 1e12): direct `*` is a bare
+            ;; overflow on the JVM and a silent rounding on JS, and a new-size
+            ;; of 0 lands here — falsify-11's secondary finding. pmul bounds
+            ;; the product before it is computed (see torihiki.fixed).
+            closed-basis (fx/fdiv (fx/pmul entry-notional closed) size)
             realized (- (fx/notional price closed) closed-basis)]
         [(assoc pos :size new-size
-                    :entry-notional (- entry-notional closed-basis))
+                    :entry-notional (fx/acc entry-notional (- closed-basis)))
          realized]))))
 
 (defn open-interest
@@ -204,7 +212,7 @@
   (let [amount (long amount)]
     (if (or (not (pos? amount)) (> amount (long free)))
       state
-      (update-in state [:bonds acct validator] (fnil + 0) amount))))
+      (update-in state [:bonds acct validator] fx/acc amount))))
 
 (defn unbond
   "Begin unbonding `amount` from `validator`. It leaves the bond now and
@@ -219,7 +227,7 @@
     (if (or (not (pos? amount)) (> amount have))
       state
       (-> state
-          (update-in [:bonds acct validator] - amount)
+          (update-in [:bonds acct validator] fx/acc (- amount))
           (update-in [:unbonding acct] (fnil conj [])
                      {:validator validator :amount amount
                       :at (+ (long height) unbond-delay-blocks)})))))
@@ -281,10 +289,10 @@
           ;; is the honest answer; taking it silently is not.
           state
           (-> state
-              (update-in [:accounts acct :collateral] - amount)
-              (update-in [:accounts vault :collateral] (fnil + 0) amount)
-              (update-in [:vaults vault :shares acct] (fnil + 0) minted)
-              (update-in [:vaults vault :total-shares] (fnil + 0) minted)))))))
+              (update-in [:accounts acct :collateral] fx/acc (- amount))
+              (update-in [:accounts vault :collateral] fx/acc amount)
+              (update-in [:vaults vault :shares acct] fx/acc minted)
+              (update-in [:vaults vault :total-shares] fx/acc minted)))))))
 
 (defn vault-withdraw
   "Burn `shares` of `acct`'s holding in `vault` and pay out their share of its
@@ -306,10 +314,10 @@
         (if (or (not (pos? payout)) (> payout (long free)))
           state
           (-> state
-              (update-in [:accounts vault :collateral] - payout)
-              (update-in [:accounts acct :collateral] (fnil + 0) payout)
-              (update-in [:vaults vault :shares acct] - shares)
-              (update-in [:vaults vault :total-shares] - shares)))))))
+              (update-in [:accounts vault :collateral] fx/acc (- payout))
+              (update-in [:accounts acct :collateral] fx/acc payout)
+              (update-in [:vaults vault :shares acct] fx/acc (- shares))
+              (update-in [:vaults vault :total-shares] fx/acc (- shares))))))))
 
 (defn family
   "The owner an account belongs to: itself, or the account it is a sub-account
@@ -365,8 +373,8 @@
             (> amount (long free)))
       state
       (-> state
-          (update-in [:accounts from :collateral] - amount)
-          (update-in [:accounts to :collateral] (fnil + 0) amount)))))
+          (update-in [:accounts from :collateral] fx/acc (- amount))
+          (update-in [:accounts to :collateral] fx/acc amount)))))
 
 (defn set-referrer
   "Bind `acct`'s referrer, once and forever.
@@ -396,8 +404,8 @@
         oi-delta (- (max 0 (:size pos')) (max 0 (:size pos)))]
     (-> state
         (assoc-in [:accounts acct :positions mkt] pos')
-        (update-in [:accounts acct :collateral] (fnil + 0) (- realized fee))
-        (update-in [:open-interest mkt] (fnil + 0) oi-delta)
+        (update-in [:accounts acct :collateral] fx/acc (- realized fee))
+        (update-in [:open-interest mkt] fx/acc oi-delta)
         ;; The venue keeps the fee, less the referrer's share.
         ;;
         ;; Out of what the exchange keeps, never out of what the trader pays:
@@ -407,9 +415,9 @@
         (as-> st
               (let [ref (get-in st [:referrers acct])
                     share (if ref (fx/mul-rate fee referral-share) 0)]
-                (cond-> (update st :fees-collected (fnil + 0) (- fee share))
+                (cond-> (update st :fees-collected fx/acc (- fee share))
                   (pos? share)
-                  (update-in [:accounts ref :collateral] (fnil + 0) share)))))))
+                  (update-in [:accounts ref :collateral] fx/acc share)))))))
 
 ;; ── equity and margin ───────────────────────────────────────────────────────
 
@@ -530,12 +538,12 @@
   whichever filled first — the other nine would create the asset out of
   nothing when they filled."
   [state acct asset amount]
-  (update-in state [:committed acct asset] (fnil + 0) (long amount)))
+  (update-in state [:committed acct asset] fx/acc (long amount)))
 
 (defn release-spot
   "Give back a reservation — the order filled, or was cancelled."
   [state acct asset amount]
-  (update-in state [:committed acct asset] (fnil - 0) (long amount)))
+  (update-in state [:committed acct asset] fx/acc (- (long amount))))
 
 (defn spot-fill
   "Settle one spot fill: `qty` of `asset` at `price`, buyer to seller.
@@ -552,12 +560,12 @@
         sf (fx/mul-rate quote-amt sell-fee-rate)]
     (-> state
         ;; buyer: pays quote, receives asset
-        (update-in [:accounts buyer :collateral] (fnil - 0) (+ quote-amt bf))
-        (update-in [:balances buyer asset] (fnil + 0) qty)
+        (update-in [:accounts buyer :collateral] fx/acc (- (+ quote-amt bf)))
+        (update-in [:balances buyer asset] fx/acc qty)
         ;; seller: gives asset, receives quote
-        (update-in [:balances seller asset] (fnil - 0) qty)
-        (update-in [:accounts seller :collateral] (fnil + 0) (- quote-amt sf))
-        (update :fees-collected (fnil + 0) (+ bf sf)))))
+        (update-in [:balances seller asset] fx/acc (- qty))
+        (update-in [:accounts seller :collateral] fx/acc (- quote-amt sf))
+        (update :fees-collected fx/acc (+ bf sf)))))
 
 (defn bonded
   "What `acct` has bonded, across every validator it has delegated to.
@@ -565,7 +573,12 @@
   Bonded collateral is still in the account — it has to be, because slashing
   takes it from there — but it is not free. See `free-collateral`."
   [state acct]
-  (reduce + 0 (vals (get-in state [:bonds acct] {}))))
+  ;; Unbonding counts until it is collected. `unbond` says the stake "must stay
+  ;; answerable for a while longer", and it was not: the moment it left the
+  ;; bond it became free collateral and could be withdrawn, so a validator
+  ;; could unbond, withdraw, and leave nothing for a slash to take.
+  (+ (reduce + 0 (vals (get-in state [:bonds acct] {})))
+     (reduce + 0 (map :amount (get-in state [:unbonding acct] [])))))
 
 (defn free-collateral
   "What the account may withdraw or commit to new positions: equity less the
@@ -625,13 +638,13 @@
         rec (get-in state [:volume acct])]
     (assoc-in state [:volume acct]
               (cond
-                (nil? rec) {:epoch e :cur notional :prev 0}
-                (= (:epoch rec 0) e) (update rec :cur (fnil + 0) notional)
+                (nil? rec) {:epoch e :cur (fx/acc 0 notional) :prev 0}
+                (= (:epoch rec 0) e) (update rec :cur fx/acc notional)
                 ;; One epoch on: what was current becomes previous.
-                (= (:epoch rec 0) (dec e)) {:epoch e :cur notional :prev (:cur rec 0)}
+                (= (:epoch rec 0) (dec e)) {:epoch e :cur (fx/acc 0 notional) :prev (:cur rec 0)}
                 ;; Further than that and both windows are stale, so neither is
                 ;; carried — a gap in trading is a gap in volume.
-                :else {:epoch e :cur notional :prev 0}))))
+                :else {:epoch e :cur (fx/acc 0 notional) :prev 0}))))
 
 (defn fee-rates-for
   "`[taker maker]` for `acct` on `market`, given its rolling volume.
@@ -671,8 +684,8 @@
             (> amount (get-in state [:accounts payer :collateral] 0)))
       state
       (-> state
-          (update-in [:accounts payer :collateral] - amount)
-          (update-in [:accounts builder :collateral] (fnil + 0) amount)))))
+          (update-in [:accounts payer :collateral] fx/acc (- amount))
+          (update-in [:accounts builder :collateral] fx/acc amount)))))
 
 (defn settle-deficit
   "Move an account's negative collateral into `:deficit`, leaving collateral at
@@ -704,11 +717,21 @@
   it to the account again would double-count the loss AND put equity back
   below zero, which is the state this exists to remove."
   [state acct]
-  (let [c (get-in state [:accounts acct :collateral] 0)]
+  (let [c (get-in state [:accounts acct :collateral] 0)
+        owed (get-in state [:accounts acct :deficit] 0)]
     (if (neg? c)
-      (-> state
-          (assoc-in [:accounts acct :collateral] 0)
-          (update-in [:accounts acct :deficit] (fnil + 0) (fx/check :deficit (- c))))
+      ;; Move as much of the hole as the deficit can still hold. `moved` is
+      ;; capped by the room left in the domain rather than checked after the
+      ;; fact: `fx/check :deficit` here threw on an out-of-domain delta, and a
+      ;; throw inside `apply-block`'s liquidation sweep halted every validator
+      ;; at the same place (falsify-12's secondary finding). A capped move is
+      ;; total, never throws, and is identical on both runtimes — and it keeps
+      ;; the identity `collateral - deficit` = the old single number, because
+      ;; whatever is not moved stays on `:collateral` as the negative it was.
+      (let [moved (min (- c) (max 0 (- fx/i53-max owed)))]
+        (-> state
+            (update-in [:accounts acct :collateral] fx/acc moved)
+            (update-in [:accounts acct :deficit] fx/acc moved)))
       state)))
 
 (defn deposit
@@ -716,24 +739,42 @@
 
   A deposit into an account that owes the system is a repayment before it is a
   balance. Crediting collateral while leaving the deficit standing would let
-  the same account trade on new money while its old hole stayed on the books."
+  the same account trade on new money while its old hole stayed on the books.
+
+  Refused (returned unchanged) rather than credited in three cases: a
+  non-positive or out-of-domain amount, and a deposit whose credit would take
+  `collateral` past the i53 ceiling. The ceiling check is a REAL gate, not
+  paranoia — two in-domain deposits stacked past 2^53 and the two runtimes
+  then held different collateral (falsify-8 measured exactly that, root
+  divergence with no throw). `fx/check` used to throw here for an
+  out-of-domain amount; a throw in the transaction path is a halted chain, so
+  the refusal moved up to `torihiki.api/validate` (`:bad-amount`) and this
+  became total."
   [state acct amount]
-  (let [amount (fx/check :deposit amount)
-        owed (get-in state [:accounts acct :deficit] 0)
-        repaid (min owed amount)]
-    (cond-> state
-      (pos? repaid) (update-in [:accounts acct :deficit] - repaid)
-      true (update-in [:accounts acct :collateral] (fnil + 0) (- amount repaid)))))
+  (if-not (and (integer? amount) (pos? amount) (fx/in-domain? amount))
+    state
+    (let [owed (get-in state [:accounts acct :deficit] 0)
+          coll (get-in state [:accounts acct :collateral] 0)
+          repaid (min owed amount)]
+      (if (> (+ coll amount) fx/i53-max)
+        state
+        (cond-> state
+          (pos? repaid) (update-in [:accounts acct :deficit] fx/acc (- repaid))
+          true (update-in [:accounts acct :collateral] fx/acc (- amount repaid)))))))
 
 (defn withdraw
   "Withdrawals are refused unless free collateral covers them. Returning the
   state unchanged rather than throwing keeps this usable directly as a
   transaction handler: a rejected withdrawal is a no-op block entry, not a
   halted chain."
-  [state acct amount marks markets]
-  (if (<= amount (free-collateral state acct marks markets))
-    (update-in state [:accounts acct :collateral] (fnil - 0) amount)
-    state))
+  ([state acct amount marks markets]
+   (withdraw state acct amount (free-collateral state acct marks markets)))
+  ([state acct amount free]
+   ;; `free` from the caller: from protocol version 2 it counts resting orders
+   ;; (`torihiki.order-margin/free-collateral`), which this namespace cannot see.
+   (if (<= amount free)
+     (update-in state [:accounts acct :collateral] fx/acc (- amount))
+     state)))
 
 (defn new-state []
   {:accounts {} :fees-collected 0})

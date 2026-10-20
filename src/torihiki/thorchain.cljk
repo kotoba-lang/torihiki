@@ -1,6 +1,23 @@
 (ns torihiki.thorchain
   "Reading THORChain, so a validator can attest what it saw.
 
+  ## Observation only — this is not an escrow (2026-10-07)
+
+  The design below assumed THORChain would hold a `TORIHIKI:<account>`
+  deposit for this chain and later pay it out. It will not:
+
+  - THORChain acts only on memos it understands (`SWAP:`, `ADD:`, ...). An
+    inbound whose memo it does not recognise is **refunded** to the sender,
+    not held for a third-party protocol.
+  - THORChain's validators never sign an outbound on torihiki's behalf, so
+    `payouts-in` would attest a payout that nobody is able to send.
+
+  So nothing here may be extended into custody. What survives is the parsing
+  and the attestation shape, which a validator-controlled bridge contract
+  (roadmap D3, `docs/decentralization-roadmap.md`) reuses: a quorum of bonded
+  validators attesting the same source-chain event, exactly once per txid.
+  The text below is kept as the original reasoning.
+
   The escrow is THORChain: a user sends an asset to the network's inbound
   vault with a memo naming their torihiki account, THORChain's own validators
   observe it into their consensus, and the asset sits behind a key no single

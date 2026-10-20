@@ -1,0 +1,98 @@
+(ns torihiki.oracle-set-test
+  "Roadmap D4: on a chain with a validator set, the set is the oracle.
+
+  The gates the roadmap names, on the engine: one validator 10% off does not
+  move the price; two of four offline is stale, not a price; nobody outside
+  the set speaks; and the direct setter is gone."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.validators :as vals]
+            [torihiki.state :as st]))
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate (fx/bps 3) :maker-fee-rate 0))
+
+(def genesis (vec (for [[i w] (map-indexed vector ["w1" "w2" "w3" "w4"])]
+                    {:witness w :pubkey (str "key-" w) :account (+ 100 i)})))
+
+(defn- chain []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 4096 :cap 4096 :ev-cap 4096}
+                    :validators {:genesis genesis :epoch-length 10 :min-stake 1}}))
+
+(defn- block [ex height txs] (st/apply-block ex {:height height :ts height :txs txs} nil))
+
+(defn- submit [pairs] (mapv (fn [[acct price]] {:tx :oracle-submit :account acct :market 1 :price price}) pairs))
+
+(deftest the-set-publishes-and-an-outlier-does-not-move-it
+  (let [ex (block (chain) 1 (submit [[100 1000] [101 1000] [102 1000] [103 1100]]))]
+    (is (= 1000 (get-in ex [:oracle 1])) "one validator 10% off moved the price")
+    (is (false? (get-in ex [:oracle-stale 1])))
+    (testing "and everyone can see who disagrees"
+      (let [d (:oracle-deviations (api/market-info ex 1))]
+        (is (= [100 101 102 103] (map :publisher d)))
+        (is (= (fx/bps 1000) (:deviation (last d))) "10% as a rate")
+        (is (zero? (:deviation (first d))))))))
+
+(deftest two-of-four-offline-is-stale-not-a-price
+  (let [ex (block (chain) 1 (submit [[100 1000] [101 1000] [102 1000]]))
+        later (block ex 100 (submit [[100 1500] [101 1500]]))]
+    (is (= 1000 (get-in ex [:oracle 1])) "three of four is a price")
+    (is (true? (get-in later [:oracle-stale 1])) "half the set published a price")
+    (is (= 1000 (get-in later [:oracle 1])) "the last vouched price is kept, marked stale")))
+
+(deftest nobody-outside-the-set-speaks
+  (let [ex (block (chain) 1 (concat (submit [[999 5000]])
+                                    [{:tx :oracle :account 100 :market 1 :price 5000}]))]
+    (is (= [:not-a-publisher :oracle-is-aggregated] (mapv :reason (:rejected ex))))
+    (is (zero? (get-in ex [:oracle 1] 0)))))
+
+(defn- staked
+  "Bond `stakes` (w1..w4) and turn the epoch at height 10, so the set's
+  weights are the stakes."
+  [stakes]
+  (block (reduce (fn [e [acct amt]]
+                   (-> e
+                       (assoc-in [:clearing :accounts acct :collateral] 1000000)
+                       (st/apply-tx {:tx :bond :account acct :validator acct :amount amt})))
+                 (chain) (map vector [100 101 102 103] stakes))
+         10 []))
+
+(deftest stake-weighs-the-median
+  (let [ex (staked [1000 1000 1000 5000])]
+    (is (= {100 1000 101 1000 102 1000 103 5000} (vals/publisher-weights ex)))
+    (testing "w4 holds 5/8 of the stake: its price is the weighted median"
+      (is (= 1200 (get-in (block ex 11 (submit [[100 1000] [101 1000] [102 1000] [103 1200]]))
+                          [:oracle 1]))))
+    (testing "and freshness is weighed too: w4 alone is 5/8, short of 2/3"
+      (is (true? (get-in (block ex 11 (submit [[103 1200]])) [:oracle-stale 1]))))))
+
+(deftest a-validator-that-left-the-set-is-no-longer-read
+  (let [ex (-> (chain)
+               (assoc-in [:clearing :accounts 200 :collateral] 1000000)
+               (block 2 [{:tx :validator-register :account 200 :witness "w5" :pubkey "key-w5"}
+                         {:tx :bond :account 200 :validator 200 :amount 10}
+                         {:tx :validator-retire :account 103 :witness "w4"}])
+               ;; w2..w4 have no stake; give them some so they stay in the set
+               (assoc-in [:clearing :bonds 100] {100 10})
+               (assoc-in [:clearing :bonds 101] {101 10})
+               (assoc-in [:clearing :bonds 102] {102 10})
+               (block 10 []))]
+    (is (= #{100 101 102 200} (vals/publishers ex)))
+    (let [after (block ex 11 (submit [[103 9000]]))]
+      (is (= :not-a-publisher (:reason (first (:rejected after))))))))
+
+(deftest a-chain-without-validators-keeps-its-publishers
+  (let [ex (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}
+                             :oracle-publishers [1 2 3]})]
+    (is (= #{1 2 3} (vals/publishers ex)))
+    (is (= 3 (:oracle-publishers (api/market-info ex 1))))))
+
+(deftest silence-goes-stale-without-anybody-submitting
+  ;; Review of #36: freshness was judged only when a submission arrived, so a
+  ;; set that stopped publishing left its last price fresh for good.
+  (let [ex (block (chain) 1 (submit [[100 1000] [101 1000] [102 1000]]))]
+    (is (false? (get-in (block ex 61 []) [:oracle-stale 1])) "within max-age")
+    (is (true? (get-in (block ex 62 []) [:oracle-stale 1])) "nobody vouches for it any more")
+    (is (= 1000 (get-in (block ex 62 []) [:oracle 1])) "kept, marked stale")))

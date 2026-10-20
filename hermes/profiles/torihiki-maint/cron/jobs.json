@@ -5,13 +5,15 @@
       "context_from": null,
       "deliver": "local",
       "enabled": true,
-      "enabled_toolsets": null,
+      "enabled_toolsets": [
+        "terminal"
+      ],
       "id": "05ac47fecc61",
-      "model": "murakumo/free",
+      "model": null,
       "name": "torihiki-maint-watch",
       "no_agent": false,
-      "prompt": "torihiki red-detection watch: inspect one of (maturity.md freshness, evidence staleness, test suite green, loop stalled 48h, torihiki-node deploy drift) in ~/github/com-junkawasaki/orgs/kotoba-lang/torihiki and report. First run bash ~/.hermes/scripts/torihiki_state.sh. Read-only.",
-      "provider": "murakumo",
+      "prompt": "Torihiki read-only readiness watch. Follow your Torihiki read-only readiness role from SOUL.md. Inspect one of maturity-ledger freshness, evidence staleness, required-check status, a stalled dependency, or deployment drift; report exact revision, timestamp, and evidence paths. First run `bash ~/.hermes/scripts/torihiki_state.sh`. Do not edit files, mutate Kanban, restart services, or deploy. Final report at most 150 words.",
+      "provider": null,
       "schedule": {
         "kind": "cron",
         "expr": "23 0-23/6 * * *",
@@ -20,7 +22,7 @@
       "script": "torihiki_state.sh",
       "skill": null,
       "skills": [],
-      "workdir": null
+      "workdir": "/Users/junkawasaki/github/wt/torihiki/maint"
     }
   ]
 }

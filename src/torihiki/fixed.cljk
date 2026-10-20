@@ -60,6 +60,44 @@
     (throw (ex-info "torihiki.fixed: value escaped the i53 domain"
                     {:where where :value v :i53-max i53-max}))))
 
+;; ── accumulation: why sums are saturating and not checked ──────────────────
+;;
+;; `check` proves that ONE value is in the domain. It says nothing about a
+;; SUM: two in-domain values accumulated across blocks leave the domain with
+;; no single write being wrong, and then the two runtimes disagree — JVM keeps
+;; the exact long and JS rounds — with no throw anywhere (falsify-8 through
+;; falsify-13 measured this on collateral, :deficit, :funding-residue,
+;; :fees-collected and :insurance-fund). A sum gate that THROWS is the
+;; falsify-6/7 class instead: one signed transaction halts every validator at
+;; the same place. Saturation is the one verdict that is total, never throws,
+;; and is computed identically on both runtimes — the comparison against the
+;; bound decides the same way even when JS has already rounded the true sum,
+;; because a rounded-up sum is still over the ceiling.
+
+(defn sadd
+  "`v + delta`, saturated to the i53 domain. `nil` counts as 0 so it can
+  replace `(fnil + 0)` in an accumulator that has never been written.
+
+  Exact whenever the true sum is in the domain: with both terms in-domain the
+  sum is below 2^54, and a JS sum that rounds still lands on the same side of
+  the bound, so the cond below picks the same branch on both runtimes."
+  [v delta]
+  (let [v (or v 0)
+        delta (or delta 0)
+        s (+ v delta)]
+    (cond
+      (> s i53-max) i53-max
+      (< s i53-min) i53-min
+      :else s)))
+
+(defn acc
+  "The saturating `(fnil + 0)`. `(update m k fx/acc d)` folds `d` into the
+  accumulator at `k` exactly like `(update m k (fnil + 0) d)` until the sum
+  reaches the domain bound, and clamps instead of escaping it. Every
+  multi-block accumulator in the engine goes through this — see `sadd`."
+  [v delta]
+  (sadd v delta))
+
 ;; ── rates ───────────────────────────────────────────────────────────────────
 
 (def ^:const rate-scale 1000000000)      ; 10^9. 1 bp = 100000, 100% = 10^9
@@ -96,11 +134,64 @@
   [a b]
   (- a (* b (fdiv a b))))
 
+(def ^:private ^:const split
+  "10^5. The limb base for the exact product below: rate-scale (10^9) is
+  split^2 x 10, so every intermediate in the decomposition stays below 2^53."
+  100000)
+
 (defn mul-rate
   "Apply a rate (scaled by `rate-scale`) to an integer amount, rounding
-  toward negative infinity. Used for fees, funding, and margin fractions."
+  toward negative infinity. Used for fees, funding, and margin fractions.
+
+  The product `amount x rate` is NEVER computed directly. It is routinely
+  above 2^53 while the result is comfortably in the domain — notional 10^14
+  at a 1 bp fee is a product of 10^19 and a fee of 10^10 — and there the two
+  runtimes fail differently: JVM `*` throws a bare overflow while JS rounds
+  and returns a wrong number silently (falsify-9's secondary finding). So the
+  division is folded into the multiplication:
+
+    amount = qa*S + ra        rate = qs*S + rs        (S = rate-scale)
+
+    amount*rate/S = amount*qs + qa*rs + floor(ra*rs/S)
+
+  and `floor(ra*rs/S)` is computed with a second split of `ra` so that no
+  intermediate anywhere exceeds 2^53 (all are below 10^14). Every partial is
+  exact on both runtimes whenever the RESULT is in the domain — the partial
+  sums are non-decreasing, so an intermediate is never larger than the final
+  sum — and when the result itself escapes the domain both runtimes throw the
+  same `check` error at the same place instead of disagreeing.
+
+  Out-of-domain `amount` or `rate` is refused up front for the same reason:
+  a silently rounded input is a different transaction on each validator."
   [amount rate]
-  (check :mul-rate (fdiv (* amount rate) rate-scale)))
+  (check :mul-rate amount)
+  (check :mul-rate rate)
+  (if (or (zero? amount) (zero? rate))
+    0
+    (let [amount-neg? (neg? amount)
+          rate-neg? (neg? rate)
+          neg-out? (not= amount-neg? rate-neg?)
+          a (if amount-neg? (- amount) amount)
+          b (if rate-neg? (- rate) rate)
+          qs (quot b rate-scale)
+          rs (rem b rate-scale)
+          qa (quot a rate-scale)
+          ra (rem a rate-scale)
+          ;; floor(ra*rs / rate-scale), exact:
+          ;;   ra = q2*split + r2, so ra*rs = (q2*rs)*split + r2*rs
+          ;;   q2*rs = pw*10^4 + pr, so (q2*rs)*split = pw*rate-scale + pr*split
+          p (* (quot ra split) rs)                       ; < 10^4 * 10^9
+          tail (+ (* (rem p 10000) split) (* (rem ra split) rs))]  ; < 10^14
+      ;; `a*qs` is the one product the decomposition does not bound
+      (when (and (pos? qs) (> a (quot i53-max qs)))
+        (throw (ex-info "torihiki.fixed: value escaped the i53 domain"
+                        {:where :mul-rate :value [amount rate] :i53-max i53-max})))
+      (let [m (+ (* a qs) (* qa rs) (quot p 10000) (quot tail rate-scale))
+            exact? (zero? (rem tail rate-scale))
+            floor-m (if neg-out?
+                      (if exact? (- m) (- (inc m)))
+                      m)]
+        (check :mul-rate floor-m)))))
 
 (defn div-round-half-up
   "a/b rounding halves away from zero. Only used where a specification
@@ -123,6 +214,36 @@
   "Absolute value that stays integral on both platforms."
   [v]
   (if (neg? v) (- v) v))
+
+(defn pmul
+  "`a x b`, saturated to the i53 domain.
+
+  For products whose DIVISOR is not a fixed scale — the reducing fill's
+  `entry-notional x closed / size` basis, where the quotient is always
+  in-domain but the product is not (falsify-11's secondary finding: 7.2e14 x
+  1e12 with a quotient of 7.2e14). Direct `*` there is a bare overflow on the
+  JVM and a silent rounding on JS — the same input, two different chains.
+
+  So the product is bounded BEFORE it is computed: in-domain products are
+  exact on both runtimes and returned unchanged (so every value this engine
+  has ever computed in the documented domain is byte-identical to before),
+  and out-of-domain products clamp deterministically to the bound on both
+  runtimes instead of throwing — a throw inside a fill is a halted chain, and
+  this path is reachable by an ordinary large position closing.
+
+  The clamp is a stated precision loss, not a silent one: past 2^53 the basis
+  a reducing fill retires is computed from a clamped product. Validate-layer
+  caps (`level x qty <= i53-max`) keep ordinary orders far below it."
+  [a b]
+  (let [a (or a 0)
+        b (or b 0)]
+    (if (or (zero? a) (zero? b))
+      0
+      (let [aa (abs* a)
+            ab (abs* b)]
+        (if (> aa (quot i53-max ab))
+          (if (not= (neg? a) (neg? b)) i53-min i53-max)
+          (* a b))))))
 
 (defn clamp
   [v lo hi]

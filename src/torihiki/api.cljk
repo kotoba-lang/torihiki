@@ -29,7 +29,12 @@
   (:require [torihiki.principal :as pr]
             [torihiki.book :as bk]
             [torihiki.clearing :as cl]
-            [torihiki.auth :as auth]))
+            [torihiki.fixed :as fx]
+            [torihiki.order-margin :as om]
+            [torihiki.governance :as gov]
+            [torihiki.auth :as auth]
+            [torihiki.oracle :as orc]
+            [torihiki.validators :as vals]))
 
 (def reasons
   "Every rejection this API can produce. Closed set — see the ns docstring."
@@ -46,7 +51,9 @@
     :bad-trigger-price
     :bad-trigger-order
     :builder-fee-too-high
+    :rate-too-high
     :open-interest-cap
+    :insufficient-margin
     :not-a-publisher
     :oracle-is-aggregated
     :not-the-bridge
@@ -55,7 +62,55 @@
 
 (defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
+(defn- account-ok?
+  "An account id must be a slab-storable i53 integer. The book keeps owners in
+  an i53 slab (`torihiki.slab`), so an id outside the domain cannot be stored
+  and the rejection must happen HERE, as `:bad-account`, rather than deeper in
+  the engine as a throw — one malformed transaction would otherwise halt every
+  validator at the same place (the `validate` contract at the top of this
+  namespace)."
+  [id]
+  (and (integer? id) (fx/in-domain? id)))
+
+(defn- spec-ok?
+  "Every INTEGER a market spec carries must be slab-storable. A spec value
+  outside the domain is a tick, lot or rate the engine will multiply later,
+  and the product check in `torihiki.fixed` is the wrong place to find out.
+  Non-integer numbers pass through here — they are judged where they are
+  used; this only caps what would be stored in an i53 field."
+  [v]
+  (cond
+    (number? v) (or (not (integer? v)) (fx/in-domain? v))
+    (map? v) (every? spec-ok? (vals v))
+    (or (vector? v) (set? v)) (every? spec-ok? v)
+    :else true))
+
+(def ^:private rate-keys
+  "Spec keys whose values are rates against `torihiki.fixed/rate-scale`."
+  #{:taker-fee-rate :maker-fee-rate :initial-margin-rate :maintenance-margin-rate})
+
+(defn- rates-ok?
+  "Every rate a market spec carries is a fraction of `torihiki.fixed/rate-scale`
+  — at most 100%, and at most -100% as a rebate. The engine multiplies rates
+  against in-domain amounts (`torihiki.fixed/mul-rate`), and a rate above the
+  scale takes `amount x rate / rate-scale` out of the domain, where mul-rate
+  throws mid-fill: one listed market, one fill, every validator halts at the
+  same place (the falsify-6/7 class). A rate is a fraction; past 100% it is
+  not one. Walks the whole spec, so `:fee-tiers` are judged wherever they
+  nest."
+  [v]
+  (cond
+    (map? v) (every? (fn [[k val]]
+                       (if (contains? rate-keys k)
+                         (and (integer? val) (<= (- fx/rate-scale) val fx/rate-scale))
+                         (rates-ok? val)))
+                     v)
+    (or (vector? v) (set? v)) (every? rates-ok? v)
+    :else true))
+
 (defn- market-exists? [ex m] (contains? (:markets ex) m))
+
+(defn- publishers [ex] (vals/publishers ex))
 
 (defn- n-levels [ex m] (:n-levels (get-in ex [:books m])))
 
@@ -66,8 +121,14 @@
   [ex market {:keys [side level qty flags]}]
   (cond
     (not (int-in? side 0 1)) :bad-side
-    (not (and (integer? qty) (pos? qty))) :bad-quantity
+    (not (int-in? qty 1 fx/i53-max)) :bad-quantity
     (not (int-in? level 0 (dec (n-levels ex market)))) :bad-price-level
+    ;; The notional a fill will compute is `level x qty` (`torihiki.fixed/
+    ;; notional`), so it is capped HERE rather than discovered inside a fill:
+    ;; two in-domain orders crossing at a high level produced an out-of-domain
+    ;; notional mid-apply (falsify-7), where a throw is a halted chain.
+    ;; Division, not multiplication — `level x qty` may itself overflow.
+    (and (pos? level) (> qty (quot fx/i53-max level))) :bad-amount
     (not (int-in? (or flags 0) 0 7)) :bad-flags
     :else nil))
 
@@ -90,13 +151,58 @@
   what a client may charge."
   1000000)
 
+(defn- perp? [ex market]
+  (let [k (get-in ex [:markets market :kind])] (not (or (= :spot k) (= "spot" k)))))
+
+(defn- spot-amend-funds
+  "From protocol version 4, a spot amend that becomes a new order must be one
+  the account can fund once the order it replaces has given its reservation
+  back — or the cancel would go through and the new order silently fail,
+  losing the old one. Refused here, before either."
+  [ex {:keys [account market oid level qty]}]
+  (when (and (>= (gov/active-version ex) 4) (not (perp? ex market)))
+    (let [cur (bk/order-of (get-in ex [:books market]) oid)]
+      (when (and cur (= account (:owner cur))
+                 (not (and (= level (:level cur)) (< qty (:qty cur)))))
+        (let [buy? (= (:side cur) bk/bid)
+              asset (if buy? 0 (get-in ex [:markets market :asset]))
+              back (if buy? (* (:level cur) (:qty cur)) (:qty cur))
+              need (if buy? (* level qty) qty)
+              c (:clearing ex)
+              have (+ back (if buy?
+                             (min (- (get-in c [:accounts account :collateral] 0)
+                                     (get-in c [:committed account 0] 0))
+                                  (om/free-collateral ex account))
+                             (cl/balance c account asset)))]
+          (when (> need have) :bad-amount))))))
+
+(defn- amend-margin
+  "An amend that cannot keep its place is a cancel and a new order; from
+  version 2 the new order must be one the account can back, counted without
+  the order it replaces. Refused here, BEFORE the cancel, so an unaffordable
+  amend leaves the old order where it was."
+  [ex {:keys [account market oid level qty]}]
+  (when (and (om/active? ex) (perp? ex market))
+    (let [cur (bk/order-of (get-in ex [:books market]) oid)]
+      (when (and cur (= account (:owner cur)))
+        (cond
+          (zero? level) :bad-price-level
+          (and (= level (:level cur)) (< qty (:qty cur))) nil
+          (not (om/order-allowed?
+                ex (om/adjust (:open-orders ex) account market (:side cur) (:level cur) (- (:qty cur)))
+                account market (:side cur) level qty 0))
+          :insufficient-margin)))))
+
 (defn validate
   "nil when `tx` may be applied, otherwise a keyword from `reasons`.
 
-  Deliberately checks SHAPE and RANGE only — not whether the account can
-  afford it. Affordability is a clearinghouse outcome (a withdrawal that
-  exceeds free collateral is already a no-op there), and duplicating that
-  judgement here would give two places to keep in agreement."
+  Checks SHAPE and RANGE, and — from protocol version 2 — whether a perp
+  order or amend is one the account can back (`:insufficient-margin`,
+  `torihiki.order-margin`). That one affordability check is here, and not
+  only in the engine, so the refusal has a stated reason; the engine checks
+  the same function again for orders that never pass through here
+  (triggers, TWAP slices). A withdrawal that exceeds free collateral is
+  still a no-op in the clearinghouse."
   [ex {:keys [tx account market] :as t}]
   (case tx
     (:order :cancel :cancel-all :amend :trigger :cancel-trigger :oracle
@@ -105,13 +211,13 @@
       (not (market-exists? ex market)) :unknown-market
 
       (= tx :order)
-      (or (when-not (integer? account) :bad-account)
+      (or (when-not (account-ok? account) :bad-account)
           ;; A builder fee is a number the trader may not have read. The cap is
           ;; what stands between an interface earning from routing and an
           ;; interface taking the account.
           (when (some? (:builder t))
             (cond
-              (not (integer? (:builder t))) :bad-account
+              (not (account-ok? (:builder t))) :bad-account
               (not (and (integer? (:builder-fee t)) (pos? (:builder-fee t))))
               :missing-field
               (> (:builder-fee t) max-builder-fee-rate) :builder-fee-too-high))
@@ -123,7 +229,17 @@
           ;; discovers the breach only after it cannot be undone.
           (when-let [cap (get-in ex [:markets market :open-interest-cap])]
             (when (> (+ (cl/open-interest (:clearing ex) market) (:qty t)) cap)
-              :open-interest-cap)))
+              :open-interest-cap))
+          (when (and (om/active? ex) (perp? ex market))
+            (cond
+              ;; A bid at 0 asks for the asset free and an ask at 0 gives it
+              ;; away; neither is a price.
+              (zero? (:level t)) :bad-price-level
+              ;; Reduce-only orders are exempt inside `order-allowed?`.
+              (not (om/orders-allowed? ex (:open-orders ex) account market
+                                       [[(:side t) (:level t) (:qty t) (or (:flags t) 0)
+                                         (when (:builder t) (:builder-fee t))]]))
+              :insufficient-margin)))
 
       (= tx :cancel)
       ;; `nat-int?`, not `pos?`. An order id is `slot * gen-mod + generation`
@@ -137,24 +253,26 @@
       ;; Nothing but the market and the signer, both already checked. There is
       ;; no id to get wrong, which is the point: a maker pulling out does not
       ;; want a transaction that can be refused for a shape reason.
-      (when-not (integer? account) :bad-account)
+      (when-not (account-ok? account) :bad-account)
 
       (= tx :amend)
       (cond
-        (not (integer? account)) :bad-account
+        (not (account-ok? account)) :bad-account
         (not (nat-int? (:oid t))) :missing-field
         ;; The new resting shape has to be a legal order in its own right —
         ;; the same check `:order` gets, because that is what an amend
         ;; becomes whenever it cannot keep its place in the queue.
-        :else (validate-order-shape ex market (assoc t :side 0 :flags 0)))
+        :else (or (validate-order-shape ex market (assoc t :side 0 :flags 0))
+                  (amend-margin ex t)
+                  (spot-amend-funds ex t)))
 
       (= tx :cancel-trigger)
       (if-not (integer? (:id t)) :missing-field nil)
 
       (= tx :trigger)
       (cond
-        (not (integer? account)) :bad-account
-        (not (and (integer? (:trigger-price t)) (pos? (:trigger-price t))))
+        (not (account-ok? account)) :bad-account
+        (not (int-in? (:trigger-price t) 1 fx/i53-max))
         :bad-trigger-price
         (not (contains? #{:above :below} (:direction t))) :bad-trigger-direction
         (not (map? (:order t))) :bad-trigger-order
@@ -165,7 +283,7 @@
 
       (= tx :oracle)
       (cond
-        (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
+        (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
         ;; With publishers configured, the direct setter is closed. Leaving
         ;; both doors open would make the aggregate decorative — an attacker
         ;; would simply use the one that does not aggregate.
@@ -181,6 +299,10 @@
         ;; moment it is used, because the condition is that there is no price
         ;; yet. The authority opens a market once; after that only publishers
         ;; move it.
+        ;; With a validator set the set IS the oracle, and there is no direct
+        ;; setter at all — not even the bootstrap below, since the set can
+        ;; publish the first price itself.
+        (some? (:validator-params ex)) :oracle-is-aggregated
         (and (seq (:oracle-publishers ex))
              (not (and (zero? (get-in ex [:oracle market] 0))
                        (some? (:bridge-authority ex))
@@ -190,17 +312,17 @@
 
       (= tx :oracle-submit)
       (cond
-        (not (integer? account)) :bad-account
-        (not (and (integer? (:price t)) (pos? (:price t)))) :bad-price-level
-        (not (contains? (:oracle-publishers ex) account)) :not-a-publisher
+        (not (account-ok? account)) :bad-account
+        (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
+        (not (contains? (publishers ex) account)) :not-a-publisher
         :else nil)
 
       :else nil)
 
     :deposit
     (cond
-      (not (integer? account)) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? account)) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       ;; Collateral has to come from somewhere. With a bridge authority
       ;; configured, only it may credit an account — a deposit is the chain
       ;; recording that value arrived somewhere else, and an account that can
@@ -217,6 +339,10 @@
       ;; decorative, since an attacker would use the door that does not check.
       (let [bridge (:bridge-authority ex)]
         (and bridge (not= account bridge))) :not-the-bridge
+      ;; Bridge mode: the contract is the only way in, by quorum attestation
+      ;; (`:deposit-attest`). No account — not even a configured authority —
+      ;; may credit collateral by saying so.
+      (some? (:bridge ex)) :not-the-bridge
       ;; Who the deposit pays. The signer is still the bridge — the
       ;; certificate backing this collateral is the bridge's own Ed25519
       ;; signature over the transaction, which the chain already verifies and
@@ -231,19 +357,34 @@
       ;;
       ;; Omitted, the deposit pays the signer, which is what it did before a
       ;; bridge could exist.
-      (and (some? (:credit t)) (not (integer? (:credit t)))) :bad-account
+      (and (some? (:credit t)) (not (account-ok? (:credit t)))) :bad-account
       ;; Only a bridge may pay somebody else. Without this, any account could
       ;; credit any other on a chain with no authority configured — harmless
       ;; there in isolation, and a way to obscure where collateral came from
       ;; on a chain where the mint is supposed to be the only source.
       (and (some? (:credit t)) (nil? (:bridge-authority ex))
            (not= (:credit t) account)) :not-the-bridge
+      ;; Balance-domain gate (falsify-8): a deposit whose credit would take
+      ;; `collateral` past the i53 ceiling is refused HERE, with a reason.
+      ;; Two in-domain deposits stacked past 2^53 and the two runtimes held
+      ;; different collateral — root divergence, no throw anywhere. The
+      ;; engine's `torihiki.clearing/deposit` refuses the same deposit as a
+      ;; no-op; this clause is what tells the client why.
+      (> (+ (get-in (:clearing ex) [:accounts (or (:credit t) account) :collateral] 0)
+            (:amount t))
+         fx/i53-max) :bad-amount
       :else nil)
 
     :withdraw
     (cond
-      (not (integer? account)) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? account)) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
+      ;; Bridge mode: the contract pays an address, so the claim must name
+      ;; one, and a malformed one is refused here rather than signed by every
+      ;; validator and refused by the contract.
+      (and (some? (:bridge ex))
+           (not (and (string? (:dest t)) (re-matches #"0x[0-9a-fA-F]{40}" (:dest t)))))
+      :missing-field
       ;; Not gated: a holder withdrawing their own collateral is the one
       ;; movement that needs no authority beyond the signature, and the
       ;; clearinghouse already refuses to take more than free collateral.
@@ -255,7 +396,7 @@
 
     (:authorize-agent :revoke-agent)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (string? (:agent t))) :missing-field
       ;; A base64 Ed25519 public key is 44 characters. Checking the shape here
       ;; keeps an unusable authorisation out of the state root rather than
@@ -263,41 +404,41 @@
       (not= 44 (count (:agent t))) :missing-field
       (and (= tx :authorize-agent)
            (some? (:expires t))
-           (not (and (integer? (:expires t)) (pos? (:expires t)))))
+           (not (int-in? (:expires t) 1 fx/i53-max)))
       :missing-field
       :else nil)
 
     (:bond :unbond)
     (cond
-      (not (integer? account)) :bad-account
-      (not (integer? (:validator t))) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? account)) :bad-account
+      (not (account-ok? (:validator t))) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       :else nil)
 
     :collect-unbonded
-    (if (integer? account) nil :bad-account)
+    (if (account-ok? account) nil :bad-account)
 
     (:vault-deposit :vault-withdraw)
     (cond
-      (not (integer? account)) :bad-account
-      (not (integer? (:vault t))) :bad-account
+      (not (account-ok? account)) :bad-account
+      (not (account-ok? (:vault t))) :bad-account
       (and (= tx :vault-deposit)
-           (not (and (integer? (:amount t)) (pos? (:amount t))))) :bad-amount
+           (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
       (and (= tx :vault-withdraw)
            (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
       :else nil)
 
     :create-sub-account
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:sub t))) :bad-account
       :else nil)
 
     :transfer
     (cond
-      (not (integer? account)) :bad-account
-      (not (integer? (:to t))) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? account)) :bad-account
+      (not (account-ok? (:to t))) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       :else nil)
 
     ;; An anchor: a content-addressed checkpoint (receipt CID) into the append-only
@@ -313,14 +454,14 @@
 
     :set-leverage
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (and (integer? (:leverage t)) (pos? (:leverage t)))) :missing-field
       :else nil)
 
     :attest-reserves
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (integer? (:amount t)) (not (neg? (:amount t))))) :bad-amount
       :else nil)
 
@@ -332,48 +473,61 @@
     ;; only says the transaction is the shape it claims to be.
     :deposit-attest
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
-      (not (integer? (:credit t))) :bad-account
-      (not (and (integer? (:amount t)) (pos? (:amount t)))) :bad-amount
+      (not (account-ok? (:credit t))) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       (not (and (string? (:asset t)) (seq (:asset t)))) :missing-field
       :else nil)
 
     ;; Contract code, published into the chain.
     :evm-deploy
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (string? (:code t)) (seq (:code t)))) :missing-field
       (odd? (count (:code t))) :missing-field
       :else nil)
 
     :set-referrer
     (cond
-      (not (integer? account)) :bad-account
-      (not (integer? (:referrer t))) :bad-account
+      (not (account-ok? account)) :bad-account
+      (not (account-ok? (:referrer t))) :bad-account
       :else nil)
 
     :scale
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
-      (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
+      (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
       (not (and (integer? (:level t)) (not (neg? (:level t))))) :bad-price-level
       ;; A ladder of one is an order, and this is not the way to send one.
       (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
       :missing-field
       ;; A step of zero stacks every rung on one level, which is an order for
       ;; count x qty wearing a ladder's clothes.
-      (not (and (integer? (:step t)) (pos? (:step t)))) :missing-field
+      (not (int-in? (:step t) 1 fx/i53-max)) :missing-field
+      ;; From version 2 the ladder is checked WHOLE, as it is placed whole:
+      ;; refusing it here is what keeps the engine from placing the rungs it
+      ;; can back and silently dropping the rest.
+      (and (om/active? ex) (perp? ex market)
+           (let [{:keys [side level qty step]} t
+                 dir (if (= side bk/bid) -1 1)
+                 n (n-levels ex market)
+                 rungs (for [i (range (:count* t))
+                             :let [l (+ level (* dir i step))]
+                             :when (and (<= 0 l) (< l n))]
+                         [side l qty (or (:flags t) 0)])]
+             (not (om/orders-allowed? ex (:open-orders ex) account market rungs))))
+      :insufficient-margin
       :else nil)
 
     :twap
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
-      (not (and (integer? (:qty t)) (pos? (:qty t)))) :bad-quantity
+      (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
       ;; A schedule of one slice is an order, and a schedule of none is
       ;; nothing. Both are better refused than quietly turned into something
       ;; the trader did not ask for.
@@ -386,33 +540,78 @@
 
     :cancel-twap
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:id t))) :missing-field
       :else nil)
 
     :amend-market
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
       (not (map? (:spec t))) :missing-field
+      ;; every integer a spec carries must be slab-storable — it is a tick,
+      ;; lot or rate the engine will multiply later (see `spec-ok?`)
+      (not (spec-ok? (:spec t))) :missing-field
+      ;; and every rate must be a fraction of rate-scale (see `rates-ok?`)
+      (not (rates-ok? (:spec t))) :rate-too-high
       :else nil)
 
     :list-market
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (and (integer? market) (pos? market))) :unknown-market
       ;; Already listed is refused here rather than in the engine so a client
       ;; sees why, and so the engine's no-op stays a safety net rather than
       ;; the only check.
       (contains? (:markets ex) market) :unknown-market
       (not (map? (:spec t))) :missing-field
-      (not (and (integer? (:tick (:spec t))) (pos? (:tick (:spec t))))) :missing-field
-      (not (and (integer? (:lot (:spec t))) (pos? (:lot (:spec t))))) :missing-field
+      (not (spec-ok? (:spec t))) :missing-field
+      ;; every rate must be a fraction of rate-scale (see `rates-ok?`) — a
+      ;; spec is not refused for what it SAYS only because it stores cleanly
+      (not (rates-ok? (:spec t))) :rate-too-high
+      (not (int-in? (:tick (:spec t)) 1 fx/i53-max)) :missing-field
+      (not (int-in? (:lot (:spec t)) 1 fx/i53-max)) :missing-field
+      ;; `new-book` enforces its option constraints by THROWING, so the shape
+      ;; is judged here, at the last door before apply-block
+      (not (bk/book-opts-ok? (:book-opts t))) :missing-field
+      :else nil)
+
+    ;; It had no case here, so through `apply-block` — the only path a
+    ;; deployed chain has — every exit attestation was refused `:unknown-tx`
+    ;; and no claim could ever settle by quorum. The tests called `apply-tx`
+    ;; directly, which skips this function, and so never saw it.
+    :upgrade-propose
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (and (integer? (:version t)) (pos? (:version t)))) :missing-field
+      (not (and (integer? (:activation t)) (pos? (:activation t)))) :missing-field
+      :else nil)
+
+    :upgrade-vote
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? (:proposal t))) :missing-field
+      :else nil)
+
+    :withdraw-attest
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
+      (not (and (string? (:dest t)) (seq (:dest t)))) :missing-field
+      (and (some? (:amount t)) (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
+      :else nil)
+
+    :withdraw-invalidate-attest
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       :else nil)
 
     (:withdraw-settle :withdraw-cancel)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:claim t))) :missing-field
       ;; Who may settle and who may cancel is decided in `torihiki.state`,
       ;; where the claim itself is in hand: settling needs the bridge, and
@@ -427,7 +626,7 @@
     ;; answerable from the transaction's shape, which is all this judges.
     (:principal-claim :principal-confirm)
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (pr/well-formed-principal? (:principal t))) :malformed-principal
       (and (= (:tx t) :principal-confirm)
            (not (integer? (:subject t)))) :bad-account
@@ -435,7 +634,7 @@
 
     :principal-rotate
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
       (not (integer? (:subject t))) :bad-account
       (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
@@ -444,7 +643,29 @@
     ;; `:subject` field would invite a client to cancel somebody else's.
     :principal-rotate-cancel
     (cond
-      (not (integer? account)) :bad-account
+      (not (account-ok? account)) :bad-account
+      :else nil)
+
+    (:validator-register :validator-rotate-key)
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
+      :else nil)
+
+    :validator-retire
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      :else nil)
+
+    :equivocation-evidence
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      (not (integer? (:evidence-height t))) :missing-field
+      (not (integer? (:view t))) :missing-field
+      (not (every? #(string? (get t %)) [:hash-a :sig-a :hash-b :sig-b])) :missing-field
       :else nil)
 
     :unknown-tx))
@@ -476,11 +697,16 @@
    :resting (bk/resting-count (get-in ex [:books market]))})
 
 (defn fills-since
-  "Fills produced in the current block from index `from` onward. The event
-  buffer is reset per block, so this is a block-scoped view, not history — a
-  client wanting history keeps its own, or replays the log."
+  "Fills produced in the current block from index `from` onward. A
+  block-scoped view, not history — a client wanting history keeps its own,
+  or replays the log.
+
+  Read from `:block-fills`, the fills settlement recorded, and not from the
+  book's event buffer: that stops recording at `ev-cap`, and since protocol
+  version 3 settlement does not, so the buffer could omit fills a position
+  already holds."
   [ex market from]
-  (vec (drop from (bk/fills (get-in ex [:books market])))))
+  (vec (drop from (get-in ex [:block-fills market] []))))
 
 (defn account-state
   "Everything a client needs to render a portfolio and decide what it may do
@@ -518,7 +744,11 @@
      :equity (cl/equity c account marks)
      :initial-margin (cl/initial-margin c account marks markets)
      :maintenance-margin (cl/maintenance-margin c account marks markets)
-     :free-collateral (cl/free-collateral c account marks markets)
+     ;; From protocol version 2 both count resting orders
+     ;; (`torihiki.order-margin`): what is backing an order is not free.
+     :order-margin (when (om/active? ex)
+                     (om/requirement c (:open-orders ex) account marks markets))
+     :free-collateral (om/free-collateral ex account)
      :liquidatable (boolean (cl/liquidatable? c account marks markets))
      :positions (into {}
                       (for [[m p] (get-in c [:accounts account :positions] {})
@@ -560,7 +790,19 @@
      :maker-fee-rate (get m :maker-fee-rate 0)
      :oracle (get-in ex [:oracle market] 0)
      :oracle-stale (boolean (get-in ex [:oracle-stale market] false))
-     :oracle-publishers (count (:oracle-publishers ex))
+     :oracle-publishers (count (publishers ex))
+     ;; Who disagrees with the published price, and by how much (a rate
+     ;; against `fx/rate-scale`). Monitoring, not enforcement — see
+     ;; `orc/deviation` — but a validator that is persistently far from its
+     ;; peers should be visible to everyone who can read the market, not only
+     ;; to whoever thinks to compute it.
+     :oracle-deviations
+     (let [ref (get-in ex [:oracle market] 0)
+           ps (publishers ex)]
+       (vec (for [[pub {:keys [price ts]}] (sort-by key (get-in ex [:oracle-submissions market] {}))
+                  :when (contains? ps pub)]
+              {:publisher pub :price price :ts ts
+               :deviation (orc/deviation price ref)})))
      :mark (get-in ex [:marks market] 0)
      :last (get-in ex [:last market] 0)
      :funding-rate (get-in ex [:last-funding-rate market] 0)}))
