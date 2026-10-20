@@ -213,7 +213,11 @@
    ;; Governance (`torihiki.governance`): which version, from which height,
    ;; and which proposal a vote is for. Unsigned, a relay could turn a vote
    ;; for one upgrade into a vote for another.
-   (:version tx) (:activation tx) (:proposal tx)])
+   (:version tx) (:activation tx) (:proposal tx)
+   ;; The anchor payload (`:anchor`, the receipt-CID checkpoint). Unsigned, a
+   ;; relay could re-point an anchor at a different receipt and the signer's
+   ;; signature would still verify over it.
+   (:cid tx)])
 
 (defn signing-payload
   "The canonical string a client signs. Field-per-line with names, so two
