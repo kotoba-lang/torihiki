@@ -634,7 +634,7 @@
                   (reduce (fn [m {:keys [owner qty]}]
                             (if (= acct (long owner))
                               (let [[asset amount] (spot-backing ex market side l qty)]
-                                (update m asset (fnil + 0) amount))
+                                (update m asset fx/acc amount))
                               m))
                           m (bk/level-orders book side l))))))
      {} [bk/bid bk/ask])))
@@ -653,7 +653,7 @@
                                (recur (bk/next-occupied book side l)
                                       (reduce (fn [acc {:keys [owner qty]}]
                                                 (let [[asset amount] (spot-backing ex mkt side l qty)]
-                                                  (update-in acc [(long owner) asset] (fnil + 0) amount)))
+                                                  (update-in acc [(long owner) asset] fx/acc amount)))
                                               acc (bk/level-orders book side l))))))
                          acc [bk/bid bk/ask])))
              {} (sort-by key (:books ex)))]
