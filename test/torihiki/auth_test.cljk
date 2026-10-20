@@ -30,6 +30,12 @@
 
 ;; ── the payload ─────────────────────────────────────────────────────────────
 
+(deftest the-payload-covers-the-anchor-cid
+  ;; The anchor's whole meaning is WHICH receipt CID it checkpoints; unsigned,
+  ;; a relay could re-point a signed anchor at another receipt.
+  (is (not= (auth/signing-payload chain 1 1 {:tx :anchor :cid "aaa"})
+            (auth/signing-payload chain 1 1 {:tx :anchor :cid "bbb"}))))
+
 (deftest the-payload-covers-the-chain
   (testing "a signature made for one chain must not authorise the other"
     (is (not= (auth/signing-payload "mainnet" 1 1 {:tx :deposit :amount 5})
