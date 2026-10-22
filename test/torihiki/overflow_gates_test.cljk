@@ -506,3 +506,66 @@
           ex' (st/rebuild-spot-commitments ex)]
       (is (= {7 12} (st/spot-resting-backing ex 1 1)))
       (is (= 12 (get-in ex' [:clearing :committed 1 7]))))))
+
+;; ── the residual i53 caps: every integer that lands in state is storable ────
+;;
+;; The falsify-8 class arriving through the fields the earlier caps missed.
+;; `validate` checked these with `integer?`/`pos?` alone: an out-of-i53 integer
+;; it accepted was then STORED — an :anchors entry, a :sub-of key, a twap
+;; schedule's :every, a reserve attestation's :amount/:as-of, an upgrade
+;; proposal's :version/:activation — and the two runtimes held different
+;; numbers from one transaction: root divergence, no throw anywhere. And
+;; `:scale`'s :level feeds `(+ level (* dir i step))` inside apply-block.
+;; Refused at validate with its REASON from `torihiki.api/reasons`; the engine
+;; answers the same transactions with a no-op, not a store.
+
+(deftest validate-caps-every-integer-that-lands-in-state
+  (let [ex (ex-for)]
+    (testing "REASON for every field the i53 caps missed"
+      (is (= :bad-account
+             (api/validate ex {:tx :anchor :account (inc fx/i53-max) :cid "bafytest"})))
+      (is (= :bad-account
+             (api/validate ex {:tx :create-sub-account :account 1 :sub (inc fx/i53-max)})))
+      (is (= :bad-price-level
+             (api/validate ex {:tx :scale :account 1 :market 1 :side 0
+                               :level (inc fx/i53-max) :qty 1 :count* 2 :step 1})))
+      (is (= :missing-field
+             (api/validate ex {:tx :twap :account 1 :market 1 :side 0
+                               :qty 10 :slices 2 :every (inc fx/i53-max)})))
+      (is (= :bad-amount
+             (api/validate ex {:tx :attest-reserves :account 1 :amount (inc fx/i53-max)})))
+      (is (= :missing-field
+             (api/validate ex {:tx :attest-reserves :account 1 :amount 5
+                               :height* (inc fx/i53-max)})))
+      (is (= :missing-field
+             (api/validate ex {:tx :upgrade-propose :account 1
+                               :version (inc fx/i53-max) :activation 100})))
+      (is (= :missing-field
+             (api/validate ex {:tx :upgrade-propose :account 1
+                               :version 2 :activation (inc fx/i53-max)})))
+      (is (= :bad-quantity
+             (api/validate ex {:tx :vault-withdraw :account 1 :vault 2
+                               :shares (inc fx/i53-max)}))))
+    (testing "VALUE: the documented bounds still pass"
+      (is (nil? (api/validate ex {:tx :anchor :account 1 :cid "bafytest"})))
+      (is (nil? (api/validate ex {:tx :create-sub-account :account 1 :sub 2})))
+      (is (nil? (api/validate ex {:tx :scale :account 1 :market 1 :side 0
+                                  :level 0 :qty 1 :count* 2 :step 1})))
+      (is (nil? (api/validate ex {:tx :twap :account 1 :market 1 :side 0
+                                  :qty 10 :slices 2 :every 5})))
+      (is (nil? (api/validate ex {:tx :attest-reserves :account 1 :amount 5 :height* 100})))
+      (is (nil? (api/validate ex {:tx :upgrade-propose :account 1 :version 2 :activation 100})))
+      (is (nil? (api/validate ex {:tx :vault-withdraw :account 1 :vault 2 :shares 5}))))))
+
+(deftest the-engine-says-no-op-not-a-store
+  (testing "an out-of-i53 value that never met validate is refused, not stored —
+            the same safety net `cl/deposit` keeps, for the same reason"
+    (let [b (bk/new-book {:n-levels 64 :cap 64 :ev-cap 64})
+          ex (-> (ex-for) (assoc :books {1 b} :height 10))]
+      (is (= ex (st/apply-tx ex {:tx :anchor :account (inc fx/i53-max) :cid "bafytest"})))
+      (is (= ex (st/apply-tx ex {:tx :create-sub-account :account 1 :sub (inc fx/i53-max)})))
+      (is (= ex (st/apply-tx ex {:tx :twap :account 1 :market 1 :side 0
+                                 :qty 10 :slices 2 :every (inc fx/i53-max)})))
+      (let [exb (assoc ex :bridge-authority 1)]
+        (is (= exb (st/apply-tx exb {:tx :attest-reserves :account 1
+                                     :amount (inc fx/i53-max)})))))))

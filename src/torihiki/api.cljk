@@ -425,13 +425,14 @@
       (and (= tx :vault-deposit)
            (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
       (and (= tx :vault-withdraw)
-           (not (and (integer? (:shares t)) (pos? (:shares t))))) :bad-quantity
+           (not (int-in? (:shares t) 1 fx/i53-max))) :bad-quantity
       :else nil)
 
     :create-sub-account
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:sub t))) :bad-account
+      ;; `:sub` becomes a key in :sub-of and :account-keys — stored.
+      (not (account-ok? (:sub t))) :bad-account
       :else nil)
 
     :transfer
@@ -448,7 +449,9 @@
     ;; and can be tightened later without changing this shape.
     :anchor
     (cond
-      (not (integer? account)) :bad-account
+      ;; An anchor records its signer into the :anchors log, so the id is a
+      ;; value that lands in state: slab-storable, like every account id.
+      (not (account-ok? account)) :bad-account
       (not (and (string? (:cid t)) (<= 1 (count (:cid t)) 128))) :bad-cid
       :else nil)
 
@@ -462,7 +465,10 @@
     :attest-reserves
     (cond
       (not (account-ok? account)) :bad-account
-      (not (and (integer? (:amount t)) (not (neg? (:amount t))))) :bad-amount
+      (not (int-in? (:amount t) 0 fx/i53-max)) :bad-amount
+      ;; :as-of is stored beside the amount. An integer must be storable;
+      ;; anything else (a statement date) passes through untouched.
+      (and (some? (:height* t)) (not (spec-ok? (:height* t)))) :missing-field
       :else nil)
 
     ;; An escrow deposit observed on another chain.
@@ -500,7 +506,9 @@
       (not (contains? (:markets ex) market)) :unknown-market
       (not (contains? #{0 1} (:side t))) :bad-side
       (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
-      (not (and (integer? (:level t)) (not (neg? (:level t))))) :bad-price-level
+      ;; :level is folded into rung prices — `(+ level (* dir i step))` — so
+      ;; it is capped like the order's level, not merely signed.
+      (not (int-in? (:level t) 0 fx/i53-max)) :bad-price-level
       ;; A ladder of one is an order, and this is not the way to send one.
       (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
       :missing-field
@@ -532,7 +540,7 @@
       ;; nothing. Both are better refused than quietly turned into something
       ;; the trader did not ask for.
       (not (and (integer? (:slices t)) (> (:slices t) 1))) :missing-field
-      (not (and (integer? (:every t)) (pos? (:every t)))) :missing-field
+      (not (int-in? (:every t) 1 fx/i53-max)) :missing-field
       ;; Every slice must be at least one lot, or the tail of the schedule
       ;; fires empty orders forever.
       (< (:qty t) (:slices t)) :bad-quantity
@@ -583,8 +591,9 @@
     :upgrade-propose
     (cond
       (not (account-ok? account)) :bad-account
-      (not (and (integer? (:version t)) (pos? (:version t)))) :missing-field
-      (not (and (integer? (:activation t)) (pos? (:activation t)))) :missing-field
+      ;; Both land in :protocol :proposals — stored numbers, capped.
+      (not (int-in? (:version t) 1 fx/i53-max)) :missing-field
+      (not (int-in? (:activation t) 1 fx/i53-max)) :missing-field
       :else nil)
 
     :upgrade-vote
