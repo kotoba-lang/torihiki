@@ -1,0 +1,15 @@
+generating a 1,000,000-operation tape...
+warming up (JIT)...
+measuring 1,000,000 operations...
+
+  operations       1,000,000
+  placed           450,909
+  cancelled        153,767
+  resting at end   223,196
+  elapsed          6.542 s
+
+  THROUGHPUT       152,859 ops/sec
+  latency          6542 ns/op
+
+  book only: not comparable to Hyperliquid's execution figure
+  (see torihiki.hyperliquid for the state-machine comparison)
