@@ -1,0 +1,5 @@
+Syntax error compiling at (kotoba/lang/edn.cljc:1:1).
+Unable to resolve symbol: escape-controls in this context
+
+Full report at:
+/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/clojure-3953653217159190417.edn

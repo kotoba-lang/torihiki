@@ -1,0 +1,29 @@
+----- Error --------------------------------------
+Message:  Unable to resolve symbol: *unchecked-math*
+Location: /Users/junkawasaki/github/wt/fleet/bot/torihiki-fix-20261023-0621/bench/torihiki/bench.cljk:30:1
+Phase:    analysis
+
+----- Context ------------------------------------
+26:   Deterministic throughout — the tape comes from a fixed LCG, never from
+27:   `rand`, so two runs measure the same work."
+28:   (:require [torihiki.book :as bk]))
+29: 
+30: (set! *unchecked-math* :warn-on-boxed)
+    ^--- Unable to resolve symbol: *unchecked-math*
+31: ;; Without this, a missing hint in the HARNESS makes `aget` reflective and the
+32: ;; measurement reports the reflection instead of the engine. That happened:
+33: ;; destructuring the tape in the parameter vector dropped the `^ints` hints and
+34: ;; this benchmark reported 9,941 ns/op for an engine a chunked probe showed to
+35: ;; be running at ~1,000. Reflection warnings are the difference between
+
+----- Stack trace --------------------------------
+torihiki.bench - /Users/junkawasaki/github/wt/fleet/bot/torihiki-fix-20261023-0621/bench/torihiki/bench.cljk:30:1 
+
+file:///Users/junkawasaki/github/kotoba-lang/org-babashka-nbb/lib/nbb_main.js:13
+$APP.aH),$APP.VZ);return g.B?g.B():g.call(null)}):null).then(function(g){$APP.k($APP.k(d)?g!=null:d)&&$APP.dz.o($APP.y([g],0));return g}).catch(function(g){$APP.Dla(g,b);$APP.k($APP.ez.h(b))&&console.error(g);throw Error($APP.Hk(g));})})):console.error("Usage: "+$APP.I.h("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")})();
+                                                                                                                                                                                                                       ^
+
+Error: Unable to resolve symbol: *unchecked-math*
+    at file:///Users/junkawasaki/github/kotoba-lang/org-babashka-nbb/lib/nbb_main.js:13:216
+
+Node.js v26.0.0
