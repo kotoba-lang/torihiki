@@ -892,7 +892,9 @@
            (update-in ex' [:twaps id] merge
                       {:remaining remaining
                        :slices-left slices-left
-                       :next-at (+ (:height ex' 0) (:every t))}))))
+                       ;; The sum can cross the ceiling with both addends
+                       ;; inside it — sadd, like every other sum.
+                       :next-at (fx/sadd (:height ex' 0) (:every t))}))))
      ex
      due)))
 
@@ -990,12 +992,14 @@
   ;; The sub-account's key binding becomes the OWNER's: the owner signs for it
   ;; exactly as they sign for themselves, so nothing new authenticates here —
   ;; the binding is what `torihiki.auth` already checks.
-  (let [owner-key (get-in ex [:account-keys account])
-        ex' (update ex :clearing cl/create-sub-account account sub
-                    (some? (get-in ex [:account-keys sub])))]
-    (if (and owner-key (get-in ex' [:clearing :sub-of sub]))
-      (assoc-in ex' [:account-keys sub] owner-key)
-      ex')))
+  (if-not (and (integer? sub) (fx/in-domain? sub))
+    ex
+    (let [owner-key (get-in ex [:account-keys account])
+          ex' (update ex :clearing cl/create-sub-account account sub
+                      (some? (get-in ex [:account-keys sub])))]
+      (if (and owner-key (get-in ex' [:clearing :sub-of sub]))
+        (assoc-in ex' [:account-keys sub] owner-key)
+        ex'))))
 
 (defmethod apply-tx :transfer
   [ex {:keys [account to amount]}]
@@ -1011,7 +1015,9 @@
   ;; records that `cid` was committed at this point in the log, which is what
   ;; makes a receipt a non-repudiable time series (CI-3). Shape is gated in
   ;; torihiki.api/validate-shape (:bad-cid bounds the field).
-  (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)}))
+  (if (and (integer? account) (fx/in-domain? account))
+    (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)})
+    ex))
 
 (defmethod apply-tx :set-leverage
   [ex {:keys [account market leverage]}]
@@ -1042,7 +1048,9 @@
   ;; escrow to attest about, and a chain that let anybody claim reserves would
   ;; be worse than one that admits it has none.
   (let [bridge (:bridge-authority ex)]
-    (if (or (nil? bridge) (not= account bridge) (not (integer? amount)) (neg? amount))
+    (if (or (nil? bridge) (not= account bridge) (not (integer? amount)) (neg? amount)
+            (not (fx/in-domain? amount))
+            (and (integer? height*) (not (fx/in-domain? height*))))
       ex
       (assoc ex :reserve-attestation
              {:amount amount
@@ -1121,7 +1129,13 @@
   ;; The schedule is in BLOCKS, like every other duration here: the engine has
   ;; no clock, and a schedule in seconds would fire at a different point in
   ;; the chain on every replica.
-  (let [id (inc (:twap-seq ex 0))]
+  ;; Range as well as shape: `:every` is stored in the schedule and folded
+  ;; into `:next-at`, so an out-of-i53 number reaching state here holds two
+  ;; different values on the two runtimes (the falsify-8 class). Refused at
+  ;; `torihiki.api/validate` with its reason; this no-op is the safety net.
+  (if-not (every? #(and (integer? %) (fx/in-domain? %)) [qty slices every])
+    ex
+    (let [id (inc (:twap-seq ex 0))]
     (-> ex
         (assoc :twap-seq id)
         (assoc-in [:twaps id]
@@ -1132,7 +1146,7 @@
                    ;; the book in the same block it was submitted would be a
                    ;; market order wearing a schedule.
                    :next-at (inc (:height ex 0))
-                   :started-at (:height ex 0)}))))
+                   :started-at (:height ex 0)})))))
 
 (defmethod apply-tx :cancel-twap
   [ex {:keys [account id]}]
