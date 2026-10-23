@@ -892,17 +892,22 @@ renamed `.cljk`), and the migration target is recorded rather than assumed.
 Both runtimes, and the counts must agree:
 
 ```bash
-kbb -M:test                                    # the JVM
+script/jvm-test.sh                             # the JVM (renamed-copy recipe)
 KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
-  kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" \
-      script/tests-on-nbb.cljk                     # ClojureScript, no JVM
+  script/nbb-test.sh                               # ClojureScript on nbb, no JVM
 ```
+
+`kbb -M:test` runs the same suite on the kbb engine (also ClojureScript —
+it prints "the JVM runner named by the alias does not exist on this
+engine"; measured 2026-10-24). The three legs print the same counters or
+one of them is wrong.
 
 The two benchmarks (`:bench`, `:bench-hl`) run on the JVM only; see
 [Running either benchmark](#running-either-benchmark).
 
-Measured 2026-08-31 at `96ac270`, both printing **325 tests / 847
-assertions, 0 failures**.
+Measured 2026-10-24 at `5589b4c` (+ this leg), all three printing **502
+tests / 3504 assertions, 0 failures** (the last in-tree citation was
+"325 tests / 847 assertions" measured 2026-08-31 at `96ac270`).
 
 **The ClojureScript run is the one that matters most, because it is the one
 that ships.** `torihiki-node` compiles this engine to a Worker bundle and a
