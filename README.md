@@ -125,7 +125,7 @@ specification is subtle are called out in the source.
 ## Measured throughput
 
 ```
-$ kbb -M:bench 10000000
+$ script/jvm-bench.sh 10000000
 
   operations       10,000,000
   placed            4,501,960
@@ -251,12 +251,17 @@ copy, by its own reason; the unbroken copy exits 0.
 ### Running either benchmark
 
 Both need the JVM, and `kbb -M:bench` does not reach it: kbb runs deps.edn
-aliases on its SCI host and resolves no git coordinates, so it stops at
-`Could not find namespace: kotoba.lang.text`. The runs above were made the way
-the maturity loop makes its own — on a copy of `src/`, `bench/`, `resources/`
-and `deps.edn` with `.cljk` renamed to `.cljc`, running the `:bench` and
-`:bench-hl` aliases on the JVM. `:bench-hl` takes
-`[n-blocks block-size n-accounts]` (default `40 2000 64`).
+aliases on its SCI host, and the harness opens with
+`(set! *unchecked-math* :warn-on-boxed)`, a JVM-only special form ("Unable
+to resolve symbol: `*unchecked-math*`", kbb exit 1, measured 2026-10-24).
+A plain `clojure -M:bench` over the repo tree does not reach it either: the
+sources are `.cljk`, which the JVM does not load ("Could not locate
+torihiki/bench__init.class...", measured 2026-10-24). The runs above are
+`script/jvm-bench.sh` — the maturity loop's renamed-copy recipe (a copy of
+`src/`, `test/`, `bench/`, `resources/` and `deps.edn` with `.cljk`
+renamed to `.cljc`, plus the pinned dep shims) as one command.
+`script/jvm-bench.sh [n]` runs `:bench`; `script/jvm-bench.sh --hl
+[n-blocks block-size n-accounts]` runs `:bench-hl` (default `40 2000 64`).
 
 The native book bench needs no JVM at all -- see
 [The book, native, without a JVM](#the-book-native-without-a-jvm).
