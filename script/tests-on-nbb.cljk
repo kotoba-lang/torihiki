@@ -1,10 +1,13 @@
 ;; The whole test suite, on ClojureScript, without a JVM.
 ;;
-;;   kbb --backend sci --classpath "src:test:<chain>/src:<merkle-sum>/src:<bytes>/src" \
-;;       script/tests-on-nbb.cljk
+;;   KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> script/nbb-test.sh
 ;;
-;; `script/run-nbb-tests.cljs` builds that classpath from the deps.edn pins and
-;; calls this, so the pins are what runs rather than whatever is checked out.
+;; `script/nbb-leg.sh` (which that wrapper calls) builds the classpath from
+;; the deps.edn pins and calls this, so the pins are what runs rather than
+;; whatever is checked out. This file's header used to name a runner
+;; (`script/run-nbb-tests.cljs`) that never existed — flagged in
+;; evidence/2026-09-03-maturity-remeasure-2100.md, still true on 2026-10-24
+;; when script/nbb-test.sh landed and the citation was retired.
 ;;
 ;; ## Why this exists, and why `loads-on-nbb` is not it
 ;;
@@ -47,6 +50,7 @@
             [torihiki.evm-interp-test]
             [torihiki.evm-test]
             [torihiki.funding-test]
+            [torihiki.fuzz-seeded-test]
             [torihiki.governance-test]
             [torihiki.light-test]
             [torihiki.liquidation-makers-test]
@@ -55,6 +59,7 @@
             [torihiki.oracle-test]
             [torihiki.oracle-set-test]
             [torihiki.order-margin-test]
+            [torihiki.overflow-gates-test]
             [torihiki.principal-test]
             [torihiki.settlement-test]
             [torihiki.snapshot-test]
@@ -67,9 +72,15 @@
 ;; The floor. A classpath that resolves `cljs.test` but none of the test
 ;; namespaces would run zero tests and report zero failures, and this script
 ;; would exit 0 -- "could not measure" wearing the face of "measured, clean".
-;; Sixteen namespaces are required above; fewer than sixteen ran means the
-;; run is unanswerable, and it exits 2 rather than 0 or 1.
-(def ^:private expected-namespaces 26)
+;; Twenty-eight namespaces are required; fewer than twenty-eight ran means
+;; the run is unanswerable, and it exits 2 rather than 0 or 1. (This floor
+;; said "sixteen" and checked 26 while `torihiki.overflow-gates-test` and
+;; `torihiki.fuzz-seeded-test` were missing from the lists below: the leg
+;; ran the suite MINUS the i53 gates and the fuzz invariants and blessed it
+;; as "the suite" — measured 2026-10-24, 468 tests / 3265 assertions here
+;; against 502 / 3504 on `kbb -M:test`. A floor that counts the namespaces
+;; actually listed is only as honest as the list.)
+(def ^:private expected-namespaces 28)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -104,6 +115,7 @@
               'torihiki.evm-interp-test
               'torihiki.evm-test
               'torihiki.funding-test
+              'torihiki.fuzz-seeded-test
               'torihiki.governance-test
               'torihiki.light-test
               'torihiki.liquidation-makers-test
@@ -112,6 +124,7 @@
               'torihiki.oracle-test
               'torihiki.oracle-set-test
               'torihiki.order-margin-test
+              'torihiki.overflow-gates-test
               'torihiki.principal-test
               'torihiki.settlement-test
               'torihiki.snapshot-test

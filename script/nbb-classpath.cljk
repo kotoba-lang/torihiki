@@ -1,9 +1,15 @@
 ;; The classpath `script/tests-on-nbb.cljk` needs, built from the deps.edn
 ;; pins without starting a JVM.
 ;;
-;;   node -e ''                       # nothing to install
 ;;   kbb --backend sci script/nbb-classpath.cljk    # prints one classpath on stdout
-;;   kbb --backend sci --classpath "$(kbb --backend sci script/nbb-classpath.cljk)" script/tests-on-nbb.cljk
+;;
+;; Use script/nbb-test.sh (or script/nbb-leg.sh) to actually run something
+;; with it: they wrap this two-step AND install the one JS dependency the
+;; suite reaches through kotoba.bytes (@noble/hashes). A clean checkout has
+;; package.json but no node_modules, and the require then fails at load with
+;; "Cannot find module '@noble/hashes/sha2.js'" (measured 2026-10-24) —
+;; `node -e '' # nothing to install`, this file's old claim above the old
+;; invocation here, was wrong.
 ;;
 ;; ## Why not `kbb -Spath`
 ;;
