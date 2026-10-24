@@ -1,0 +1,109 @@
+(ns torihiki.slab-full-test
+  "The order-slab exhaustion fix package, pinned by REASON and by VALUE.
+
+  The defect class: `torihiki.book/take-slot!` threw when the order slab was
+  full, and `torihiki.state` reaches it from `apply-block` — one signed `:order`
+  resting against a full book halted every validator at the same place. That
+  is the falsify-6/7 class exactly (a throw inside apply-block is a halted
+  chain, per the `torihiki.api` ns contract), and unlike falsify-6/7 it needs
+  no out-of-domain integer to reach: a market listed with `:cap` slots takes
+  `:cap` resting orders and the next quote is the halt.
+
+  The policy: a full book takes what it can and rests NOTHING. A crossing
+  order still trades (it frees slots as it fills, and its remainder rests when
+  room appears); a quote that can only rest is refused at `torihiki.api/validate`
+  with `:book-full`, and the engine answers the same order — one that never met
+  validate: a trigger's embedded order, a TWAP slice — by resting nothing,
+  not by throwing.
+
+  Refusals carry their REASON literal from `torihiki.api/reasons`; the engine
+  outcomes pin the VALUE (what rested, what filled). Nothing in this file may
+  pass because something threw."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(defn- full-book
+  "A book whose slab is exactly full: `cap` resting asks, one lot each, at
+  level 10. `cap` must be a multiple of 32 (the free-map ladder)."
+  [cap]
+  (let [b (bk/new-book {:n-levels 64 :cap cap :ev-cap 64})]
+    (dotimes [i cap]
+      (bk/place! b bk/ask 10 1 0 (inc i)))
+    b))
+
+(defn- ex-with [b]
+  {:markets {1 {:kind :perp}} :books {1 b} :clearing (cl/new-state) :height 10})
+
+;; ── the halt itself ─────────────────────────────────────────────────────────
+
+(deftest a-full-book-rests-nothing-instead-of-halting
+  (let [b (full-book 32)
+        r (bk/place! b bk/ask 11 5 0 99)]
+    (is (= -1 r) "the order rests nothing; the slab is full")
+    (is (= 32 (bk/resting-count b)) "and the book is exactly as it was")
+    (is (= [] (bk/level-orders b bk/ask 11)) "nothing at the new level")))
+
+(deftest the-engine-says-no-op-not-a-halt
+  ;; The apply-block path, where the throw used to live: `:order` through
+  ;; `apply-tx` with no validate in front of it — the shape a trigger's
+  ;; embedded order takes when it fires.
+  (let [b (full-book 32)
+        ex (ex-with b)
+        ex' (st/apply-tx ex {:tx :order :account 99 :market 1 :side 0
+                             :level 5 :qty 5})]
+    (is (= 32 (bk/resting-count (get-in ex' [:books 1]))))
+    (is (= [] (bk/level-orders (get-in ex' [:books 1]) bk/bid 5))
+        "nothing applied, nothing thrown — not a store, not a halt")))
+
+;; ── the market is not frozen: takers still take ─────────────────────────────
+
+(deftest a-full-book-still-trades
+  (testing "a crossing order fills against the full book and rests its remainder"
+    (let [b (full-book 32)
+          oid (bk/place! b bk/bid 10 40 0 99)]
+      (is (nat-int? oid) "the 8-lot remainder rested — matching freed 32 slots")
+      (is (= 8 (:qty (bk/order-of b oid))))
+      (is (= 32 (count (bk/fills b))) "every maker filled, one event each")
+      (is (= 32 (reduce + (map :qty (bk/fills b)))) "32 lots taken")))
+  (testing "a partial take leaves the book trading, still without resting"
+    (let [b (full-book 32)
+          r (bk/place! b bk/bid 10 5 0 99)]
+      (is (= -1 r) "5 lots filled, nothing left of the order to rest")
+      (is (= 27 (bk/resting-count b)) "5 makers freed their slots")
+      (is (= 5 (reduce + (map :qty (bk/fills b))))))))
+
+;; ── validate refuses with its reason ────────────────────────────────────────
+
+(deftest validate-says-book-full
+  (let [b (full-book 32)
+        ex (ex-with b)]
+    (is (= :book-full (api/validate ex {:tx :order :account 1 :market 1
+                                        :side 0 :level 5 :qty 1}))
+        "a quote that can only rest is refused with its reason")
+    (is (nil? (api/validate ex {:tx :order :account 1 :market 1
+                                :side 0 :level 10 :qty 1}))
+        "a crossing order still trades — it frees slots as it fills")
+    (is (= :book-full (api/validate ex {:tx :order :account 1 :market 1
+                                        :side 1 :level 20 :qty 1}))
+        "a non-crossing ask is refused the same way")))
+
+(deftest capacity-is-not-a-shape-excuse
+  (testing "a full book does not mask the shape reasons — they outrank it"
+    (let [b (full-book 32)
+          ex (ex-with b)]
+      (is (= :bad-quantity (api/validate ex {:tx :order :account 1 :market 1
+                                             :side 0 :level 5
+                                             :qty 9007199254740992})))))
+  (testing "below capacity a resting quote is fine"
+    (let [ex (ex-with (bk/new-book {:n-levels 64 :cap 32 :ev-cap 64}))]
+      (is (nil? (api/validate ex {:tx :order :account 1 :market 1
+                                  :side 0 :level 5 :qty 1}))))))
+
+(deftest full-book-knows-it-is-full
+  (is (bk/full? (full-book 32)))
+  (is (not (bk/full? (bk/new-book {:n-levels 64 :cap 32 :ev-cap 64}))))
+  (is (bk/marketable? (full-book 32) bk/bid 10) "bid at the ask crosses")
+  (is (not (bk/marketable? (full-book 32) bk/bid 5)) "bid below the ask does not"))
