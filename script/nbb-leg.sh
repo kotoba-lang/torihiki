@@ -5,7 +5,8 @@
 #   script/nbb-leg.sh <script-name.cljk> [args...]
 #
 # <script-name.cljk> is looked up under script/ — `tests-on-nbb.cljk` (the
-# suite), `kotoba-parity.cljk` (the two digests), `loads-on-nbb.cljk`
+# suite), `torihiki-parity-on-nbb.cljk` (the state-root digests),
+# `kotoba-parity.cljk` (the fixed-point table), `loads-on-nbb.cljk`
 # (require-only) all work.
 #
 # WHY THIS EXISTS. The ClojureScript invocation lived in README prose and

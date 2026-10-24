@@ -12,10 +12,13 @@
   nothing. The JVM suite could not observe it. Run this after touching
   anything in `torihiki.slab` or `torihiki.book`.
 
-    kbb -M:parity
-    kbb --backend sci --classpath \"src:<path-to>/bytes/src\" -e \"(require '[torihiki.parity :as p]) (p/report)\"
+    script/jvm-parity.sh
+    KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> script/nbb-parity.sh
 
-  The two must print the same root."
+  The two must print the same root. (These were `kbb -M:parity` and a
+  hand-rolled `-e` one-liner until 2026-10-24; both failed as written —
+  `-main` below is `#?(:clj ...)` only, and prose classpath placeholders
+  are not the pins. See script/torihiki-parity-on-nbb.cljk's header.)"
   (:require [torihiki.book :as bk]
             [torihiki.clearing :as cl]
             [torihiki.state :as st]

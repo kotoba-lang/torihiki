@@ -849,9 +849,9 @@ bit-identical anyway.
 **Verified, not assumed** — the two runtimes are checked against each other:
 
 ```bash
-kbb -M:parity
-kbb --backend sci --classpath "src:<path-to>/bytes/src:<path-to>/merkle-sum/src" \
-    -e "(require '[torihiki.parity :as p]) (p/report)"
+script/jvm-parity.sh                              # the JVM half (renamed-copy recipe)
+KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> \
+  script/nbb-parity.sh                            # the ClojureScript half (nbb)
 # both must print
 #   FLAT ROOT   b4322bedd406112e6c2c7339e93d646eb7852959def143901961b3be4f43445a
 #   STATE ROOT  d1ebb9d30cd51516c14bc9e3c0007d806b423e33cd3bd64200362c7e7e3aed7f
