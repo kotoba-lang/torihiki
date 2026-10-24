@@ -410,16 +410,24 @@
   live book instead of a function of its history, and that is what a snapshot
   needs: restoring the resting orders restores the free set exactly, with
   nothing else to carry. It also keeps the high-water mark near the peak
-  number of simultaneously resting orders rather than the total ever placed."
+  number of simultaneously resting orders rather than the total ever placed.
+
+  Returns -1 when the slab is full. This used to throw, and `place!` reaches
+  it from `torihiki.state/apply-block`: one signed order resting against a
+  full book halted every validator at the same place — the falsify-6/7 class
+  of `torihiki.fixed/check`, with no out-of-domain integer required to reach
+  it, just `:cap` resting orders and one more quote. A full book takes what
+  crosses and rests nothing; the verdict is total and identical on both
+  runtimes."
   ^long [^Book b]
   (let [s (lowest-free b)]
-    (when (neg? s)
-      (throw (ex-info "torihiki.book: order slab exhausted" {:cap (slab/field b cap)})))
-    (free-clear! b s)
-    (let [ctl (slab/field b ctl)]
-      (when (>= s (long (slab/get ctl ctl-hwm)))
-        (slab/set! ctl ctl-hwm (inc s))))
-    s))
+    (if (neg? s)
+      -1
+      (do (free-clear! b s)
+          (let [ctl (slab/field b ctl)]
+            (when (>= s (long (slab/get ctl ctl-hwm)))
+              (slab/set! ctl ctl-hwm (inc s))))
+          s))))
 
 (defn- release-slot!
   [^Book b slot]
@@ -515,9 +523,32 @@
          (<= best-level limit)
          (>= best-level limit))))
 
+(defn full?
+  "True when the order slab has no free slot: an order may still take what
+  crosses, but nothing can rest.
+
+  Answers false for anything that is not a live book — capacity is a question
+  about the slot allocator, and only a live book has one. Callers on the
+  validation path (which in tests runs against book-shaped maps) therefore
+  short-circuit to 'not full' instead of crashing on a slab read."
+  [b]
+  (and (some? (:fw0 b)) (neg? (lowest-free b))))
+
+(defn marketable?
+  "True when an order at `level` on `side` would cross the book as it stands —
+  the same test `place!` matches with. A marketable order on a full book still
+  trades (it frees a slot for every maker it fills); one that cannot cross can
+  only want to rest, and that is the order `torihiki.api/validate` refuses
+  with `:book-full`."
+  [b side level]
+  (let [side (long side) level (long level)]
+    (crosses? side level (best b (if (= side bid) ask bid)))))
+
 (defn place!
   "Submit an order. Returns the resting order id, or -1 when nothing rested
-  (fully filled, IOC remainder cancelled, or post-only rejected).
+  (fully filled, IOC remainder cancelled, post-only rejected, or the order
+  slab full — a full book takes what crosses and rests nothing, which is the
+  IOC answer because it is the only total one).
 
   Mutates `b` in place. That is deliberate and it does not cost determinism:
   the transition is still a pure function of the book's contents and the
@@ -561,18 +592,24 @@
                           (slab/add! ctl ctl-resting -1))
                       (slab/set! o-qty head (- avail traded)))
                     (recur (- remaining traded)))))
-              ;; nothing more to take: rest the remainder unless told not to
+              ;; nothing more to take: rest the remainder unless told not to,
+              ;; or unless the slab is full — then the remainder is cancelled
+              ;; like an IOC's. Matching already happened (and freed a slot
+              ;; for every maker it filled), so refusing the whole order here
+              ;; is not on offer, and throwing is a halted chain.
               (if (or (zero? remaining) ioc?)
                 -1
                 (let [slot (take-slot! b)]
-                  (slab/set! o-owner slot owner)
-                  (slab/set! o-qty slot remaining)
-                  (slab/set! o-side slot side)
-                  (slab/set! o-level slot level)
-                  (link-tail! b side level slot)
-                  (slab/add! lvl-qty (+ (* side n-levels) level) remaining)
-                  (slab/add! ctl ctl-resting 1)
-                  (oid-of b slot))))))))))
+                  (if (neg? slot)
+                    -1
+                    (do (slab/set! o-owner slot owner)
+                        (slab/set! o-qty slot remaining)
+                        (slab/set! o-side slot side)
+                        (slab/set! o-level slot level)
+                        (link-tail! b side level slot)
+                        (slab/add! lvl-qty (+ (* side n-levels) level) remaining)
+                        (slab/add! ctl ctl-resting 1)
+                        (oid-of b slot))))))))))))
 
 (defn cancel!
   "Remove a resting order that `owner` placed. Returns the cancelled quantity,

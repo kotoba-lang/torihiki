@@ -2254,6 +2254,9 @@
    :rate-too-high 20
    ;; 21: the anchor refusal (:bad-cid). Appended like everything after 18.
    :bad-cid 21
+   ;; 22: the order-slab refusal (:book-full), the validate-layer half of the
+   ;; slab-exhaustion fix package. Appended like everything after 18.
+   :book-full 22
    })
 
 (defn- encode-rejections

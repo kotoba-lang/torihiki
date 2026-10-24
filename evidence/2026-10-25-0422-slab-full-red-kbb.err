@@ -1,0 +1,43 @@
+kbb: 2 dep(s) are not :local/root and are NOT on the classpath (kbb resolves :local/root and :git/sha coordinates, not Maven; a jar cannot load on this engine): org.clojure/tools.namespace, org.clojure/tools.cli
+kbb: test runner substitution: running 29 namespace(s) under ("test") with cljs.test (the JVM runner named by the alias does not exist on this engine)
+kbb: npm: installed 1 dependenc(ies) of /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422 in 634 ms
+Downloading dependencies...
+Extracting dependencies...
+Done.
+----- Error --------------------------------------
+Message:  Unable to resolve symbol: bk/full?
+Location: /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:106:7
+Phase:    analysis
+
+----- Context ------------------------------------
+102:       (is (nil? (api/validate ex {:tx :order :account 1 :market 1
+103:                                   :side 0 :level 5 :qty 1}))))))
+104: 
+105: (deftest full-book-knows-it-is-full
+106:   (is (bk/full? (full-book 32)))
+           ^--- Unable to resolve symbol: bk/full?
+107:   (is (not (bk/full? (bk/new-book {:n-levels 64 :cap 32 :ev-cap 64}))))
+108:   (is (bk/marketable? (full-book 32) bk/bid 10) "bid at the ask crosses")
+109:   (is (not (bk/marketable? (full-book 32) bk/bid 5)) "bid below the ask does not"))
+
+----- Stack trace --------------------------------
+torihiki.slab-full-test/let     - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:106:7 
+clojure.core/let                - cljs/core.cljc:772:1 
+torihiki.slab-full-test         - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:106:3 
+cljs.test/try-expr              - sci/configs/cljs/test.cljs:631:15 
+torihiki.slab-full-test/is      - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:106:3 
+...
+torihiki.slab-full-test/deftest - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:105:1 
+torihiki.slab-full-test         - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:105:1 
+kotoba.test/deftest             - /Users/junkawasaki/.gitlibs/libs/io.github.kotoba-lang/test/2ab4885f99fd25552d380d0f6b0b54c5a72eb7ae/src/kotoba/test.cljk:132:1 
+torihiki.slab-full-test         - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:105:1 
+torihiki.slab-full-test         - /Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0422/test/torihiki/slab_full_test.cljk:105:1 
+
+file:///Users/junkawasaki/github/kotoba-lang/org-babashka-nbb/lib/nbb_main.js:13
+$APP.aH),$APP.VZ);return g.B?g.B():g.call(null)}):null).then(function(g){$APP.k($APP.k(d)?g!=null:d)&&$APP.dz.o($APP.y([g],0));return g}).catch(function(g){$APP.Dla(g,b);$APP.k($APP.ez.h(b))&&console.error(g);throw Error($APP.Hk(g));})})):console.error("Usage: "+$APP.I.h("nbb")+" \x3cscript\x3e or nbb -e \x3cexpr\x3e.")})();
+                                                                                                                                                                                                                       ^
+
+Error: Unable to resolve symbol: bk/full?
+    at file:///Users/junkawasaki/github/kotoba-lang/org-babashka-nbb/lib/nbb_main.js:13:216
+
+Node.js v26.0.0

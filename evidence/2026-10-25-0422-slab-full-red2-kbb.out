@@ -1,0 +1,67 @@
+
+Testing torihiki.address-test
+
+Testing torihiki.api-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+FAIL in (every-refusal-reason-has-its-own-code) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-54211.cljk:1329)
+reasons with no code: [:book-full]
+expected: (empty? missing)
+  actual: (not (empty? (:book-full)))
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 514 tests containing 3549 assertions.
+1 failures, 0 errors.
+kbb test: 514 test(s), 3548 pass, 1 fail, 0 error

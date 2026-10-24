@@ -54,6 +54,7 @@
     :rate-too-high
     :open-interest-cap
     :insufficient-margin
+    :book-full
     :not-a-publisher
     :oracle-is-aggregated
     :not-the-bridge
@@ -230,6 +231,20 @@
           (when-let [cap (get-in ex [:markets market :open-interest-cap])]
             (when (> (+ (cl/open-interest (:clearing ex) market) (:qty t)) cap)
               :open-interest-cap))
+          ;; A quote that can only rest against a full order slab is refused
+          ;; HERE, with its reason. The engine answers the same order — one
+          ;; that never met validate: a trigger's embedded order — by resting
+          ;; nothing (`torihiki.book/place!`), because `take-slot!`'s throw
+          ;; used to halt every validator at the same place inside
+          ;; `apply-block` (the falsify-6/7 class, reachable with no
+          ;; out-of-domain integer at all: `:cap` resting orders and one more
+          ;; quote). A CROSSING order is never refused for capacity — it takes
+          ;; liquidity and frees a slot for every maker it fills — so the
+          ;; check is only for the order that cannot cross.
+          (when (and (bk/full? (get-in ex [:books market]))
+                     (not (bk/marketable? (get-in ex [:books market])
+                                          (:side t) (:level t))))
+            :book-full)
           (when (and (om/active? ex) (perp? ex market))
             (cond
               ;; A bid at 0 asks for the asset free and an ask at 0 gives it

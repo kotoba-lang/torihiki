@@ -62,6 +62,7 @@
             [torihiki.overflow-gates-test]
             [torihiki.principal-test]
             [torihiki.settlement-test]
+            [torihiki.slab-full-test]
             [torihiki.snapshot-test]
             [torihiki.spot-reservation-test]
             [torihiki.state-test]
@@ -72,7 +73,7 @@
 ;; The floor. A classpath that resolves `cljs.test` but none of the test
 ;; namespaces would run zero tests and report zero failures, and this script
 ;; would exit 0 -- "could not measure" wearing the face of "measured, clean".
-;; Twenty-eight namespaces are required; fewer than twenty-eight ran means
+;; Twenty-nine namespaces are required; fewer than twenty-nine ran means
 ;; the run is unanswerable, and it exits 2 rather than 0 or 1. (This floor
 ;; said "sixteen" and checked 26 while `torihiki.overflow-gates-test` and
 ;; `torihiki.fuzz-seeded-test` were missing from the lists below: the leg
@@ -80,7 +81,7 @@
 ;; as "the suite" — measured 2026-10-24, 468 tests / 3265 assertions here
 ;; against 502 / 3504 on `kbb -M:test`. A floor that counts the namespaces
 ;; actually listed is only as honest as the list.)
-(def ^:private expected-namespaces 28)
+(def ^:private expected-namespaces 29)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -127,6 +128,7 @@
               'torihiki.overflow-gates-test
               'torihiki.principal-test
               'torihiki.settlement-test
+              'torihiki.slab-full-test
               'torihiki.snapshot-test
               'torihiki.spot-reservation-test
               'torihiki.state-test

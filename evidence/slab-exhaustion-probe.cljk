@@ -1,0 +1,23 @@
+(ns slab-exhaustion-probe
+  "Defect probe for the order-slab halt door, run BEFORE the fix (expect the
+  take-slot! throw to halt) and AFTER (expect a total verdict: -1, nothing
+  rested). Prints one line per phase so the two runs diff cleanly."
+  (:require [torihiki.book :as bk]))
+
+(defn- full-book [cap]
+  (let [b (bk/new-book {:n-levels 64 :cap cap :ev-cap 64})]
+    (dotimes [i cap]
+      (bk/place! b bk/ask 10 1 0 (inc i)))
+    b))
+
+(defn -main [& _]
+  (let [b (full-book 32)]
+    (println "resting-after-fill" (bk/resting-count b))
+    (try
+      (let [r (bk/place! b bk/ask 11 5 0 99)]
+        (println "resting-quote-verdict" r)
+        (println "resting-after-quote" (bk/resting-count b)))
+      (catch :default e
+        (println "HALT" (ex-message e))))))
+
+(-main)
