@@ -65,7 +65,10 @@
     (when (and (pos? ib) (pos? ia) (pos? oracle-price))
       (let [diff (- (max (- ib oracle-price) 0)
                     (max (- oracle-price ia) 0))]
-        (fx/fdiv (* diff fx/rate-scale) oracle-price)))))
+        ;; diff x rate-scale for a negative premium (oracle far above the
+        ;; ladder) is a product past 2^53; fmul keeps the rate exact and
+        ;; clamped — the same class as every other product-then-divide site.
+        (fx/fmul diff fx/rate-scale oracle-price)))))
 
 (defn sample
   "Fold one observation into an accumulator. The accumulator carries a sum and

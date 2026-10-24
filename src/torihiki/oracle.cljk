@@ -128,7 +128,10 @@
   honest one during a genuine dislocation."
   [price reference]
   (if (pos? reference)
-    (fx/fdiv (* (fx/abs* (- price reference)) fx/rate-scale) reference)
+    ;; |price - reference| x rate-scale is a 5e24 product for an in-domain
+    ;; price; the quotient is a rate and clamps to the ceiling like every
+    ;; saturating computation here (it used to return an out-of-domain 7.1e23).
+    (fx/fmul (fx/abs* (- price reference)) fx/rate-scale reference)
     0))
 
 (defn aggregate-weighted

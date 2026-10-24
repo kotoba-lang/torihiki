@@ -265,3 +265,24 @@
   (let [ex (block (chain) 5 [(evidence "w3" 4 7)] {:vote-verify-fn vote-verify})
         ids (map :id (filter #(re-find #"^09" (:id %)) (st/canonical-leaves ex)))]
     (is (= (sort ids) ids))))
+
+(deftest a-slash-reward-is-an-exact-quotient
+  ;; reward = min(own, floor(total x 5 / 100)); total x 5 is 3.6e16, past the
+  ;; ceiling, while the reward itself is not (falsify-11's class on the slash
+  ;; path). The prover's cut and the insurance fund are the VALUE pins.
+  (let [ex (-> (chain)
+               (st/apply-tx {:tx :deposit :account 102 :amount 3602879701895410})
+               (st/apply-tx {:tx :bond :account 102 :validator 102
+                             :amount 3602879701895410})
+               (st/apply-tx {:tx :deposit :account 600 :amount 3602879701896410})
+               (st/apply-tx {:tx :bond :account 600 :validator 102
+                             :amount 3602879701896410}))
+        before-fund (get-in ex [:clearing :insurance-fund] 0)
+        after (block ex 5 [(evidence "w3" 4 7)] {:vote-verify-fn vote-verify})
+        c (:clearing after)]
+    (is (= 7205759403792820 (get-in after [:slashed ["w3" 4 7] :amount]))
+        "every bond behind the witness, exact")
+    (is (= 360287970189641 (get-in c [:accounts 500 :collateral]))
+        "VALUE: floor(total x 5 / 100), capped by the operator's own stake")
+    (is (= (+ before-fund 6845471433603179) (get c :insurance-fund))
+        "VALUE: the rest of the slash lands in the fund")))

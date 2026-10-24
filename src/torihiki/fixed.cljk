@@ -239,6 +239,69 @@
           (if (not= (neg? a) (neg? b)) i53-min i53-max)
           (* a b))))))
 
+(defn fmul
+  "`floor(a x b / c)` — the exact floor quotient of a product that is NEVER
+  formed, saturated to the i53 domain.
+
+  The product-then-divide class: `entry-notional x closed / size` on a reducing
+  fill, the vault share price (`amount x total / pool`), the ADL leverage and
+  score, the slash reward (`total x percent / 100`). The PRODUCT routinely
+  exceeds 2^53 while the quotient does not (7.2e14 x 1e12 / 2e12 = 3.6e14),
+  and then the two runtimes divide different numbers — the JVM the promoted
+  exact integer (or a bare overflow throw past 2^63), JS a rounded double —
+  and price the same fill two ways (falsify-11's secondary class). Folding the
+  division into the multiplication makes the quotient exact on both runtimes
+  for as long as the RESULT is in the domain, and clamps deterministically
+  past it (`pmul`'s philosophy: total, never throws — a throw inside a fill is
+  a halted chain).
+
+  The core is schoolbook on the bits of `b` from the top: the running value is
+  kept as `q*c + r` with `0 <= r < c`, and every step doubles `(q, r)` and
+  adds `a = qa*c + ra`. Only residues below `c` are ever combined, and each
+  combination is folded with a carry decided by COMPARISON (`r >= c - r`),
+  never by the doubled product itself — so no intermediate leaves the i53
+  domain on either runtime and every branch is decided identically on both.
+  `q` is saturated (`sadd`) since only `min(result, i53-max)` is observable.
+
+  Floor semantics, like `fdiv`: toward negative infinity, on every sign.
+  `c` must not be zero — every call site divides by a guarded positive, and
+  a zero divisor is a code contract violation, not a transaction outcome."
+  [a b c]
+  (when (zero? c)
+    (throw (ex-info "torihiki.fixed: value escaped the i53 domain"
+                    {:where :fmul :value [a b c] :i53-max i53-max})))
+  (let [a (or a 0)
+        b (or b 0)]
+    (if (or (zero? a) (zero? b))
+      0
+      (let [neg-out? (not= (not= (neg? a) (neg? b)) (neg? c))
+            A (abs* a)
+            B (abs* b)
+            C (abs* c)
+            qa (fdiv A C)                       ; A = qa*C + ra, 0 <= ra < C
+            ra (- A (* qa C))
+            top (loop [p 1] (if (> (* 2 p) B) p (recur (* 2 p))))]
+        (let [[q r] (loop [p top q 0 r 0 rem B]
+                      (if (zero? p)
+                        [q r]
+                        (let [bit? (>= rem p)
+                              rem (if bit? (- rem p) rem)
+                              ;; double r modulo c without forming 2r: the
+                              ;; carry is a comparison, the fold is a small
+                              ;; difference or a doubled residue below c.
+                              k (if (>= r (- C r)) 1 0)
+                              r (if (= k 1) (- r (- C r)) (+ r r))
+                              q (sadd (sadd q q) k)]
+                          (if bit?
+                            (let [k2 (if (>= r (- C ra)) 1 0)
+                                  r (if (= k2 1) (- r (- C ra)) (+ r ra))]
+                              (recur (quot p 2) (sadd (sadd q qa) k2) r rem))
+                            (recur (quot p 2) q r rem)))))
+              m (if (and neg-out? (pos? r)) (inc q) q)]
+          (if neg-out?
+            (max i53-min (- m))
+            (min i53-max m)))))))
+
 (defn notional
   "price-ticks * size-lots, in the market's notional unit, saturated to the
   i53 domain like every product here (`pmul`).

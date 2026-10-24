@@ -335,7 +335,11 @@
             ;; itself put up, for the same reason.
             reward (if (= account (:account v))
                      0
-                     (min own (quot (* total slash-reward-percent) 100)))
+                     ;; total x percent is 3.6e16 — past the ceiling while the
+                     ;; reward is far under it. fmul keeps the cut exact; the
+                     ;; raw product rounded on JS and forked the reward (and
+                     ;; with it the insurance fund) from the same evidence.
+                     (min own (fx/fmul total slash-reward-percent 100)))
             clearing (cond-> clearing
                        (pos? reward) (cl/deposit account reward)
                        true (update :insurance-fund fx/acc (- total reward)))]
