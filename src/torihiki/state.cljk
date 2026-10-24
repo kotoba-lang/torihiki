@@ -1549,8 +1549,8 @@
                          limit (max 0 (min (dec (:n-levels book)) (long bankruptcy)))
                          qty (fx/abs* delta)
                          takes (:takes (om/consume book side limit qty bk/flag-ioc))
-                         filled (reduce + 0 (map :qty takes))
-                         cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) takes))]
+                         filled (reduce fx/acc 0 (map :qty takes))
+                         cost (reduce fx/acc 0 (map #(fx/notional (:level %) (:qty %)) takes))]
                      (if (zero? filled)
                        [0 0]
                        [(if (pos? delta) filled (- filled))
@@ -1580,8 +1580,8 @@
                         _ (bk/place! book side limit (fx/abs* delta) bk/flag-ioc liquidator-account)
                         fills (drop before (bk/fills book))
                         _ (vswap! old-fills into fills)
-                        filled (reduce + 0 (map :qty fills))
-                        cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) fills))]
+                        filled (reduce fx/acc 0 (map :qty fills))
+                        cost (reduce fx/acc 0 (map #(fx/notional (:level %) (:qty %)) fills))]
                     (if (zero? filled)
                       [0 0]
                       [(if (pos? delta) filled (- filled)) (fx/fdiv cost filled)])))]

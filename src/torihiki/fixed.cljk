@@ -204,12 +204,6 @@
 
 ;; ── notional ────────────────────────────────────────────────────────────────
 
-(defn notional
-  "price-ticks * size-lots, in the market's notional unit. The single most
-  common place to blow the i53 ceiling, so it is checked."
-  [price size]
-  (check :notional (* price size)))
-
 (defn abs*
   "Absolute value that stays integral on both platforms."
   [v]
@@ -244,6 +238,22 @@
         (if (> aa (quot i53-max ab))
           (if (not= (neg? a) (neg? b)) i53-min i53-max)
           (* a b))))))
+
+(defn notional
+  "price-ticks * size-lots, in the market's notional unit, saturated to the
+  i53 domain like every product here (`pmul`).
+
+  The single most common place to blow the i53 ceiling — and it is reached
+  with IN-DOMAIN factors from the valuation path: mark x accumulated size on a
+  large position (unrealized PnL, margin, liquidation, funding), a flipping
+  fill's price x old size. The old `(check :notional (* price size))` computed
+  the product first and then threw on it — mid-apply, after the book had
+  already traded, which is a halted chain (falsify-6/7's class) — and past
+  2^63 the JVM threw a bare overflow while JS rounded silently (falsify-9/11's
+  secondary class). Saturating is total and branch-identical on both runtimes;
+  see `pmul` for why in-domain products are byte-identical to before."
+  [price size]
+  (pmul price size))
 
 (defn clamp
   [v lo hi]

@@ -1,0 +1,126 @@
+
+Testing torihiki.address-test
+
+Testing torihiki.api-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+ERROR in (notional-saturates-instead-of-throwing) (:596:9)
+VALUE: an out-of-domain product clamps deterministically — it used
+            to throw :notional mid-apply (a halted chain)
+expected: (= fx/i53-max (fx/notional fx/i53-max fx/i53-max))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value 8.112963841460666e+31, :i53-max 9007199254740991}}
+
+ERROR in (notional-saturates-instead-of-throwing) (:597:9)
+VALUE: an out-of-domain product clamps deterministically — it used
+            to throw :notional mid-apply (a halted chain)
+expected: (= fx/i53-max (fx/notional fx/i53-max 2))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value 18014398509481982, :i53-max 9007199254740991}}
+
+ERROR in (notional-saturates-instead-of-throwing) (:598:9)
+VALUE: an out-of-domain product clamps deterministically — it used
+            to throw :notional mid-apply (a halted chain)
+expected: (= fx/i53-min (fx/notional (- fx/i53-max) 2))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value -18014398509481982, :i53-max 9007199254740991}}
+
+ERROR in (notional-saturates-instead-of-throwing) (:599:9)
+VALUE: an out-of-domain product clamps deterministically — it used
+            to throw :notional mid-apply (a halted chain)
+expected: (= fx/i53-min (fx/notional 2 (- fx/i53-max)))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value -18014398509481982, :i53-max 9007199254740991}}
+
+ERROR in (notional-saturates-instead-of-throwing) (:600:9)
+VALUE: an out-of-domain product clamps deterministically — it used
+            to throw :notional mid-apply (a halted chain)
+expected: (= fx/i53-max (fx/notional (- fx/i53-max) (- fx/i53-max)))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value 8.112963841460666e+31, :i53-max 9007199254740991}}
+
+ERROR in (unrealized-is-a-saturated-difference) (:606:9)
+VALUE: the product clamps before the difference is taken
+expected: (= (dec fx/i53-max) (cl/unrealized {:size 2, :entry-notional 1} fx/i53-max))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value 18014398509481982, :i53-max 9007199254740991}}
+
+FAIL in (unrealized-is-a-saturated-difference) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-73019.cljk:611)
+VALUE: a difference of two in-domain values that leaves the domain
+            clamps — 2^54 - 2 is a raw long on the JVM and a rounded double on
+            JS (falsify-8's class), from an honest mark on a large position
+expected: (= fx/i53-max (cl/unrealized {:size 1, :entry-notional (- fx/i53-max)} fx/i53-max))
+  actual: (not (= 9007199254740991 18014398509481982))
+
+ERROR in (a-flip-fill-clamps-realized-and-the-fresh-basis) (todo:)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:type :sci/error, :line 60, :column 5, :message "torihiki.fixed: value escaped the i53 domain", :sci.impl/callstack #object[cljs.core.Volatile {:val (#sci.impl.utils.StackFrame{:line 620, :column 12, :end-line nil, :end-column nil, :ns #object[at torihiki.overflow-gates-test], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/test/torihiki/overflow_gates_test.cljk", :f-meta {:arglists ([state acct mkt delta price fee-rate]), :doc "Credit one fill to one account. `delta` is signed lots, `fee-rate` is\n  applied to the traded notional. Returns the new state.", :line 395, :column 1, :ns #object[at torihiki.clearing], :name apply-fill, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/clearing.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 400, :column 25, :end-line nil, :end-column nil, :ns #object[at torihiki.clearing], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/clearing.cljk", :f-meta {:private true, :arglists ([{:keys [size entry-notional], :as pos} delta price]), :doc "Fold one fill into a position. `delta` is signed: positive when the account\n  bought. Returns [position' realized-pnl].\n\n  Three cases, and the middle one is where implementations usually go wrong:\n\n  - INCREASING (or opening): cost basis simply accumulates.\n  - REDUCING: the closed portion realises PnL against the average entry, and\n    the remaining basis shrinks proportionally. Taking the closed portion's\n    basis as `entry-price * closed` rather than pro-rating the stored notional\n    would leave a residue in `entry-notional` that never goes away, so a\n    position that returned to flat would still carry a phantom cost basis.\n  - FLIPPING: the position crosses through zero, so it must be split — realise\n    everything against the old side, then open the remainder at the fill price\n    with a fresh basis.", :line 121, :column 1, :ns #object[at torihiki.clearing], :name apply-fill-to-position, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/clearing.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 153, :column 25, :end-line nil, :end-column nil, :ns #object[at torihiki.clearing], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/clearing.cljk", :f-meta {:arglists ([price size]), :doc "price-ticks * size-lots, in the market's notional unit. The single most\n  common place to blow the i53 ceiling, so it is checked.", :line 207, :column 1, :ns #object[at torihiki.fixed], :name notional, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/fixed.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 211, :column 3, :end-line nil, :end-column nil, :ns #object[at torihiki.fixed], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/fixed.cljk", :f-meta {:arglists ([where v]), :doc "Return `v` if it is inside the i53 domain, else throw. Called on every\n  value that crosses into the slab, so an overflow surfaces as a rejected\n  transaction at the boundary instead of as a silent state-root divergence\n  between two validators three blocks later.\n\n  `where` names the site for the error message; it is never used in the\n  happy path, so passing a keyword literal costs nothing.", :line 49, :column 1, :ns #object[at torihiki.fixed], :name check, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/fixed.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 60, :column 5, :end-line nil, :end-column nil, :ns #object[at torihiki.fixed], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/fixed.cljk", :f-meta nil, :special true})}], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261025-0026/src/torihiki/fixed.cljk"}, :cause #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :notional, :value -1440000000000000000, :i53-max 9007199254740991}}}
+
+FAIL in (order-margin-requirement-saturates-at-every-sum) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-73019.cljk:645)
+VALUE: the mark branch — the loss terms sum past 2^53 and clamp,
+              and the requirement sum of margin + loss clamps too
+expected: (= fx/i53-max (om/requirement clearing oo 1 {1 1} markets))
+  actual: (not (= 9007199254740991 9682739198846566))
+
+ERROR in (order-margin-requirement-saturates-at-every-sum) (:649:11)
+VALUE: the no-mark branch — the order-notional sum (1.57e16)
+              clamps BEFORE mul-rate sees it; the raw sum fed mul-rate's input
+              check and threw mid-apply (falsify-6/7 class)
+expected: (= 900719925474099 (om/requirement clearing oo 1 {1 0} markets))
+  actual: #error {:message "torihiki.fixed: value escaped the i53 domain", :data {:where :mul-rate, :value 15762598695796736, :i53-max 9007199254740991}}
+
+FAIL in (equity-and-margin-fold-through-acc) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-73019.cljk:659)
+VALUE: two in-domain unrealized terms sum to 2^55 - 4 raw; the
+              fold clamps (falsify-8's class on a root-visible total)
+expected: (= fx/i53-max (cl/equity s 1 {1 fx/i53-max, 2 fx/i53-max}))
+  actual: (not (= 9007199254740991 36028797018963964))
+
+Testing torihiki.principal-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 508 tests containing 3526 assertions.
+3 failures, 8 errors.
+kbb test: 508 test(s), 3515 pass, 3 fail, 8 error

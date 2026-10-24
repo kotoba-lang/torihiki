@@ -21,6 +21,7 @@
             [torihiki.liquidation :as liq]
             [torihiki.api :as api]
             [torihiki.state :as st]
+            [torihiki.order-margin :as om]
             [torihiki.book :as bk]
             [torihiki.validators :as vals]
             [torihiki.commit :as cm]
@@ -569,3 +570,101 @@
       (let [exb (assoc ex :bridge-authority 1)]
         (is (= exb (st/apply-tx exb {:tx :attest-reserves :account 1
                                      :amount (inc fx/i53-max)})))))))
+
+;; ── notional money math is total (the mark-to-market path) ──────────────────
+;;
+;; `fx/notional` was `(check :notional (* price size))`: the product computed
+;; first, then checked. In-domain factors with an out-of-domain product reach
+;; it from every valuation site — unrealized PnL (mark x ACCUMULATED size), a
+;; flipping fill's realized PnL, the order-margin loss terms — and then either
+;; threw mid-apply (a halted chain, falsify-6/7's class) or, past 2^63, threw
+;; a bare overflow on the JVM while JS rounded silently (falsify-9/11
+;; secondary). And the SUMS and DIFFERENCES of notional terms were raw `+`/`-`
+;; : two in-domain terms leaving the domain fork the runtimes with no throw
+;; anywhere (falsify-8..13's class). Notional is now a saturated product, its
+;; differences go through fx/sadd, and its sums through fx/acc.
+
+(deftest notional-saturates-instead-of-throwing
+  (testing "exact where the product is in the domain"
+    (is (= 12 (fx/notional 3 4)))
+    (is (= 20000 (fx/notional 100 200)))
+    (is (= 1440000000000000 (fx/notional 720000 2000000000)))
+    (is (= fx/i53-max (fx/notional fx/i53-max 1)))
+    (is (= 0 (fx/notional 0 fx/i53-max))))
+  (testing "VALUE: an out-of-domain product clamps deterministically — it used
+            to throw :notional mid-apply (a halted chain)"
+    (is (= fx/i53-max (fx/notional fx/i53-max fx/i53-max)))
+    (is (= fx/i53-max (fx/notional fx/i53-max 2)))
+    (is (= fx/i53-min (fx/notional (- fx/i53-max) 2)))
+    (is (= fx/i53-min (fx/notional 2 (- fx/i53-max))))
+    (is (= fx/i53-max (fx/notional (- fx/i53-max) (- fx/i53-max))))))
+
+(deftest unrealized-is-a-saturated-difference
+  (testing "exact inside the domain"
+    (is (= 1000 (cl/unrealized {:size 10 :entry-notional 1000} 200))))
+  (testing "VALUE: the product clamps before the difference is taken"
+    (is (= (dec fx/i53-max)
+           (cl/unrealized {:size 2 :entry-notional 1} fx/i53-max))))
+  (testing "VALUE: a difference of two in-domain values that leaves the domain
+            clamps — 2^54 - 2 is a raw long on the JVM and a rounded double on
+            JS (falsify-8's class), from an honest mark on a large position"
+    (is (= fx/i53-max
+           (cl/unrealized {:size 1 :entry-notional (- fx/i53-max)} fx/i53-max)))))
+
+(deftest a-flip-fill-clamps-realized-and-the-fresh-basis
+  ;; Notional 720000 x 2e12 is 1.44e18: the OLD fx/notional threw :notional
+  ;; here, in the middle of a fill, after the book had already traded.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :positions 1]
+                        {:size -2000000000000 :entry-notional -1440000000000000}))
+        s' (cl/apply-fill s 1 1 3000000000000 720000 0)]
+    (is (= 1000000000000 (:size (cl/position s' 1 1))))
+    (is (= fx/i53-max (:entry-notional (cl/position s' 1 1)))
+         "the fresh basis is the clamped notional")
+    (is (= -7567199254740991 (get-in s' [:accounts 1 :collateral]))
+         "VALUE: realized = clamp(-1.44e18) - (-1.44e15), saturated")))
+
+(deftest a-reducing-fill-realizes-a-saturated-difference
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :positions 1]
+                        {:size 2 :entry-notional (- fx/i53-max)}))
+        s' (cl/apply-fill s 1 1 -1 fx/i53-max 0)]
+    (is (= 1 (:size (cl/position s' 1 1))))
+    (is (= -4503599627370495 (:entry-notional (cl/position s' 1 1)))
+         "VALUE: entry basis minus the pro-rated closed basis, saturated")
+    (is (= fx/i53-max (get-in s' [:accounts 1 :collateral]))
+         "VALUE: realized = i53-max - (-4.5e15), saturated")))
+
+(deftest order-margin-requirement-saturates-at-every-sum
+  (let [clearing (cl/new-state)
+        ;; 2^53 + 1 of loss across two bid levels: the falsify-13 crossing value
+        oo {1 {1 {:bids {2 4503599627370495 3 2251799813685249}}}}
+        markets {1 {:initial-margin-rate (fx/pct 10)}}]
+    (testing "VALUE: the mark branch — the loss terms sum past 2^53 and clamp,
+              and the requirement sum of margin + loss clamps too"
+      (is (= fx/i53-max (om/requirement clearing oo 1 {1 1} markets))))
+    (testing "VALUE: the no-mark branch — the order-notional sum (1.57e16)
+              clamps BEFORE mul-rate sees it; the raw sum fed mul-rate's input
+              check and threw mid-apply (falsify-6/7 class)"
+      (is (= 900719925474099 (om/requirement clearing oo 1 {1 0} markets))))))
+
+(deftest equity-and-margin-fold-through-acc
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :collateral] 0)
+              (assoc-in [:accounts 1 :positions]
+                        {1 {:size 1 :entry-notional (- fx/i53-max)}
+                         2 {:size 1 :entry-notional (- fx/i53-max)}}))]
+    (testing "VALUE: two in-domain unrealized terms sum to 2^55 - 4 raw; the
+              fold clamps (falsify-8's class on a root-visible total)"
+      (is (= fx/i53-max (cl/equity s 1 {1 fx/i53-max 2 fx/i53-max})))))
+  (testing "in-domain requirements are byte-identical to the old raw folds"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:accounts 1 :positions]
+                          {1 {:size 1 :entry-notional 0}
+                           2 {:size 1 :entry-notional 0}}))
+          markets {1 {:initial-margin-rate (fx/pct 10)
+                      :maintenance-margin-rate (fx/pct 5)}
+                   2 {:initial-margin-rate (fx/pct 10)
+                      :maintenance-margin-rate (fx/pct 5)}}]
+      (is (= 900719925474098 (cl/maintenance-margin s 1 {1 fx/i53-max 2 fx/i53-max} markets)))
+      (is (= 1801439850948198 (cl/initial-margin s 1 {1 fx/i53-max 2 fx/i53-max} markets))))))

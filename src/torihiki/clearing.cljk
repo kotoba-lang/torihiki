@@ -116,7 +116,11 @@
   avoids recovering the entry price — and therefore avoids reintroducing the
   rounding that `entry-price` concentrates in one place."
   [{:keys [size entry-notional]} mark]
-  (- (fx/notional mark size) entry-notional))
+  ;; the difference of two in-domain values is a saturated sum like any other:
+  ;; raw `(- ...)` leaves the domain quietly and forks the runtimes
+  ;; (falsify-8's class) — this value is compared, summed and returned by the
+  ;; reporting path, so it must be in-domain at the boundary.
+  (fx/sadd (fx/notional mark size) (- entry-notional)))
 
 (defn- apply-fill-to-position
   "Fold one fill into a position. `delta` is signed: positive when the account
@@ -150,7 +154,7 @@
       ;; `closed` is the POSITION being closed (same sign as size), not the
       ;; delta that closes it. Using the delta here inverts the sign of every
       ;; realised PnL on a flip: a long that closed at a profit books a loss.
-      (let [realized (- (fx/notional price size) entry-notional)]
+      (let [realized (fx/sadd (fx/notional price size) (- entry-notional))]
         [(assoc pos :size new-size
                     :entry-notional (fx/notional price new-size))
          realized])
@@ -164,7 +168,7 @@
             ;; of 0 lands here — falsify-11's secondary finding. pmul bounds
             ;; the product before it is computed (see torihiki.fixed).
             closed-basis (fx/fdiv (fx/pmul entry-notional closed) size)
-            realized (- (fx/notional price closed) closed-basis)]
+            realized (fx/sadd (fx/notional price closed) (- closed-basis))]
         [(assoc pos :size new-size
                     :entry-notional (fx/acc entry-notional (- closed-basis)))
          realized]))))
@@ -432,7 +436,10 @@
   their losses must not be able to reach the cross pool."
   [state acct marks]
   (reduce (fn [acc [mkt pos]]
-            (+ acc (unrealized pos (get marks mkt 0))))
+            ;; the fold is an accumulator like any other: a raw `+` over
+            ;; in-domain unrealized terms can leave the domain and fork the
+            ;; runtimes (falsify-8's class) — this total is root-visible.
+            (fx/acc acc (unrealized pos (get marks mkt 0))))
           (get-in state [:accounts acct :collateral] 0)
           (cross-positions state acct)))
 
@@ -444,7 +451,7 @@
   (reduce (fn [acc [mkt pos]]
             (let [n (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
                   [_ mm] (rates-for (get markets mkt) n)]
-              (+ acc (fx/mul-rate n mm))))
+              (fx/acc acc (fx/mul-rate n mm))))
           0
           (cross-positions state acct)))
 
@@ -477,7 +484,7 @@
   (reduce (fn [acc [mkt pos]]
             (let [n (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
                   im (initial-margin-rate-for state acct mkt (get markets mkt) n)]
-              (+ acc (fx/mul-rate n im))))
+              (fx/acc acc (fx/mul-rate n im))))
           0
           (cross-positions state acct)))
 
@@ -515,7 +522,7 @@
     (boolean
      (when-let [iso (:isolated pos)]
        (and (not (zero? (:size pos)))
-            (< (+ iso (unrealized pos (get marks mkt 0)))
+            (< (fx/sadd iso (unrealized pos (get marks mkt 0)))
                (fx/mul-rate (fx/abs* (fx/notional (get marks mkt 0) (:size pos)))
                             (get-in markets [mkt :maintenance-margin-rate] 0))))))))
 
