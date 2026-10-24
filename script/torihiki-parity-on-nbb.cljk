@@ -1,0 +1,45 @@
+;; The ClojureScript half of the cross-runtime state-root parity check
+;; (`torihiki.parity`), runnable from a clean checkout:
+;;
+;;   KOTOBA_CHECKOUTS=<dir-of-sibling-checkouts> script/nbb-parity.sh
+;;
+;; `script/nbb-leg.sh` (which that wrapper calls) builds the classpath from
+;; the deps.edn pins and runs this file through `kbb --backend sci`; the JVM
+;; half is `script/jvm-parity.sh`. The two must print the same digests.
+;;
+;; ## Why this file exists
+;;
+;; The nbb half of the parity check lived in prose — `torihiki.parity`'s
+;; docstring and the README's Platform section named it as a one-liner with a
+;; hand-rolled classpath:
+;;
+;;   kbb --backend sci --classpath "src:<path-to>/bytes/src" -e "(require '[torihiki.parity :as p]) (p/report)"
+;;
+;; and the same prose named the JVM half as `kbb -M:parity`. All three
+;; invocations were measured failing on 2026-10-24, the day this file landed
+;; (see evidence/2026-10-24-parity-leg-lands-in-repo.md):
+;;
+;;   kbb -M:parity            -> "Unable to resolve symbol: torihiki.parity/-main"
+;;                               (the alias's :main-opts name `-main`, which is
+;;                               `#?(:clj ...)` only — the SCI engine has none)
+;;   clojure -M:parity        -> "Could not locate torihiki/parity__init.class"
+;;                               (the `.cljk` sources are invisible to the
+;;                               JVM; script/jvm-leg.sh is the recipe)
+;;   the -e one-liner, naive  -> "Could not find namespace: merkle-sum.core"
+;;   classpath fill              (the pins ARE the classpath; prose
+;;                               placeholders are not)
+;;
+;; So the check existed, pinned in `torihiki.commit-test`, and the commands to
+;; run it did not work — the same rot that took the two-runtime suite claim
+;; down twice before script/jvm-test.sh and script/nbb-test.sh landed. The
+;; suite pins what the digests ARE (a deliberate encoding change moves them,
+;; with a comment, in commit_test); this file exists so both runtimes can be
+;; asked to PRINT them, which is the cross-runtime claim.
+;;
+;; The output must be byte-identical to the JVM half's: same function, same
+;; printlns. If the two outputs drift, the runtimes disagree on the state
+;; root and a browser cannot verify a block a JVM validator produced.
+(ns torihiki-parity-on-nbb
+  (:require [torihiki.parity :as p]))
+
+(p/report)
