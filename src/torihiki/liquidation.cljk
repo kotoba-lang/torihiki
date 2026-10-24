@@ -149,10 +149,13 @@
                    (let [profit (cl/unrealized pos mark)
                          notional (fx/abs* (fx/notional mark size))
                          base (max 1 (+ (or collateral 0) profit))
-                         leverage (fx/fdiv (* notional fx/rate-scale) base)]
+                         ;; Both quotients here divide products that routinely
+                         ;; exceed 2^53 (3.7e24, 1.5e24) while the quotients
+                         ;; are in the domain: fmul, never the raw product.
+                         leverage (fx/fmul notional fx/rate-scale base)]
                      {:account acct
                       :size size
-                      :score (fx/fdiv (* profit leverage) fx/rate-scale)})))))
+                      :score (fx/fmul profit leverage fx/rate-scale)})))))
        (sort-by (juxt (comp - :score) :account))
        vec))
 

@@ -22,6 +22,7 @@
             [torihiki.api :as api]
             [torihiki.state :as st]
             [torihiki.order-margin :as om]
+            [torihiki.oracle :as oc]
             [torihiki.book :as bk]
             [torihiki.validators :as vals]
             [torihiki.commit :as cm]
@@ -668,3 +669,80 @@
                       :maintenance-margin-rate (fx/pct 5)}}]
       (is (= 900719925474098 (cl/maintenance-margin s 1 {1 fx/i53-max 2 fx/i53-max} markets)))
       (is (= 1801439850948198 (cl/initial-margin s 1 {1 fx/i53-max 2 fx/i53-max} markets))))))
+
+;; ── the exact quotient: floor(a x b / c) without the product ─────────────────
+;;
+;; The product-then-divide class (falsify-11's secondary finding and its
+;; siblings): `entry-notional x closed / size`, the vault share price, the ADL
+;; leverage and score, the oracle deviation. The PRODUCT overflows 2^53 while
+;; the quotient is in the domain (7.2e14 x 1e12 / 2e12 = 3.6e14), and then the
+;; two runtimes divide different numbers — the JVM the promoted exact integer
+;; (or a bare overflow throw past 2^63), JS a rounded double. `fx/fmul` folds
+;; the division into the multiplication and never forms the product.
+
+(deftest fmul-is-the-exact-floor-quotient
+  (testing "exact small cases, floor semantics on every sign"
+    (is (= 2 (fx/fmul 3 4 5)))
+    (is (= 8 (fx/fmul 7 5 4)))
+    (is (= -2 (fx/fmul -3 2 4)) "floor, toward negative infinity")
+    (is (= -2 (fx/fmul 3 -2 4)))
+    (is (= 1 (fx/fmul -3 -2 4))))
+  (testing "the product is never formed"
+    (is (= 1000000000000 (fx/fmul 1000000000000 1000000000000 1000000000000)))
+    (is (= fx/i53-max (fx/fmul fx/i53-max fx/i53-max fx/i53-max))))
+  (testing "VALUE: a quotient past the ceiling clamps like pmul, never throws"
+    (is (= fx/i53-max (fx/fmul fx/i53-max fx/i53-max 1)))
+    (is (= fx/i53-min (fx/fmul (- fx/i53-max) fx/i53-max 1))))
+  (testing "the odd-carry core case: residues folded by comparison carry"
+    (is (= 4503599627370495
+           (fx/fmul 4503599627370497 4503599627370495 4503599627370496)))))
+
+(deftest vault-shares-price-with-an-exact-quotient
+  (testing "VALUE: minted = floor(amount x total / pool); the product is 1.8e16,
+            past the ceiling, the quotient under it"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:accounts 1 :collateral] 3807572383388538)
+                (assoc-in [:accounts 2 :collateral] 1940371675451696)
+                (assoc-in [:vaults 2 :total-shares] 2503842113501302))
+          s' (cl/vault-deposit s 1 2 3807572383388538)]
+      (is (= 4913264919471391 (get-in s' [:vaults 2 :shares 1])))))
+  (testing "VALUE: payout = floor(shares x pool / total); the product is 3.3e16"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:accounts 2 :collateral] 6450328040642089)
+                (assoc-in [:vaults 2] {:total-shares 6317976265679753
+                                       :shares {1 5056245340839859}}))
+          s' (cl/vault-withdraw s 1 2 5056245340839859 6450328040642089)]
+      (is (= 5162165815587510 (get-in s' [:accounts 1 :collateral]))))))
+
+(deftest a-reducing-fill-retires-the-exact-closed-basis
+  ;; The product is 7.2e26; the quotient 3.6e14 is in the domain. The old
+  ;; pmul clamp retired a basis of 4503599 and mispriced the position.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :positions 1]
+                        {:size 2000000000000 :entry-notional 720000000000000}))
+        s' (cl/apply-fill s 1 1 -1000000000000 720 0)]
+    (is (= 360000000000000 (:entry-notional (cl/position s' 1 1)))
+         "VALUE: the pro-rated closed basis, exact")
+    (is (= 360000000000000 (get-in s' [:accounts 1 :collateral]))
+         "VALUE: realized = price x closed - closed-basis")))
+
+(deftest adl-scores-with-an-exact-quotient
+  ;; leverage = floor(notional x rate-scale / base) is a 3.7e24 product and
+  ;; the score floor(profit x leverage / rate-scale) a 1.5e24 product; both
+  ;; quotients are in the domain.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 3 :positions 3]
+                        {:size 9349941134 :entry-notional 615628472864798})
+              (assoc-in [:accounts 3 :collateral] 4595685917346004))
+        r (liq/adl-ranking s 3 400273 -1)]
+    (is (= 1 (count r)))
+    (is (= 3 (:account (first r))))
+    (is (= 1515362229667056 (:score (first r))) "VALUE: the exact score")))
+
+(deftest oracle-deviation-clamps-its-quotient
+  (is (= 100000000 (oc/deviation 110 100)) "10% off, in rate-scale units")
+  (is (= 500000000 (oc/deviation 5 10)) "below the reference is not negative")
+  (is (= 0 (oc/deviation 110 0)) "no reference, no deviation")
+  (testing "VALUE: the quotient of a 5e24 product clamps to the ceiling —
+            it used to return 7.1e23, out of the domain, from a monitoring path"
+    (is (= fx/i53-max (oc/deviation 5000000000000007 7)))))

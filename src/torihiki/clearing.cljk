@@ -163,11 +163,13 @@
       :else
       (let [closed (- delta)                                 ; same sign as size
             ;; `entry-notional x closed` routinely exceeds 2^53 while the
-            ;; quotient does not (7.2e14 x 1e12 / 1e12): direct `*` is a bare
-            ;; overflow on the JVM and a silent rounding on JS, and a new-size
-            ;; of 0 lands here — falsify-11's secondary finding. pmul bounds
-            ;; the product before it is computed (see torihiki.fixed).
-            closed-basis (fx/fdiv (fx/pmul entry-notional closed) size)
+            ;; quotient does not (7.2e14 x 1e12 / 2e12 = 3.6e14): direct `*`
+            ;; is a bare overflow on the JVM and a silent rounding on JS, and
+            ;; a new-size of 0 lands here — falsify-11's secondary finding.
+            ;; fmul folds the division into the multiplication, so the retired
+            ;; basis is EXACT — the pmul clamp this replaces retired 4503599
+            ;; of basis on falsify-11's numbers (see torihiki.fixed).
+            closed-basis (fx/fmul entry-notional closed size)
             realized (fx/sadd (fx/notional price closed) (- closed-basis))]
         [(assoc pos :size new-size
                     :entry-notional (fx/acc entry-notional (- closed-basis)))
@@ -287,7 +289,10 @@
       state
       (let [minted (if (or (zero? total) (zero? pool))
                      amount
-                     (quot (* amount total) pool))]
+                   ;; the share price: amount x total / pool. The product is
+                   ;; routinely past 2^53 and the quotient is not — exact via
+                   ;; fmul, not a rounded double divided by another.
+                   (fx/fmul amount total pool))]
         (if-not (pos? minted)
           ;; A deposit too small to buy a share would be a donation. Refusing
           ;; is the honest answer; taking it silently is not.
@@ -314,7 +319,7 @@
         pool (get-in state [:accounts vault :collateral] 0)]
     (if (or (not (pos? shares)) (> shares held) (not (pos? total)))
       state
-      (let [payout (quot (* shares pool) total)]
+      (let [payout (fx/fmul shares pool total)]
         (if (or (not (pos? payout)) (> payout (long free)))
           state
           (-> state
