@@ -1,0 +1,61 @@
+
+Running tests in #{"test"}
+
+Testing torihiki.address-test
+
+Testing torihiki.api-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.clearing-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.thorchain-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 508 tests containing 3528 assertions.
+0 failures, 0 errors.

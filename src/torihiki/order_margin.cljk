@@ -120,17 +120,17 @@
   (let [im (fn [v] (let [v (fx/abs* v)]
                      (fx/mul-rate v (cl/initial-margin-rate-for clearing acct mkt market v))))]
     (if (pos? mark)
-      (let [bq (reduce + 0 (vals bids))
-            aq (reduce + 0 (vals asks))
-            loss-b (reduce + 0 (for [[l q] bids :when (> l mark)] (fx/notional (- l mark) q)))
-            loss-a (reduce + 0 (for [[l q] asks :when (< l mark)] (fx/notional (- mark l) q)))]
-        (max (+ (im (fx/notional mark (+ size bq))) loss-b)
-             (+ (im (fx/notional mark (- size aq))) loss-a)))
+      (let [bq (reduce fx/acc 0 (vals bids))
+            aq (reduce fx/acc 0 (vals asks))
+            loss-b (reduce fx/acc 0 (for [[l q] bids :when (> l mark)] (fx/notional (- l mark) q)))
+            loss-a (reduce fx/acc 0 (for [[l q] asks :when (< l mark)] (fx/notional (- mark l) q)))]
+        (max (fx/sadd (im (fx/notional mark (fx/sadd size bq))) loss-b)
+             (fx/sadd (im (fx/notional mark (fx/sadd size (- aq)))) loss-a)))
       ;; No mark yet (a market before its first price): nothing to lose
       ;; against and no position worth anything, so each side's orders are
       ;; margined at their own limits.
-      (max (im (reduce + 0 (for [[l q] bids] (fx/notional l q))))
-           (im (reduce + 0 (for [[l q] asks] (fx/notional l q))))))))
+      (max (im (reduce fx/acc 0 (for [[l q] bids] (fx/notional l q))))
+           (im (reduce fx/acc 0 (for [[l q] asks] (fx/notional l q))))))))
 
 (defn- cross-size [clearing acct mkt]
   (let [p (cl/position clearing acct mkt)]
@@ -150,9 +150,9 @@
                         (get-in clearing [:accounts acct :positions] {}))
                   (into (keys sizes)))]
      (reduce (fn [acc mkt]
-               (+ acc (market-requirement clearing acct mkt (get markets mkt) (get marks mkt 0)
-                                          (get sizes mkt (cross-size clearing acct mkt))
-                                          (get mine mkt))))
+               (fx/acc acc (market-requirement clearing acct mkt (get markets mkt) (get marks mkt 0)
+                                               (get sizes mkt (cross-size clearing acct mkt))
+                                               (get mine mkt))))
              0 (sort mkts)))))
 
 (defn available
@@ -242,17 +242,18 @@
                             (let [;; Taking its own resting order changes nothing
                                   ;; but that order: no position, no profit.
                                   {mine true others false} (group-by #(= acct (:owner %)) takes)
-                                  filled (reduce + 0 (map :qty others))
-                                  cost (reduce + 0 (map #(fx/notional (:level %) (:qty %)) others))
+                                  filled (reduce fx/acc 0 (map :qty others))
+                                  cost (reduce fx/acc 0 (map #(fx/notional (:level %) (:qty %)) others))
                                   rate (+ fee-rate (long (or builder-fee 0)))]
                               (-> acc
-                                  (update :signed + (if (= side bk/bid) filled (- filled)))
+                                  (update :signed fx/acc (if (= side bk/bid) filled (- filled)))
                                   ;; what the taken part is worth at the mark,
                                   ;; less what it cost and the fees on it
-                                  (update :delta + (if (= side bk/bid)
-                                                     (- (fx/notional mark filled) cost)
-                                                     (- cost (fx/notional mark filled)))
-                                          (- (fx/mul-rate cost rate)))
+                                  (update :delta fx/acc
+                                          (if (= side bk/bid)
+                                            (fx/sadd (fx/notional mark filled) (- cost))
+                                            (fx/sadd cost (- (fx/notional mark filled)))))
+                                  (update :delta fx/acc (- (fx/mul-rate cost rate)))
                                   (update :oo' take-consumed mkt side mine)
                                   (update :oo' adjust acct mkt side level rest)))
                             acc))
