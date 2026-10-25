@@ -2335,9 +2335,9 @@
                          ;; what this account may spend, and bonds decide whose
                          ;; price wins — a replica that disagreed would compute
                          ;; a different mark.
-                         (reduce + 0 (vals (get-in clearing [:bonds a] {})))
+                         (reduce fx/sadd 0 (vals (get-in clearing [:bonds a] {})))
                          (count (get-in clearing [:bonds a] {}))
-                         (reduce + 0 (map :amount (get-in clearing [:unbonding a] [])))
+                         (reduce fx/sadd 0 (map :amount (get-in clearing [:unbonding a] [])))
                          ;; Spot balances and what resting spot orders have
                          ;; already committed. A balance is a holding the same
                          ;; way collateral is, and a commitment decides whether

@@ -746,3 +746,156 @@
   (testing "VALUE: the quotient of a 5e24 product clamps to the ceiling —
             it used to return 7.1e23, out of the domain, from a monitoring path"
     (is (= fx/i53-max (oc/deviation 5000000000000007 7)))))
+
+;; ── the folds that feed a root or a decision saturate ───────────────────────
+;;
+;; The accumulator sweep routed every `(fnil + 0)` through `fx/acc` and the
+;; notional package every money sum through `fx/sadd`/`fx/acc` — but the RAW
+;; `+`/`reduce +` folds were not in those sweeps, and four of them are read
+;; into a root or a decision:
+;;
+;; - position `:size` is folded per fill with `(+ size delta)` and is ROOT-
+;;   ENCODED (torihiki.state encode-clearing-account's sibling — the position
+;;   leaf). Two honest fills walk it past 2^53: the runtimes hold different
+;;   sizes (falsify-8's class) and the liquidation slices then feed an
+;;   out-of-domain qty to `place!`.
+;; - `stake-of` (whose word a validator's vote carries) and `bonded` (what
+;;   `free-collateral` subtracts) are DERIVED sums of in-domain per-key values
+;;   that cross 2^53 in aggregate — the falsify-14 class at a decision.
+;; - `volume-of`'s `(cur + prev)` is the fee tier's own read of two writes
+;;   that are each clamped — the sum is not.
+;; - the ROOT PREIMAGE: encode-clearing-account folds the bonds and unbonding
+;;   sums with raw `reduce + 0` into the account leaf bytes. This is falsify-
+;;   14's exact mechanism one layer down: the preimage stringifies the sum, so
+;;   the root hash itself forks with no throw anywhere.
+;;
+;; And one store door of the same class: `trg/valid?` was shape-only, so a raw
+;; :trigger with an out-of-i53 :trigger-price was STORED by the engine even
+;; though validate refuses it (:bad-trigger-price). Pins are VALUES (clamps
+;; and state-identical no-ops) — a clamp is total.
+
+(deftest position-size-saturates-at-the-ceiling
+  ;; :size is a root-encoded accumulator; (+ size delta) was the one fold the
+  ;; sweeps missed. VALUE: the clamp.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:accounts 1 :collateral] 1000000)
+              (assoc-in [:accounts 1 :positions 1]
+                        {:size (- fx/i53-max 1) :entry-notional 0 :isolated nil}))
+        s' (cl/apply-fill s 1 1 10 0 0)]
+    (is (= fx/i53-max (:size (cl/position s' 1 1)))
+        "was i53-max + 9 = 2^53 + 8, held by no two runtimes alike")
+    (is (fx/in-domain? (:size (cl/position s' 1 1)))))
+  (testing "and at the floor"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:accounts 1 :collateral] 1000000)
+                (assoc-in [:accounts 1 :positions 1]
+                          {:size (inc fx/i53-min) :entry-notional 0 :isolated nil}))
+          s' (cl/apply-fill s 1 1 -10 0 0)]
+      (is (= fx/i53-min (:size (cl/position s' 1 1))) "was i53-min - 9")))
+  (testing "below the ceiling folding is unchanged"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:accounts 1 :collateral] 1000000)
+                (assoc-in [:accounts 1 :positions 1]
+                          {:size 5 :entry-notional 0 :isolated nil}))]
+      (is (= 15 (:size (cl/position (cl/apply-fill s 1 1 10 0 0) 1 1)))))))
+
+(deftest stake-of-saturates-at-the-ceiling
+  ;; The validator's weight is a derived sum of in-domain per-account bonds.
+  (let [s (assoc (cl/new-state) :bonds {1 {9 (- fx/i53-max 1)} 2 {9 2}})]
+    (is (= fx/i53-max (cl/stake-of s 9))
+        "was 2^53 — the weight left the domain and the runtimes disagreed"))
+  (testing "and at the floor"
+    (is (= fx/i53-min
+           (cl/stake-of (assoc (cl/new-state)
+                               :bonds {1 {9 (inc fx/i53-min)} 2 {9 -2}})
+                        9))))
+  (testing "below the ceiling folding is unchanged"
+    (is (= 12 (cl/stake-of (assoc (cl/new-state)
+                                  :bonds {1 {9 5} 2 {9 7}})
+                           9)))))
+
+(deftest bonded-saturates-at-every-sum
+  ;; bonds + unbonding: two inner folds and their outer +. All three clamp.
+  (let [s (-> (cl/new-state)
+              (assoc-in [:bonds 1] {10 (- fx/i53-max 1) 11 2})
+              (assoc-in [:unbonding 1] [{:amount 5 :at 100}]))]
+    (is (= fx/i53-max (cl/bonded s 1)) "was 2^53 + 6"))
+  (testing "the outer + clamps too — each part in-domain, the total not"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:bonds 1] {10 (- fx/i53-max 3) 11 2})
+                (assoc-in [:unbonding 1] [{:amount 5 :at 100}]))]
+      (is (= fx/i53-max (cl/bonded s 1)) "was i53-max + 4")))
+  (testing "below the ceiling folding is unchanged"
+    (let [s (-> (cl/new-state)
+                (assoc-in [:bonds 1] {10 7})
+                (assoc-in [:unbonding 1] [{:amount 5 :at 100}]))]
+      (is (= 12 (cl/bonded s 1))))))
+
+(deftest rolling-volume-read-sum-saturates
+  ;; :cur and :prev are each clamped on the way in; the FEE TIER's read of
+  ;; their sum was raw.
+  (let [s (assoc-in (cl/new-state) [:volume 1] {:epoch 0 :cur (- fx/i53-max 1)
+                                                :prev 2})]
+    (is (= fx/i53-max (cl/volume-of s 1 0))
+        "was 2^53 — one tier decision per runtime"))
+  (testing "below the ceiling folding is unchanged"
+    (is (= 12 (cl/volume-of (assoc-in (cl/new-state) [:volume 1]
+                                      {:epoch 0 :cur 5 :prev 7})
+                            1 0)))))
+
+(defn- root-ex
+  "A full genesis exchange (state-root walks the governance and market
+  encodings too) with its clearing swapped for the one under test."
+  [cl]
+  (assoc (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                           :book-opts {:n-levels 64 :cap 64 :ev-cap 64}})
+         :clearing cl))
+
+(deftest root-preimage-sums-saturate
+  ;; falsify-14's mechanism in the account leaf bytes: the bonds and unbonding
+  ;; sums go into the preimage with raw `reduce + 0`. Two states that differ
+  ;; only past the ceiling must hash to ONE root, not two.
+  (let [clA (-> (cl/new-state)
+                (assoc-in [:accounts 1 :collateral] 0)
+                (assoc-in [:bonds 1] {9 (- fx/i53-max 1) 10 2}))
+        clB (-> (cl/new-state)
+                (assoc-in [:accounts 1 :collateral] 0)
+                (assoc-in [:bonds 1] {9 (- fx/i53-max 1) 10 1}))]
+    (is (= (st/state-root (root-ex clA))
+           (st/state-root (root-ex clB)))
+        "the preimage sums clamp to one value — one root, not two"))
+  (testing "the unbonding sum is the same preimage fold"
+    (let [clA (-> (cl/new-state)
+                  (assoc-in [:accounts 1 :collateral] 0)
+                  (assoc-in [:unbonding 1] [{:amount (- fx/i53-max 1) :at 100}
+                                            {:amount 2 :at 100}]))
+          clB (-> (cl/new-state)
+                  (assoc-in [:accounts 1 :collateral] 0)
+                  (assoc-in [:unbonding 1] [{:amount (- fx/i53-max 1) :at 100}
+                                            {:amount 1 :at 100}]))]
+      (is (= (st/state-root (root-ex clA))
+             (st/state-root (root-ex clB))))))
+  (testing "below the ceiling the root still notices a changed bond"
+    (let [clA (-> (cl/new-state)
+                  (assoc-in [:accounts 1 :collateral] 0)
+                  (assoc-in [:bonds 1] {9 5 10 2}))
+          clB (-> (cl/new-state)
+                  (assoc-in [:accounts 1 :collateral] 0)
+                  (assoc-in [:bonds 1] {9 5 10 1}))]
+      (is (not= (st/state-root (root-ex clA))
+                (st/state-root (root-ex clB)))))))
+
+(deftest the-trigger-store-door-is-gated-too
+  ;; validate refuses an out-of-i53 :trigger-price with :bad-trigger-price;
+  ;; the engine's own gate (trg/valid?) was shape-only and STORED the same
+  ;; trigger. The safety net must answer with a no-op, not a store.
+  (let [ex (ex-for)]
+    (is (= ex (st/apply-tx ex {:tx :trigger :account 1 :market 1
+                               :trigger-price (inc fx/i53-max) :direction :above
+                               :order {:side 0 :level 1 :qty 1}}))
+        "VALUE: state-identical no-op — was a store of a value no runtime mirrors"))
+  (testing "in-domain still stores"
+    (is (some? (get-in (st/apply-tx (ex-for) {:tx :trigger :account 1 :market 1
+                                              :trigger-price 100 :direction :above
+                                              :order {:side 0 :level 1 :qty 1}})
+                       [:triggers 1])))))
