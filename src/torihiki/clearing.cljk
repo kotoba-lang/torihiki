@@ -138,7 +138,7 @@
     everything against the old side, then open the remainder at the fill price
     with a fresh basis."
   [{:keys [size entry-notional] :as pos} delta price]
-  (let [new-size (+ size delta)]
+  (let [new-size (fx/sadd size delta)]
     (cond
       ;; opening from flat, or adding in the same direction
       (or (zero? size) (= (neg? size) (neg? delta)))
@@ -255,7 +255,7 @@
 (defn stake-of
   "Total bonded to `validator` by everybody — the weight its word carries."
   [state validator]
-  (reduce + 0 (keep (fn [[_ by-v]] (get by-v validator)) (:bonds state {}))))
+  (reduce fx/sadd 0 (keep (fn [[_ by-v]] (get by-v validator)) (:bonds state {}))))
 
 (defn vault-shares
   "`[shares-of-acct total-shares]` for `vault`."
@@ -589,8 +589,8 @@
   ;; answerable for a while longer", and it was not: the moment it left the
   ;; bond it became free collateral and could be withdrawn, so a validator
   ;; could unbond, withdraw, and leave nothing for a slash to take.
-  (+ (reduce + 0 (vals (get-in state [:bonds acct] {})))
-     (reduce + 0 (map :amount (get-in state [:unbonding acct] [])))))
+  (fx/sadd (reduce fx/sadd 0 (vals (get-in state [:bonds acct] {})))
+           (reduce fx/sadd 0 (map :amount (get-in state [:unbonding acct] [])))))
 
 (defn free-collateral
   "What the account may withdraw or commit to new positions: equity less the
@@ -633,7 +633,7 @@
         {:keys [epoch cur prev] :or {epoch 0 cur 0 prev 0}}
         (get-in state [:volume acct])]
     (cond
-      (= epoch e) (+ cur prev)
+      (= epoch e) (fx/sadd cur prev)
       (= epoch (dec e)) cur
       :else 0)))
 

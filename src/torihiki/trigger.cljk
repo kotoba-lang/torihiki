@@ -32,7 +32,8 @@
   `:above` fires when the mark reaches or passes the trigger price from below,
   `:below` when it reaches or passes from above. Both are inclusive: a mark
   exactly at the trigger price fires it. A stop-loss on a long is `:below`; a
-  take-profit on a long is `:above`.")
+  take-profit on a long is `:above`."
+  (:require [torihiki.fixed :as fx]))
 
 (defn trigger
   "Build a trigger. `order` is the order to submit when it fires — the same
@@ -84,6 +85,11 @@
   [{:keys [trigger-price direction order]}]
   (boolean
    (and (pos? (or trigger-price 0))
+        ;; shape was not enough: an out-of-i53 trigger-price was STORED and
+        ;; the two runtimes held different numbers from one log (falsify-8's
+        ;; class). validate refuses it (:bad-trigger-price); the engine's own
+        ;; gate answers with a no-op.
+        (fx/in-domain? (or trigger-price 0))
         (contains? #{:above :below} direction)
         (map? order)
         (pos? (or (:qty order) 0))
