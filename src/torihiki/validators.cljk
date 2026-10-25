@@ -113,12 +113,21 @@
   installed; a set installed with no stake at all (genesis) counts heads, one
   each, because zero of zero is not a quorum of anything."
   [ex accounts]
+  ;; The weight sums saturate (`fx/sadd`) and the threshold avoids its 3x
+  ;; product (`3h > 2t` reads as `h > 2(t − h)`): per-member stake is
+  ;; in-domain, the aggregate is not — three stakes of i53-max cross 2^53 and
+  ;; the raw fold held one number on the JVM and another on JS — and `(* 3
+  ;; have)` with an in-domain `have` over ~3e15 is not a double at all. Both
+  ;; operands of every product below are in-domain (stakes are non-negative,
+  ;; `have` is a subset sum of `total`), so the verdict is identical on both
+  ;; runtimes. Past the ceiling the verdict is read from SATURATED sums — a stated
+  ;; precision loss, the same clamp as every other aggregate here.
   (let [members (active-set ex)
-        staked? (pos? (reduce + 0 (map :stake members)))
+        staked? (pos? (reduce fx/sadd 0 (map :stake members)))
         w (fn [m] (if staked? (:stake m) 1))
-        total (reduce + 0 (map w members))
-        have (reduce + 0 (map w (filter #(contains? (set accounts) (:account %)) members)))]
-    (and (pos? total) (> (* 3 have) (* 2 total)))))
+        total (reduce fx/sadd 0 (map w members))
+        have (reduce fx/sadd 0 (map w (filter #(contains? (set accounts) (:account %)) members)))]
+    (and (pos? total) (> have (* 2 (- total have))))))
 (defn operates-live-witness?
   "Does `account` operate a witness that has not retired?"
   [ex account]
@@ -137,7 +146,7 @@
   the epoch was installed, or one each for a set installed with none."
   [ex]
   (let [members (active-set ex)
-        staked? (pos? (reduce + 0 (map :stake members)))]
+        staked? (pos? (reduce fx/sadd 0 (map :stake members)))]
     (into {} (map (fn [m] [(:account m) (if staked? (:stake m) 1)])) members)))
 
 (defn publishers
@@ -263,6 +272,11 @@
   "Take every bond backing `validator-acct` — live and unbonding — out of the
   delegators' collateral. Returns `[clearing' total]`."
   [clearing validator-acct]
+  ;; `total` sums what was TAKEN across delegators — per-key in-domain,
+  ;; aggregate past the ceiling (falsify-14b's shape) — and it is recorded in
+  ;; :slashed and debited from :insurance-fund. It folds through `fx/sadd`
+  ;; like every other aggregate: raw, the two delegators' bonds summed to
+  ;; 2^53 + 1 and the two runtimes recorded two different books.
   (let [take! (fn [c acct amount]
                 (let [have (get-in c [:accounts acct :collateral] 0)
                       amt (min amount (max 0 have))]
@@ -273,7 +287,7 @@
                   (let [x (get-in c [:bonds acct validator-acct] 0)]
                     (if (pos? x)
                       (let [[c amt] (take! c acct x)]
-                        [(update-in c [:bonds acct] dissoc validator-acct) (+ total amt)])
+                        [(update-in c [:bonds acct] dissoc validator-acct) (fx/sadd total amt)])
                       [c total])))
                 [clearing 0]
                 (sort (keys (:bonds clearing {}))))]
@@ -283,10 +297,10 @@
                     hit (filter #(= validator-acct (:validator %)) q)]
                 (if (empty? hit)
                   [c total]
-                  (let [[c amt] (take! c acct (reduce + 0 (map :amount hit)))]
+                  (let [[c amt] (take! c acct (reduce fx/sadd 0 (map :amount hit)))]
                     [(assoc-in c [:unbonding acct]
                                (vec (remove #(= validator-acct (:validator %)) q)))
-                     (+ total amt)]))))
+                     (fx/sadd total amt)]))))
             [c total]
             (sort (keys (:unbonding c {}))))))
 
@@ -325,9 +339,9 @@
         v (get-in ex [:validators witness])]
     (if (or (nil? v) (contains? (:slashed ex) k))
       ex
-      (let [own (+ (get-in ex [:clearing :bonds (:account v) (:account v)] 0)
-                   (reduce + 0 (map :amount (filter #(= (:account v) (:validator %))
-                                                    (get-in ex [:clearing :unbonding (:account v)] [])))))
+      (let [own (fx/sadd (get-in ex [:clearing :bonds (:account v) (:account v)] 0)
+                         (reduce fx/sadd 0 (map :amount (filter #(= (:account v) (:validator %))
+                                                                (get-in ex [:clearing :unbonding (:account v)] [])))))
             [clearing total] (slash-account (:clearing ex) (:account v))
             ;; Never to the offender — an operator with little of its own at
             ;; stake could double-sign on purpose and report itself for a cut

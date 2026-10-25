@@ -25,6 +25,7 @@
             [torihiki.oracle :as oc]
             [torihiki.book :as bk]
             [torihiki.validators :as vals]
+            [torihiki.light :as light]
             [torihiki.commit :as cm]
             [merkle-sum.core :as ms]
             [kotoba.bytes :as b]
@@ -558,6 +559,163 @@
       (is (nil? (api/validate ex {:tx :attest-reserves :account 1 :amount 5 :height* 100})))
       (is (nil? (api/validate ex {:tx :upgrade-propose :account 1 :version 2 :activation 100})))
       (is (nil? (api/validate ex {:tx :vault-withdraw :account 1 :vault 2 :shares 5}))))))
+
+;; ── the weight sums: falsify-14's class at a DECISION ───────────────────────
+;;
+;; Per-key stakes and member weights are in-domain. Their AGGREGATES are not:
+;; three stakes of i53-max, two delegator bonds of i53-max — the fold crosses
+;; 2^53 and then holds one number on the JVM and another on JS (falsify-8's
+;; divergence rule in falsify-14b's multi-account shape). In the accumulators
+;; that was a FIELD. Here it is a VERDICT: the light client's 2/3 root
+;; threshold, the validator set's supermajority, the oracle's weighted-median
+;; walk and its freshness threshold, and the slash path's taken total (recorded
+;; in :slashed and debited from :insurance-fund). Same log, two answers.
+;;
+;; And the thresholds themselves: `(* 3 have)` with an in-domain `have` above
+;; ~3e15 is not a double — JS rounds it to the nearest even integer while `(* 2
+;; total)`, always even and always below 2^54, stays exact — so the comparison
+;; decided differently on the two runtimes at ORDINARY in-domain values, long
+;; before any sum left the domain. Measured live in the RED run: 3 x
+;; 3002399751580331 = 2^53 + 1 rounds DOWN to 2^53 on JS, and `3h > 2t` with 2t
+;; = 2^53 flipped from true to false. All sums fold through `fx/sadd` now, and
+;; every 3x threshold reads as its exact 2x form — `3h > 2t` is `h > 2(t − h)`
+;; and `3w > t` is `2w > t − w` — where every operand is in-domain (weights are
+;; non-negative and a partial sum never exceeds the total), so every product
+;; here is twice an in-domain integer, exactly representable on both runtimes,
+;; and the verdict is one number.
+;;
+;; Pins are VALUEs: the clamp, and the verdict. The clamp pins (like every
+;; clamp in this file) state the precision loss rather than hide it: past the
+;; ceiling the verdict is read from saturated sums and the two runtimes read
+;; the SAME saturated sums.
+
+(defn- wsign [k payload] (str k "|" payload))
+(defn- wverify [k payload sig] (= sig (wsign k payload)))
+
+(deftest light-attested-weights-saturate-at-the-ceiling
+  ;; Two members, weights (i53-max - 1) + 2: the aggregate was 2^53 + 1 —
+  ;; exact on the JVM, 2^53 on JS — and :total and :weight both carry it out
+  ;; of `attested-root` into whatever the caller does next.
+  (let [members {"w1" {:pubkey "k1" :weight (- fx/i53-max 1)}
+                 "w2" {:pubkey "k2" :weight 2}}
+        att (fn [w] {:witness w :height 10 :root "00"
+                     :sig (wsign (:pubkey (get members w))
+                                 (light/root-payload "c" 0 10 "00"))})
+        a (light/attested-root [(att "w1") (att "w2")] members "c" 0 wverify)]
+    (is (= fx/i53-max (:total a)) "the sum was 2^53 + 1")
+    (is (= fx/i53-max (:weight a))))
+  (testing "below the ceiling the attestation is unchanged"
+    (let [members {"w1" {:pubkey "k1" :weight 40}
+                   "w2" {:pubkey "k2" :weight 35}
+                   "w3" {:pubkey "k3" :weight 25}}
+          att (fn [w] {:witness w :height 10 :root "00"
+                       :sig (wsign (:pubkey (get members w))
+                                   (light/root-payload "c" 0 10 "00"))})
+          a (light/attested-root [(att "w1") (att "w2")] members "c" 0 wverify)]
+      (is (= 100 (:total a)))
+      (is (= 75 (:weight a))))))
+
+(deftest light-threshold-decides-identically-at-the-double-boundary
+  ;; 3 x 3002399751580331 = 2^53 + 1 is not a double: JS rounds it to 2^53
+  ;; and the comparison against 2 x total = 2^53 then answers FALSE where the
+  ;; exact arithmetic answers TRUE. The same signatures, two different roots.
+  (let [h 3002399751580331
+        t 4503599627370496                       ; 2t = 2^53
+        members {"w1" {:pubkey "k1" :weight h}
+                 "w2" {:pubkey "k2" :weight (- t h)}}
+        att (fn [w] {:witness w :height 10 :root "00"
+                     :sig (wsign (:pubkey (get members w))
+                                 (light/root-payload "c" 0 10 "00"))})]
+    (is (= "00" (:root (light/attested-root [(att "w1")] members "c" 0 wverify)))
+        "w1 alone: 3h = 2^53 + 1 > 2t = 2^53 — exactly, and on both runtimes")
+    (is (nil? (light/attested-root [(att "w2")] members "c" 0 wverify))
+        "w2 alone: 3(t − h) = 2^53 − 3 is not over two thirds")))
+
+(deftest oracle-weighted-median-walks-saturated-stake
+  ;; The running sum crossed 2^53 between p1 and p2. Clamped, the walk reaches
+  ;; "half the stake" at p1 on both runtimes; raw, it walked past and picked
+  ;; p2 (a third stake of 1 made the total 2 x i53-max + 1 — the JVM's number,
+  ;; and JS rounded it).
+  (let [sorted [["p1" 10] ["p2" 20] ["p3" 30]]
+        stake {"p1" fx/i53-max "p2" fx/i53-max "p3" 1}]
+    (is (= 10 (oc/weighted-median sorted #(get stake %)))))
+  (testing "below the ceiling the walk is unchanged"
+    (let [sorted [["p1" 10] ["p2" 20] ["p3" 30]]
+          stake {"p1" 1 "p2" 1 "p3" 1}]
+      (is (= 20 (oc/weighted-median sorted #(get stake %)))))))
+
+(deftest oracle-aggregate-weighted-reads-a-saturated-total
+  ;; One fresh publisher of three, each stake i53-max: the raw total was 3 x
+  ;; i53-max and the raw comparison said STALE. The clamped total is the
+  ;; ceiling, the clamped ratio is what both runtimes read, and the same
+  ;; verdict comes out of both.
+  (let [weights {"p1" fx/i53-max "p2" fx/i53-max "p3" fx/i53-max}
+        subs {"p1" {:price 100 :ts 0}}
+        r (oc/aggregate-weighted subs weights 10 60)]
+    (is (false? (:stale? r)))
+    (is (= 100 (:price r))))
+  (testing "below the ceiling the threshold is unchanged — and still strict"
+    (let [weights {"p1" 3 "p2" 4 "p3" 3}]
+      (is (false? (:stale? (oc/aggregate-weighted {"p1" {:price 100 :ts 0}
+                                                   "p2" {:price 100 :ts 0}}
+                                                  weights 10 60))))
+      (is (true? (:stale? (oc/aggregate-weighted {"p1" {:price 100 :ts 0}}
+                                                 weights 10 60)))
+          "one of three is stale at any weight"))))
+
+(deftest supermajority-reads-saturated-stakes
+  ;; Three operators at i53-max: the raw total was 3 x i53-max and one of
+  ;; three read as a minority. Clamped, have = total = ceiling, and both
+  ;; runtimes read the same minority-or-supermajority from the same sums.
+  (let [ex {:epoch {:set [{:account 1 :stake fx/i53-max}
+                          {:account 2 :stake fx/i53-max}
+                          {:account 3 :stake fx/i53-max}]}}]
+    (is (true? (vals/supermajority? ex [1]))))
+  (testing "the 3 x weight product is not a double above 2^53 — the verdict
+            must not depend on which runtime rounded it"
+    (let [h 3002399751580331                        ; 3h = 2^53 + 1
+          t 4503599627370496                        ; 2t = 2^53
+          ex {:epoch {:set [{:account 1 :stake h}
+                            {:account 2 :stake (- t h)}]}}]
+      (is (true? (vals/supermajority? ex [1]))
+          "3h = 2^53 + 1 > 2t = 2^53 exactly — and identically on both runtimes")
+      (is (false? (vals/supermajority? ex [2]))
+          "3(t − h) = 2^53 − 3 is not over two thirds")))
+  (testing "below the ceiling the verdict is unchanged"
+    (let [ex {:epoch {:set [{:account 1 :stake 3}
+                            {:account 2 :stake 4}
+                            {:account 3 :stake 3}]}}]
+      (is (true? (vals/supermajority? ex [1 2])))
+      (is (false? (vals/supermajority? ex [1]))))))
+
+(deftest slash-path-taken-total-saturates
+  ;; Two delegators backing one validator, falsify-14b's shape: per-key
+  ;; in-domain, aggregate past the ceiling. The raw total was 2^53 + 1 — the
+  ;; JVM's number, and 2^53 on JS — and it is RECORDED in :slashed and
+  ;; debited from :insurance-fund: the same evidence, two different books.
+  (let [cl0 (-> (cl/new-state)
+                (assoc-in [:bonds 103 102] fx/i53-max)
+                (assoc-in [:accounts 103 :collateral] fx/i53-max)
+                (assoc-in [:bonds 104 102] 2)
+                (assoc-in [:accounts 104 :collateral] 2))
+        ex {:clearing cl0 :validators {"w3" {:account 102}} :height 5}
+        ex' (vals/slash ex {:account 500 :witness "w3"
+                            :evidence-height 4 :view 7})]
+    (is (= fx/i53-max (get-in ex' [:slashed ["w3" 4 7] :amount]))
+        "the taken total was 2^53 + 1")
+    (is (= fx/i53-max (get-in ex' [:clearing :insurance-fund]))
+        "the debited total clamps with the recorded one"))
+  (testing "below the ceiling the slash accounting is unchanged"
+    (let [cl0 (-> (cl/new-state)
+                  (assoc-in [:bonds 103 102] 1000)
+                  (assoc-in [:accounts 103 :collateral] 1000)
+                  (assoc-in [:bonds 104 102] 500)
+                  (assoc-in [:accounts 104 :collateral] 500))
+          ex {:clearing cl0 :validators {"w3" {:account 102}} :height 5}
+          ex' (vals/slash ex {:account 500 :witness "w3"
+                              :evidence-height 4 :view 7})]
+      (is (= 1500 (get-in ex' [:slashed ["w3" 4 7] :amount])))
+      (is (= 1500 (get-in ex' [:clearing :insurance-fund]))))))
 
 (deftest the-engine-says-no-op-not-a-store
   (testing "an out-of-i53 value that never met validate is refused, not stored —
