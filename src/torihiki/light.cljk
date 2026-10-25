@@ -18,7 +18,8 @@
   is injected (`verify-fn` of `[pubkey payload sig] -> boolean`), so the
   same code runs in a browser on WebCrypto results, in Node, or on the JVM,
   and nothing here depends on where the validators run."
-  (:require [torihiki.commit :as cm]))
+  (:require [torihiki.commit :as cm]
+            [torihiki.fixed :as fx]))
 
 (defn root-payload
   "The string a validator signs to vouch for `root` at engine `height`, as a
@@ -50,7 +51,17 @@
   attestations from outside the set are ignored rather than refused: a
   server can relay whatever it was handed, and only the set's word adds up."
   [attestations members chain-id epoch verify-fn]
-  (let [total (reduce + 0 (map :weight (vals members)))
+  ;; The weight sums are accumulators like every other: per-key in-domain,
+  ;; aggregate past the ceiling (falsify-14's class), and here the aggregate is
+  ;; a VERDICT. Both folds saturate through `fx/sadd`, so the threshold reads
+  ;; the same number on both runtimes. The thresholds themselves avoid the 3x
+  ;; product: `(* 3 w)` with an in-domain `w` over ~3e15 is not a double and
+  ;; rounds on JS while `(* 2 x)` — always even, always under 2^54 — is exact.
+  ;; `3w > 2t` reads as `w > 2(t − w)` and `3w > t` as `2w > t − w`; every
+  ;; operand is in-domain (weights are non-negative, a partial sum never
+  ;; exceeds the total), so every product here is twice an in-domain integer
+  ;; and the verdict is identical on both runtimes.
+  (let [total (reduce fx/sadd 0 (map :weight (vals members)))
         valid (->> attestations
                    (filter (fn [{:keys [witness height root sig]}]
                              (when-let [m (get members witness)]
@@ -59,9 +70,11 @@
                                                            (root-payload chain-id epoch height root) sig)
                                                 (catch #?(:clj Throwable :cljs :default) _ false)))))))
                    (group-by (juxt :height :root)))
-        weigh (fn [as] (reduce + 0 (map #(:weight (get members %)) (set (map :witness as)))))
+        weigh (fn [as] (reduce fx/sadd 0 (map #(:weight (get members %)) (set (map :witness as)))))
         conflicts (->> valid
-                       (filter (fn [[_ as]] (> (* 3 (weigh as)) total)))
+                       (filter (fn [[_ as]]
+                                 (let [w (weigh as)]
+                                   (> (* 2 w) (- total w)))))
                        (group-by (comp first key))
                        (filter (fn [[_ rs]] (> (count rs) 1)))
                        (mapcat val))]
@@ -71,7 +84,7 @@
       (some (fn [[[h r] as]]
               (let [signers (set (map :witness as))
                     weight (weigh as)]
-                (when (and (pos? total) (> (* 3 weight) (* 2 total)))
+                (when (and (pos? total) (> weight (* 2 (- total weight))))
                   {:height h :root r :signers signers :weight weight :total total})))
             (sort-by (comp - first key) valid)))))
 

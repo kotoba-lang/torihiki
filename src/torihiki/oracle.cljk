@@ -90,7 +90,13 @@
   [sorted stake-of]
   (when (seq sorted)
     (let [weights (mapv (fn [[pub _]] (max 0 (or (stake-of pub) 0))) sorted)
-          total (reduce + 0 weights)]
+          ;; Saturated like every aggregate: per-publisher stake is in-domain,
+          ;; the total is not (three stakes of i53-max cross 2^53 and the raw
+          ;; fold held one number on the JVM and another on JS). The walk below
+          ;; is then read from the same sums on both runtimes. `(* 2 acc)` is
+          ;; exact on both — twice an in-domain integer is always a double —
+          ;; so the comparison decides identically.
+          total (reduce fx/sadd 0 weights)]
       (if (zero? total)
         ;; Nobody has anything at risk. Falling back to the unweighted median
         ;; is the same answer this had before stake existed, and it is better
@@ -99,7 +105,7 @@
         ;; outage.
         (median sorted)
         (loop [i 0 acc 0]
-          (let [acc (+ acc (nth weights i))]
+          (let [acc (fx/sadd acc (nth weights i))]
             (if (or (>= (* 2 acc) total) (= i (dec (count sorted))))
               (second (nth sorted i))
               (recur (inc i) acc))))))))
@@ -149,8 +155,15 @@
   The price is the stake-weighted median of what is fresh."
   [submissions weights now max-age]
   (let [f (fresh submissions (set (keys weights)) now max-age)
-        total (reduce + 0 (vals weights))
-        have (reduce + 0 (map (fn [[pub _]] (get weights pub 0)) f))]
-    (if (and (pos? total) (> (* 3 have) (* 2 total)))
+        ;; Both sums saturate (`fx/sadd`) — falsify-14's class at a threshold:
+        ;; the raw total of three i53-max weights was 3 x i53-max, one number
+        ;; on the JVM and another on JS. And the threshold itself avoids its
+        ;; 3x product: `3h > 2t` reads as `h > 2(t − h)`, all operands
+        ;; in-domain (weights are non-negative, `have` is a subset sum of
+        ;; `total`), so every product is twice an in-domain integer — exact on
+        ;; both runtimes — and the verdict is one number.
+        total (reduce fx/sadd 0 (vals weights))
+        have (reduce fx/sadd 0 (map (fn [[pub _]] (get weights pub 0)) f))]
+    (if (and (pos? total) (> have (* 2 (- total have))))
       {:price (weighted-median f #(get weights % 0)) :n (count f) :weighted? true :stale? false}
       {:price nil :n (count f) :weighted? true :stale? true})))
