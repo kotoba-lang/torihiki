@@ -942,7 +942,21 @@
       (let [q (level-qty b side level)]
         (if (zero? q)
           (recur (next-occupied b side level) left cost filled last-level)
-          (let [take-q (min q (fx/fdiv left level))]
+          (let [take-q (if (zero? level)
+                         ;; A price of zero AFFORDS the whole level. The old
+                         ;; afford computation divided the reference notional
+                         ;; by the LEVEL — `(fx/fdiv left level)` with level 0,
+                         ;; and level 0 is a VALID resting level that
+                         ;; `torihiki.api/validate` accepts — so a legal signed
+                         ;; order at level 0 put a bare / by zero under the
+                         ;; funding-premium walk: an ArithmeticException on the
+                         ;; JVM (every validator halting at the same place,
+                         ;; falsify-6's class) while JS answered Infinity and
+                         ;; took the level. What JS did is the honest total
+                         ;; answer: for nothing, the notional buys every lot
+                         ;; on offer.
+                         q
+                         (min q (fx/fdiv left level)))]
             (if (not (pos? take-q))
               ;; cannot afford another lot even at this price, and prices only
               ;; get worse from here — the remainder is sub-lot, so this is a

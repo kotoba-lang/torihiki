@@ -1057,3 +1057,53 @@
                                               :trigger-price 100 :direction :above
                                               :order {:side 0 :level 1 :qty 1}})
                        [:triggers 1])))))
+
+;; ── division by zero ────────────────────────────────────────────────────────
+
+(deftest a-zero-divisor-saturates-the-same-way-everywhere
+  ;; `fdiv` is the single floor-division primitive of the determinism contract.
+  ;; With a zero divisor the two runtimes used to fail DIFFERENTLY: the JVM
+  ;; threw a bare ArithmeticException out of Math/floorDiv — a halted chain
+  ;; wherever it was reached — while JS divided to Infinity and kept computing
+  ;; (falsify-6's shape one primitive down: one runtime halts, the other forks).
+  ;; Saturation is the total answer, the same clamp family as `sadd`.
+  (testing "VALUE pins: the sign of the dividend picks the ceiling"
+    (is (= fx/i53-max (fx/fdiv 1 0)))
+    (is (= fx/i53-max (fx/fdiv fx/i53-max 0)))
+    (is (= fx/i53-min (fx/fdiv -1 0)))
+    (is (= 0 (fx/fdiv 0 0)) "zero over nothing is not a sign case"))
+  (testing "fmod keeps its identity a = b*q + r with b = 0: q saturates, b*q = 0"
+    (is (= 7 (fx/fmod 7 0)))
+    (is (= -7 (fx/fmod -7 0))))
+  (testing "regression guards — the non-zero path keeps exact floor semantics
+            (these pass on both engines today; they pin the rewrite above)"
+    (is (= -1 (fx/fdiv -1 2)) "floor, toward negative infinity — not quot")
+    (is (= -2 (fx/fdiv -3 2)))
+    (is (= 4503599627370495 (fx/fdiv fx/i53-max 2)))
+    (is (= 1 (fx/fdiv fx/i53-max 4503599627370496))
+        "2^53-1 over 2^52: the quotient sits a half-ulp below 2 and must floor
+         to 1, not round up to 2")
+    (is (= -2 (fx/fdiv fx/i53-min 4503599627370496)))))
+
+(deftest a-zero-priced-level-is-affordable-not-a-division
+  ;; Level 0 is a VALID ladder level — `validate-order-shape` admits it
+  ;; (`int-in? level 0 (dec n-levels)`) and a resting order at level 0 is a
+  ;; legal signed transaction. `bk/impact-price` divided the reference notional
+  ;; by the level to see how many lots it could afford: `(fx/fdiv left level)`
+  ;; with level = 0 is an ArithmeticException on the JVM INSIDE the
+  ;; funding-premium walk — a legal tx series halting every validator at the
+  ;; same place, falsify-6's class — while JS took the whole level at a
+  ;; price of nothing. A zero-priced level is affordable, not a division.
+  (let [b (bk/new-book {:n-levels 4096 :cap 1024 :ev-cap 64})]
+    (bk/place! b bk/bid 5 10 0 1)
+    (bk/place! b bk/bid 0 10 0 2)
+    (is (= -1 (bk/impact-price b bk/bid 60))
+        "VALUE: unspent notional at a zero-priced level is the all-or-nothing
+         refusal (-1), identical on both engines — not a throw on one of them"))
+  (testing "regression guard — a book with no zero level prices as before"
+    (let [b (bk/new-book {:n-levels 4096 :cap 1024 :ev-cap 64})]
+      (bk/place! b bk/bid 5 10 0 1)
+      (bk/place! b bk/bid 3 10 0 2)
+      (is (= 4 (bk/impact-price b bk/bid 60))
+          "59 spent over 13 filled at levels 5 and 3, floor 4 — pre-existing
+           behavior, unchanged by this package"))))
