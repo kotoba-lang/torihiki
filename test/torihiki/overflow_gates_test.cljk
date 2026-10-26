@@ -1198,3 +1198,117 @@
       (is (pos? pa))
       (is (= (fx/fdiv-diff pa (- pb) 2) (mk/impact-mid b 20000))
           "the midpoint is floor((pa - (-pb))/2) — the sum never forms"))))
+
+;; ── the tier-shape door (2026-10-26 20:27 measurement) ──────────────────────
+;;
+;; `:margin-tiers` / `:fee-tiers` entries were stored RAW by `:list-market` /
+;; `:amend-market` and only range-checked — completeness was never checked.
+;; A tier in the shape `cl/market` itself documents (`{:max-notional n
+;; :max-leverage l}` — the rates are derived at GENESIS but NOT at listing)
+;; passed validate, and the first read threw mid-apply, inside apply-block:
+;;   `tier-for`:        `:max-notional` missing     → `(<= notional nil)`
+;;   `rates-for`:       the two rates missing       → `mul-rate`'s `check` on
+;;                       nil, and `initial-margin-rate-for`'s `(max nil …)`
+;;   `fee-rates-for`:   `:min-volume` missing       → `(<= nil v)`
+;; One bridge-signed transaction, every validator halts at the same place —
+;; falsify-6/7's class through a door the earlier gates left open. The gate
+;; refuses the tier WHOLE (`:missing-field`) and the engine answers with a
+;; no-op. And a NEGATIVE margin rate passed `rates-ok?`'s symmetric ±100%
+;; range: a negative requirement is not a requirement, it is free leverage.
+
+(deftest tier-shape-gate-refuses-incomplete-tiers
+  (let [ex (ex-for)]
+    (testing "REASON: a tier missing a field its reader derefs is :missing-field"
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:max-notional 100
+                                                      :max-leverage 10}]}}))
+          "the shape cl/market documents — rates are derived at genesis, not at
+           listing; this PASSED validate and threw in the first sweep")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:max-notional 100
+                                                      :initial-margin-rate 25000}]}}))
+          ":maintenance-margin-rate missing — mul-rate's check on nil, mid-margin")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:initial-margin-rate 25000
+                                                      :maintenance-margin-rate 12500}]}}))
+          ":max-notional missing — tier-for's (<= notional nil)")
+      (is (= :missing-field
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:fee-tiers [{:taker-fee-rate 100}]}}))
+          ":min-volume missing — fee-rates-for's (<= nil v)")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :margin-tiers 5}}))
+          "a schedule that is not a collection — (seq 5) is itself a throw"))
+    (testing "VALUE: a complete schedule passes (invariant pins — green from birth)"
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1
+                                         :margin-tiers [{:max-notional 100
+                                                         :initial-margin-rate 25000
+                                                         :maintenance-margin-rate 12500}]
+                                         :fee-tiers [{:min-volume 0
+                                                      :taker-fee-rate 50}]}})))
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {:margin-tiers []}}))
+          "an empty schedule is 'no schedule', not a missing field")
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {:fee-tiers [{:min-volume 1000000}]}}))
+          "tier rates are optional — fee-rates-for falls back to the flat rates"))))
+
+(deftest negative-margin-rates-are-refused
+  (let [ex (ex-for)]
+    (testing "REASON: a margin rate below zero is :rate-too-high"
+      (is (= :rate-too-high
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:max-notional 100
+                                                      :initial-margin-rate -25000
+                                                      :maintenance-margin-rate 12500}]}})))
+      (is (= :rate-too-high
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:maintenance-margin-rate -1}}))))
+    (testing "a fee may still be negative — a rebate is a fee with a sign"
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {:taker-fee-rate (- fx/rate-scale)}})))
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {:fee-tiers [{:min-volume 0
+                                                      :maker-fee-rate -25000}]}}))))
+    (testing "VALUE: zero is a requirement of nothing, and passes"
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1
+                                         :margin-tiers [{:max-notional 100
+                                                         :initial-margin-rate 0
+                                                         :maintenance-margin-rate 0}]}}))))))
+
+(deftest tier-shape-gate-is-a-no-op-in-the-engine-too
+  ;; The validate-layer gate answers with its REASON; the engine's own net —
+  ;; the one a direct `apply-tx` caller meets — answers with a no-op, so a
+  ;; malformed tier can never be stored and read back as a throw mid-apply.
+  ;; Market 1 carries a real book here because `:amend-market` rebuilds the
+  ;; resting-order cache over it.
+  (let [ex (-> (ex-for)
+               (assoc :bridge-authority 1)
+               (assoc-in [:books 1] (bk/new-book {:n-levels 64 :cap 32 :ev-cap 32})))]
+    (testing "VALUE: state-identical no-op — was a store whose first read threw"
+      (is (= ex (st/apply-tx ex {:tx :list-market :account 1 :market 2
+                                 :spec {:tick 1 :lot 1
+                                        :margin-tiers [{:max-notional 100
+                                                        :max-leverage 10}]}})))
+      (is (= ex (st/apply-tx ex {:tx :amend-market :account 1 :market 1
+                                 :spec {:fee-tiers [{:taker-fee-rate 100}]}}))))
+    (testing "a complete schedule stores, and reads through the function that threw"
+      (let [ex' (st/apply-tx ex {:tx :list-market :account 1 :market 2
+                                 :spec {:tick 1 :lot 1
+                                        :margin-tiers [{:max-notional 100
+                                                        :initial-margin-rate 25000
+                                                        :maintenance-margin-rate 12500}]}})]
+        (is (= [25000 12500] (cl/rates-for (get-in ex' [:markets 2]) 50)))
+        (is (= [25000 12500] (cl/rates-for (get-in ex' [:markets 2]) 500000))
+            "past the last tier the last tier applies — a position does not
+             escape the schedule by being bigger than anyone anticipated")))))

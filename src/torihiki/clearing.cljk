@@ -96,6 +96,68 @@
     [(:initial-margin-rate t) (:maintenance-margin-rate t)]
     [(:initial-margin-rate market 0) (:maintenance-margin-rate market 0)]))
 
+;; ── tier shape: what a schedule must carry to be readable ───────────────────
+;;
+;; `tier-for` derefs `:max-notional`, `rates-for` derefs the two rates out of
+;; the tier it picked, and `fee-rates-for` derefs `:min-volume`. A tier missing
+;; any of those is not a tier with a hole in it — it is a throw on the first
+;; sweep through the market, inside apply-block, from a transaction that was
+;; signed once and validated nowhere (the falsify-6/7 class). So the shape is
+;; judged BEFORE the schedule is stored: `torihiki.api/validate` refuses the
+;; transaction with `:missing-field`, and `apply-tx` answers a direct caller
+;; with a no-op. The readers stay total by contract, not by luck.
+
+(defn- rate-ok?
+  "A rate field inside a tier, judged by the same rules `torihiki.api` judges
+  rates by: a fee may be negative (a rebate), a margin requirement may not —
+  a negative requirement is not a requirement, it is free leverage."
+  [v margin?]
+  (and (integer? v)
+       (if margin?
+         (<= 0 v fx/rate-scale)
+         (<= (- fx/rate-scale) v fx/rate-scale))))
+
+(defn margin-tiers-ok?
+  "Whether `tiers` is a complete margin schedule — every entry a map carrying
+  `:max-notional` (0..i53-max, what `tier-for` compares against) and both
+  margin rates (0..rate-scale, what `rates-for` hands to `mul-rate`), all
+  slab-storable integers. nil is the flat schedule (no tiers), and so is an
+  empty vector.
+
+  Ranges as well as presence: a non-integer `:max-notional` compares fine and
+  stores badly, and a rate outside 0..100% is refused for the same reason
+  `torihiki.api` refuses one — `mul-rate` against it leaves the domain and
+  throws mid-fill."
+  [tiers]
+  (or (nil? tiers)
+      (and (sequential? tiers)
+           (every? (fn [t]
+                     (and (map? t)
+                          (integer? (:max-notional t))
+                          (<= 0 (:max-notional t) fx/i53-max)
+                          (rate-ok? (:initial-margin-rate t) true)
+                          (rate-ok? (:maintenance-margin-rate t) true)))
+                   tiers))))
+
+(defn fee-tiers-ok?
+  "Whether `tiers` is a readable fee schedule — every entry a map carrying
+  `:min-volume` (0..i53-max, what `fee-rates-for` compares the rolling volume
+  against). Tier rates are OPTIONAL (`fee-rates-for` falls back to the flat
+  rates) but when present they are judged by `rate-ok?`. nil and the empty
+  vector are the flat schedule."
+  [tiers]
+  (or (nil? tiers)
+      (and (sequential? tiers)
+           (every? (fn [t]
+                     (and (map? t)
+                          (integer? (:min-volume t))
+                          (<= 0 (:min-volume t) fx/i53-max)
+                          (let [tk (:taker-fee-rate t)
+                                mk (:maker-fee-rate t)]
+                            (and (or (nil? tk) (rate-ok? tk false))
+                                 (or (nil? mk) (rate-ok? mk false))))))
+                   tiers))))
+
 ;; ── positions ───────────────────────────────────────────────────────────────
 
 (def flat {:size 0 :entry-notional 0 :isolated nil})

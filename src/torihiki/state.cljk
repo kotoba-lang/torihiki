@@ -1222,7 +1222,13 @@
   ;; arriving through a door labelled amend.
   (let [bridge (:bridge-authority ex)
         cur (get-in ex [:markets market])]
-    (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec)))
+    (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec))
+            ;; The safety net behind `torihiki.api/validate`'s `:missing-field`
+            ;; — the same door `:list-market` keeps. An amend merges WHOLE, so
+            ;; a malformed schedule here would replace a good one and throw on
+            ;; the next sweep through the market.
+            (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
+                      (cl/fee-tiers-ok? (:fee-tiers spec)))))
       ex
       (if (and (>= (gov/active-version ex) spot-version)
                (or (and (contains? spec :kind) (not= (:kind spec) (:kind cur)))
@@ -1287,7 +1293,13 @@
             ;; `new-book` enforces its shape constraints by THROWING, and a
             ;; throw in here is a halted chain, so the transaction is refused
             ;; whole before the allocator sees it.
-            (not (bk/book-opts-ok? book-opts)))
+            (not (bk/book-opts-ok? book-opts))
+            ;; Same door for the schedules: a tier missing a field its reader
+            ;; derefs is a throw on the first sweep through the market — a
+            ;; halted chain from one stored map. Refused whole, before the
+            ;; spec is stored (see `cl/margin-tiers-ok?`).
+            (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
+                      (cl/fee-tiers-ok? (:fee-tiers spec)))))
       ex
       (-> ex
           (assoc-in [:markets market] (assoc spec :id market))
