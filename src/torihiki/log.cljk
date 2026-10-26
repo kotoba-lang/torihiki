@@ -43,40 +43,128 @@
 ;; ── wire encoding ───────────────────────────────────────────────────────────
 ;;
 ;; The commit body is dag-cbor, so it holds strings, integers, vectors and
-;; maps — not keywords. Rather than a generic keyword-walking codec, each
-;; transaction field is named explicitly. That is more typing and it is worth
-;; it: a generic codec silently round-trips fields nobody meant to put on the
-;; wire, and a block format that accepts anything is one that can never be
-;; validated.
+;; maps — not keywords. The codec's job is FIDELITY, not validation: a
+;; transaction the engine refuses is part of the block's outcome (`:rejected`
+;; lands in the state root), so the log must record it exactly as submitted,
+;; and `commit-block!` wraps `apply-block`, whose liveness contract is that a
+;; block is applied or rejected and never thrown from.
+;;
+;; The codec before this one did the opposite in two directions, both measured.
+;; It whitelisted eight transaction kinds and ten integer fields: every other
+;; kind — `:amend`, `:trigger`, `:cancel-all`, forty more that `apply-tx`
+;; dispatches on — threw `unknown transaction kind` out of `commit-block!`
+;; (one legal tx stopped the sequencer), and every field it did not know was
+;; SILENTLY DROPPED (a `:trigger` lost its `:order`; replay then recomputed a
+;; different block than the one that was applied). A whitelist that goes stale
+;; is worse than no whitelist, because its failure modes are a halt and a
+;; quiet fork.
+;;
+;; What stays explicit is the KIND: it is named on the wire under "tx". What
+;; becomes total is the VALUE space. Integers and strings encode bare — the
+;; exact shape every block already committed has, so old logs keep decoding.
+;; Keywords, booleans, nils, nested maps and vectors encode tagged
+;; (`["k" "below"]`), because a bare string and a keyword must not decode to
+;; the same thing. Round trip is the law: `(= tx (wire->tx (tx->wire tx)))`
+;; for every transaction, including the ones the engine will reject.
 
-(def ^:private tx-kinds
-  #{:deposit :withdraw :order :cancel :oracle :funding-sample :funding-settle
-    :liquidate})
+(def ^:private pairs-key
+  "Wire key carrying the entries that cannot live in the flat part of the
+  wire map: keys that are not plain keywords, or whose plain names would
+  collide. Each is a `[key value]` pair in encoded form."
+  "_pairs")
 
-(def ^:private tx-fields
-  [:account :market :side :level :qty :flags :oid :amount :price])
+(defn- enc-val
+  "The wire form of one value: bare where the wire format was always bare
+  (integers, strings), tagged `[tag payload]` where the type must survive the
+  round trip. Total over the EDN subset a transaction can carry; anything
+  else has no wire form and is refused loudly rather than mangled.
+
+  Map entries are sorted by the printed encoding of their key so two runtimes
+  that fold the same map produce the same bytes — an unsorted pair list would
+  make the CID depend on hash iteration order."
+  [v]
+  (cond
+    (integer? v) v
+    (string? v) v
+    ;; The colon is `str`'s, not the keyword's: `:a/y` stringifies to
+    ;; ":a/y" and `(keyword ":a/y")` names a DIFFERENT keyword (one whose
+    ;; name is ":a/y"), so the printed colon is stripped here and
+    ;; `keyword` re-parses the slash on the way back — `:a/y` out of
+    ;; "a/y", exactly.
+    (keyword? v) ["k" (subs (str v) 1)]
+    (boolean? v) ["b" v]
+    (nil? v) ["n"]
+    (map? v) ["m" (mapv (fn [[k vv]] [(enc-val k) (enc-val vv)])
+                        (sort-by (fn [[k]] (pr-str (enc-val k))) v))]
+    (vector? v) ["v" (mapv enc-val v)]
+    (set? v) ["set" (mapv enc-val (sort-by pr-str v))]
+    :else (throw (ex-info "torihiki.log: value has no wire form" {:value v}))))
+
+(defn- dec-val
+  "Exact inverse of `enc-val`."
+  [w]
+  (cond
+    (vector? w) (case (first w)
+                  "k" (keyword (second w))
+                  "b" (second w)
+                  "n" nil
+                  "m" (into {} (map (fn [[k v]] [(dec-val k) (dec-val v)])
+                                    (second w)))
+                  "v" (mapv dec-val (second w))
+                  "set" (into #{} (map dec-val) (second w))
+                  ;; a bare vector (never produced here) decodes structurally
+                  (mapv dec-val w))
+    :else w))
 
 (defn tx->wire
+  "Encode a transaction exactly — every key, every value, whatever the engine
+  will later make of it.
+
+  The kind rides under \"tx\": a plain keyword as its name string (the shape
+  every committed block has), anything else tagged. Other entries ride under
+  their name string when that name is unambiguous, and under `pairs-key` when
+  it is not — so a transaction carrying a namespaced key or a key the codec
+  has never seen still round-trips byte-exactly through `wire->tx`."
   [tx]
-  (let [kind (:tx tx)]
-    (when-not (contains? tx-kinds kind)
-      (throw (ex-info "torihiki.log: unknown transaction kind" {:tx kind})))
-    (reduce (fn [m k]
-              (if-some [v (get tx k)]
-                (do (when-not (integer? v)
-                      (throw (ex-info "torihiki.log: non-integer transaction field"
-                                      {:field k :value v})))
-                    (assoc m (name k) v))
-                m))
-            {"tx" (name kind)}
-            tx-fields)))
+  (let [kind (:tx tx)
+        entries (seq (dissoc tx :tx))
+        plain-name (fn [k] (when (and (keyword? k) (nil? (namespace k)))
+                             (name k)))
+        freq (frequencies (map (comp plain-name key) entries))
+        flat? (fn [k] (let [n (plain-name k)]
+                        (and n (not= n pairs-key) (= 1 (get freq n)))))
+        flat (into {} (for [[k v] entries :when (flat? k)]
+                        [(name k) (enc-val v)]))
+        rest-pairs (for [[k v] entries :when (not (flat? k))] [k v])]
+    (cond-> (assoc flat "tx"
+                   (cond
+                     (and (keyword? kind) (nil? (namespace kind))) (name kind)
+                     (keyword? kind) (enc-val kind)
+                     (string? kind) ["s" kind]
+                     :else (enc-val kind)))
+      (seq rest-pairs)
+      (assoc pairs-key (mapv (fn [[k v]] [(enc-val k) (enc-val v)])
+                             (sort-by (fn [[k]] (pr-str (enc-val k)))
+                                      rest-pairs))))))
 
 (defn wire->tx
+  "Exact inverse of `tx->wire`."
   [w]
-  (reduce (fn [m k]
-            (if-some [v (get w (name k))] (assoc m k v) m))
-          {:tx (keyword (get w "tx"))}
-          tx-fields))
+  (let [kind-w (get w "tx")
+        kind (cond
+               ;; bare string is the old wire shape — it always meant a
+               ;; keyword kind and still does
+               (string? kind-w) (keyword kind-w)
+               ;; `["s" ...]` is a STRING kind, tagged apart from the bare
+               ;; form above so the two do not decode to the same thing
+               (and (vector? kind-w) (= "s" (first kind-w))) (second kind-w)
+               (vector? kind-w) (dec-val kind-w)
+               :else kind-w)]
+    (-> (into {:tx kind}
+              (for [[k v] w :when (not (or (= k "tx") (= k pairs-key)))]
+                [(keyword k) (dec-val v)]))
+        (into (map (fn [[k v]] [(dec-val k) (dec-val v)]))
+              (get w pairs-key)))))
 
 (defn block->wire
   [{:keys [height ts txs]} state-root sig]

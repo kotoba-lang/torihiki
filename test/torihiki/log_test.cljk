@@ -35,13 +35,71 @@
   (doseq [tx (mapcat :txs (blocks))]
     (is (= tx (log/wire->tx (log/tx->wire tx))) (str "round trip " (:tx tx)))))
 
+(deftest wire-covers-the-engine-vocabulary
+  ;; The codec grew stale once already: it whitelisted eight kinds and ten
+  ;; integer fields while `apply-tx` dispatched forty-plus kinds carrying
+  ;; keywords, strings and nested maps. A `:trigger` never reached the wire
+  ;; and its `:order` did not survive even when it did. These shapes are the
+  ;; vocabulary the engine accepts today; every one must round-trip EXACTLY.
+  (doseq [[label tx] [["trigger: nested :order, keyword :direction"
+                       {:tx :trigger :account 1 :market 1 :trigger-price 900
+                        :direction :below :order {:side 1 :level 0 :qty 5}}]
+                      ["amend"
+                       {:tx :amend :account 1 :market 1 :oid 3 :level 2 :qty 4}]
+                      ["cancel-all"
+                       {:tx :cancel-all :account 1 :market 1}]
+                      ["list-market: nested :spec with keyword values"
+                       {:tx :list-market :account 1 :market 7
+                        :spec {:kind :perp :tick 10 :lot 2 :max-leverage 20}
+                        :book-opts {:n-levels 1024 :cap 4096 :ev-cap 4096}}]
+                      ["authorize-agent: string field"
+                       {:tx :authorize-agent :account 1
+                        :agent "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                        :expires 100}]
+                      ["anchor: string :cid"
+                       {:tx :anchor :account 1 :cid "bafyfake"}]
+                      ["fields the codec does not know survive untouched"
+                       {:tx :deposit :account 1 :amount 5 :junk "x" :a/y 6}]]]
+    (is (= tx (log/wire->tx (log/tx->wire tx))) (str "round trip " label))))
+
+(deftest wire-round-trips-what-the-engine-rejects
+  ;; FIDELITY, not validation: a refused transaction is part of the block's
+  ;; outcome (`:rejected` lands in the state root), so the log must record it
+  ;; exactly as submitted — and `commit-block!` wraps `apply-block`, whose
+  ;; liveness contract ("never thrown from") the codec used to break one layer
+  ;; up: one malformed tx and the sequencer could not commit the block at all.
+  (doseq [tx [{:tx :not-a-real-kind :account 1}
+              {:tx :deposit :account 1 :amount "lots"}
+              ;; Both of these are :unknown-tx to the engine — and both must
+              ;; still round-trip exactly. A bare string kind is what every
+              ;; old committed block meant (a keyword kind), so a STRING
+              ;; kind tags apart from it, and a namespaced keyword kind is
+              ;; not `str`'s colon-prefixed form.
+              {:tx "deposit" :account 1}
+              {:tx :some.ns/kind :account 1}]]
+    (is (= tx (log/wire->tx (log/tx->wire tx))) (str "round trip " (:tx tx)))))
+
 (deftest wire-rejects-what-it-cannot-validate
+  ;; What must not reach the wire is a value with NO wire form — anything the
+  ;; codec cannot reproduce exactly. Everything EDN-shaped round-trips and is
+  ;; refused (or applied) by `torihiki.api`, where refusals have reasons.
   (is (thrown? #?(:clj Exception :cljs :default)
-               (log/tx->wire {:tx :not-a-real-kind :account 1}))
-      "an unknown transaction kind must not reach the wire")
-  (is (thrown? #?(:clj Exception :cljs :default)
-               (log/tx->wire {:tx :deposit :account 1 :amount "lots"}))
-      "a non-integer field must not reach the wire"))
+               (log/tx->wire {:tx :deposit :account 1 :amount (fn [x] x)}))
+      "a value with no wire form must not reach the wire"))
+
+(deftest a-malformed-tx-is-rejected-into-the-root-not-thrown
+  (let [{:keys [put! get-fn]} (store)
+        r (log/commit-blocks! (fresh) put! get-fn nil
+                              [{:height 1 :ts 100
+                                :txs [{:tx :deposit :account 1 :amount "lots"}
+                                      {:tx :not-a-real-kind :account 1}]}])]
+    (is (= 1 (count (:roots r))) "the block commits — no throw at the codec")
+    (is (= [{:index 0 :tx :deposit :reason :bad-amount}
+            {:index 1 :tx :not-a-real-kind :reason :unknown-tx}]
+           (:rejected (:exchange r)))
+        "rejections are part of the outcome")
+    (is (:ok (log/replay get-fn (:cid r) fresh))
+        "replay agrees on the rejections")))
 
 ;; ── producing and checking ──────────────────────────────────────────────────
 
