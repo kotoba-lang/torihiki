@@ -147,6 +147,43 @@
   [a b]
   (- a (* b (fdiv a b))))
 
+(defn fdiv-diff
+  "floor((a - b) / c) — the quotient of a DIFFERENCE, computed without ever
+  forming the difference.
+
+  `a - b` is routinely past 2^53 while the quotient sits comfortably in the
+  domain (bankruptcy price: entry-notional 2^53-1 against collateral -4,
+  divided by size 2 — two in-domain numbers whose difference is not). There
+  the two runtimes disagree at the SUBTRACTION, before the division ever
+  runs: the true difference 2^53+3 is an odd number no f64 holds, so JS
+  rounds it to 2^53+4 and the quotient lands one high — measured on kbb
+  2026-10-26: 4503599627370498 against JVM floorDiv's 4503599627370497. Same
+  signed transaction, two chains, no throw anywhere.
+
+  So the division is folded into the subtraction:
+
+    a = qa*c + ra        b = qb*c + rb        (floor division throughout)
+
+    (a-b)/c = (qa - qb) + (ra - rb)/c
+
+  Every piece is exact on both runtimes: qa and qb are quotients of in-domain
+  values (`fdiv` is exact in-domain — the pinned invariant), ra and rb are
+  floorMod residues (`rem` is IEEE-exact) smaller than |c|, and (ra-rb)/c is
+  in (-1, 1), so its floor is -1 or 0. The pieces combine through `sadd`, so
+  a quotient past the ceiling clamps exactly like `pmul` instead of forking —
+  and below the ceiling every result is byte-identical to the old raw form.
+
+  Preconditions, as `fdiv`: `c` is non-zero and `a`/`b` are in-domain."
+  [a b c]
+  (let [qa (fdiv a c)
+        qb (fdiv b c)
+        ;; floorMod residues, sign of c: a = qa*c + ra exactly. `mod`, not
+        ;; `a - qa*c` — the product qa*c can itself leave the exact range on
+        ;; JS (a rounded product gives a wrong residue).
+        ra (mod a c)
+        rb (mod b c)]
+    (sadd qa (sadd (- qb) (fdiv (- ra rb) c)))))
+
 (def ^:private ^:const split
   "10^5. The limb base for the exact product below: rate-scale (10^9) is
   split^2 x 10, so every intermediate in the decomposition stays below 2^53."
