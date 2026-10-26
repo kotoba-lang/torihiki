@@ -86,25 +86,41 @@
     (or (vector? v) (set? v)) (every? spec-ok? v)
     :else true))
 
-(def ^:private rate-keys
-  "Spec keys whose values are rates against `torihiki.fixed/rate-scale`."
-  #{:taker-fee-rate :maker-fee-rate :initial-margin-rate :maintenance-margin-rate})
+(def ^:private fee-rate-keys
+  "Spec keys whose values are FEES, as rates against `torihiki.fixed/rate-scale`.
+  A fee may be negative — a rebate is a fee with a sign — so the range is
+  symmetric: at most 100%, at most -100% back."
+  #{:taker-fee-rate :maker-fee-rate})
+
+(def ^:private margin-rate-keys
+  "Spec keys whose values are margin REQUIREMENTS, and the asymmetry with fees
+  above is the whole point. A negative requirement is not a requirement: it is
+  free leverage — every position it covers is under-collateralised by
+  construction, and the hole is paid by the insurance fund or by ADL.
+  Solvency-breaking though perfectly deterministic, which is the worst kind:
+  nothing throws, every number is locally correct, and the exchange is quietly
+  insolvent."
+  #{:initial-margin-rate :maintenance-margin-rate})
 
 (defn- rates-ok?
   "Every rate a market spec carries is a fraction of `torihiki.fixed/rate-scale`
-  — at most 100%, and at most -100% as a rebate. The engine multiplies rates
-  against in-domain amounts (`torihiki.fixed/mul-rate`), and a rate above the
-  scale takes `amount x rate / rate-scale` out of the domain, where mul-rate
-  throws mid-fill: one listed market, one fill, every validator halts at the
-  same place (the falsify-6/7 class). A rate is a fraction; past 100% it is
-  not one. Walks the whole spec, so `:fee-tiers` are judged wherever they
-  nest."
+  — a fee at most ±100% (a rebate is legitimate), a margin requirement at most
+  100% and never below zero (`margin-rate-keys` — see `fee-rate-keys` for why
+  the ranges differ). The engine multiplies rates against in-domain amounts
+  (`torihiki.fixed/mul-rate`), and a rate above the scale takes
+  `amount x rate / rate-scale` out of the domain, where mul-rate throws
+  mid-fill: one listed market, one fill, every validator halts at the same
+  place (the falsify-6/7 class). A fee is a fraction; past 100% it is not one.
+  Walks the whole spec, so `:fee-tiers` are judged wherever they nest."
   [v]
   (cond
     (map? v) (every? (fn [[k val]]
-                       (if (contains? rate-keys k)
+                       (cond
+                         (contains? fee-rate-keys k)
                          (and (integer? val) (<= (- fx/rate-scale) val fx/rate-scale))
-                         (rates-ok? val)))
+                         (contains? margin-rate-keys k)
+                         (and (integer? val) (<= 0 val fx/rate-scale))
+                         :else (rates-ok? val)))
                      v)
     (or (vector? v) (set? v)) (every? rates-ok? v)
     :else true))
@@ -577,6 +593,10 @@
       (not (spec-ok? (:spec t))) :missing-field
       ;; and every rate must be a fraction of rate-scale (see `rates-ok?`)
       (not (rates-ok? (:spec t))) :rate-too-high
+      ;; a schedule that replaces the old one must be complete like a new one
+      ;; (see `cl/margin-tiers-ok?`; `:list-market` judges the same shape)
+      (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
+                (cl/fee-tiers-ok? (:fee-tiers (:spec t))))) :missing-field
       :else nil)
 
     :list-market
@@ -592,6 +612,16 @@
       ;; every rate must be a fraction of rate-scale (see `rates-ok?`) — a
       ;; spec is not refused for what it SAYS only because it stores cleanly
       (not (rates-ok? (:spec t))) :rate-too-high
+      ;; A tier is read WHOLE — `tier-for` derefs `:max-notional`, `rates-for`
+      ;; the two rates, `fee-rates-for` `:min-volume` — so completeness is
+      ;; judged here, at the door, rather than discovered as a throw on the
+      ;; first sweep through the market (the falsify-6/7 class). The shape
+      ;; `cl/market` documents (`{:max-notional n :max-leverage l}`, rates
+      ;; derived) is a GENESIS shape: at listing the rates are stated, not
+      ;; derived — a derivation here would silently pick a floor division the
+      ;; operator never saw. (see `cl/margin-tiers-ok?`)
+      (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
+                (cl/fee-tiers-ok? (:fee-tiers (:spec t))))) :missing-field
       (not (int-in? (:tick (:spec t)) 1 fx/i53-max)) :missing-field
       (not (int-in? (:lot (:spec t)) 1 fx/i53-max)) :missing-field
       ;; `new-book` enforces its option constraints by THROWING, so the shape
