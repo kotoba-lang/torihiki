@@ -124,10 +124,23 @@
   "Floor division. Rounds toward negative infinity on both platforms —
   unlike `quot`, which truncates toward zero and therefore rounds a
   loss-making position's PnL in the trader's favour and a winning one's
-  against them."
+  against them.
+
+  A zero divisor SATURATES instead of failing. The JVM's `Math/floorDiv`
+  threw a bare `ArithmeticException` where JS divided to `Infinity` and kept
+  computing — so the same call either halted the chain at the call site or
+  forked it, measured at `bk/impact-price`'s level-0 afford computation
+  (falsify-6's shape one primitive down). The clamp is `sadd`'s, by the sign
+  of the dividend; `0/0` is not a sign case and stays 0. Callers that can see
+  a zero divisor decide their own semantics on top of this — the primitive
+  only guarantees both runtimes answer the same thing."
   [a b]
-  #?(:clj  (Math/floorDiv (long a) (long b))
-     :cljs (Math/floor (/ a b))))
+  (if (zero? b)
+    (cond (zero? a) 0
+          (neg? a) i53-min
+          :else i53-max)
+    #?(:clj  (Math/floorDiv (long a) (long b))
+       :cljs (Math/floor (/ a b)))))
 
 (defn fmod
   "Remainder consistent with `fdiv`: always has the sign of the divisor."
