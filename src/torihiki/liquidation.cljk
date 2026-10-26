@@ -54,7 +54,7 @@
   [{:keys [size entry-notional]} collateral]
   (if (zero? size)
     0
-    (fx/fdiv (- entry-notional collateral) size)))
+    (fx/fdiv-diff entry-notional collateral size)))
 
 (defn slice-size
   "How much of a position to close in this liquidation step. Small positions

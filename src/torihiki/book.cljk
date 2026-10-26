@@ -898,15 +898,16 @@
         total
         (recur
          (inc side)
-         (+ total
-            (loop [l (best b side) acc 0]
-              (if (neg? l)
-                acc
-                (let [nxt (next-occupied b side l)
-                      ids (into [] (comp (filter #(= owner (long (:owner %))))
-                                         (map :oid))
-                                (level-orders b side l))]
-                  (recur nxt (reduce (fn [s oid] (+ s (cancel! b oid owner))) acc ids)))))))))))
+         (fx/sadd
+          total
+          (loop [l (best b side) acc 0]
+            (if (neg? l)
+              acc
+              (let [nxt (next-occupied b side l)
+                    ids (into [] (comp (filter #(= owner (long (:owner %))))
+                                       (map :oid))
+                              (level-orders b side l))]
+                (recur nxt (reduce (fn [s oid] (fx/sadd s (cancel! b oid owner))) acc ids)))))))))))
 
 (defn impact-price
   "The average price a market order of `notional` would pay on `side`, in

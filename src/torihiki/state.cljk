@@ -1537,7 +1537,7 @@
                          ;; neither the vault nor the insurance fund ever saw.
                          ;; A short's slice buys, and the floor is already safe.
                          bankruptcy (if (pos? size)
-                                      (- (fx/fdiv (- collateral entry-notional) size))
+                                      (- (fx/fdiv-diff collateral entry-notional size))
                                       (liq/bankruptcy-price {:size size :entry-notional entry-notional}
                                                             collateral))]
                    (let [side (if (pos? delta) bk/bid bk/ask)

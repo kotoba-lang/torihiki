@@ -55,7 +55,7 @@
   (let [b (bk/impact-price book bk/bid impact-notional)
         a (bk/impact-price book bk/ask impact-notional)]
     (when (and (pos? b) (pos? a))
-      (fx/fdiv (+ a b) 2))))
+      (fx/fdiv-diff a (- b) 2))))
 
 (defn mark-price
   "The mark for one market. Falls back to the oracle whenever the book cannot
