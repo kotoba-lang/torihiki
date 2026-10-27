@@ -1226,9 +1226,11 @@
             ;; The safety net behind `torihiki.api/validate`'s `:missing-field`
             ;; — the same door `:list-market` keeps. An amend merges WHOLE, so
             ;; a malformed schedule here would replace a good one and throw on
-            ;; the next sweep through the market.
+            ;; the next sweep through the market; an unshaped flat field is
+            ;; folded raw into the state root by `encode-market-spec`.
             (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
-                      (cl/fee-tiers-ok? (:fee-tiers spec)))))
+                      (cl/fee-tiers-ok? (:fee-tiers spec))
+                      (cl/flat-spec-ok? spec))))
       ex
       (if (and (>= (gov/active-version ex) spot-version)
                (or (and (contains? spec :kind) (not= (:kind spec) (:kind cur)))
@@ -1295,11 +1297,14 @@
             ;; whole before the allocator sees it.
             (not (bk/book-opts-ok? book-opts))
             ;; Same door for the schedules: a tier missing a field its reader
-            ;; derefs is a throw on the first sweep through the market — a
+            ;; derefs is a throw on the next sweep through the market — a
             ;; halted chain from one stored map. Refused whole, before the
-            ;; spec is stored (see `cl/margin-tiers-ok?`).
+            ;; spec is stored (see `cl/margin-tiers-ok?`). And the flat fields
+            ;; beside the schedules are shaped the same way — the encoder
+            ;; folds them raw into the root (see `cl/flat-spec-ok?`).
             (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
-                      (cl/fee-tiers-ok? (:fee-tiers spec)))))
+                      (cl/fee-tiers-ok? (:fee-tiers spec))
+                      (cl/flat-spec-ok? spec))))
       ex
       (-> ex
           (assoc-in [:markets market] (assoc spec :id market))

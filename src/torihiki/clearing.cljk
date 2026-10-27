@@ -127,7 +127,13 @@
   Ranges as well as presence: a non-integer `:max-notional` compares fine and
   stores badly, and a rate outside 0..100% is refused for the same reason
   `torihiki.api` refuses one — `mul-rate` against it leaves the domain and
-  throws mid-fill."
+  throws mid-fill.
+
+  A tier's `:max-leverage` is OPTIONAL (the rates are the contract) but when
+  present it is a COUNT: 1..i53-max. `encode-market-spec` folds it RAW into
+  the state root like `:max-notional`, so a fraction or a string there is
+  bytes no two runtimes agree on or a throw in `enc-int`'s `(neg? v)` — the
+  same door `:max-notional` keeps, one field to the right."
   [tiers]
   (or (nil? tiers)
       (and (sequential? tiers)
@@ -135,6 +141,9 @@
                      (and (map? t)
                           (integer? (:max-notional t))
                           (<= 0 (:max-notional t) fx/i53-max)
+                          (or (nil? (:max-leverage t))
+                              (and (integer? (:max-leverage t))
+                                   (<= 1 (:max-leverage t) fx/i53-max)))
                           (rate-ok? (:initial-margin-rate t) true)
                           (rate-ok? (:maintenance-margin-rate t) true)))
                    tiers))))
@@ -157,6 +166,49 @@
                             (and (or (nil? tk) (rate-ok? tk false))
                                  (or (nil? mk) (rate-ok? mk false))))))
                    tiers))))
+
+(defn flat-spec-ok?
+  "Whether the spec's FLAT fields are shaped like the two places that read
+  them. All optional (the readers default); when present:
+
+    `:tick` `:lot` `:max-leverage`  a count — integer 1..i53-max
+    `:open-interest-cap`            integer 0..i53-max (0 allows no interest)
+    `:asset`                        integer 0..i53-max (a balance key)
+
+  Two readers cannot judge these and both are hurt by junk:
+
+  1. `torihiki.state/encode-market-spec` folds every one of them RAW into the
+     STATE ROOT through `enc-int`, whose whole contract is \"one i53 as 8
+     bytes\". A fraction folds to bytes no other runtime reproduces and a
+     string dies in `(neg? v)` — the falsify-14 class, in the authenticated
+     encoding itself. `:asset` is worse: it becomes a KEY in `:balances` /
+     `:committed`, and `encode-clearing-account` folds the keys.
+  2. Two readers COMPARE them: `set-leverage`'s `(> lev (:max-leverage
+     market 1))` — a string there is a ClassCastException on the JVM and a
+     silent coercion on JS, one bridge-signed `:list-market` and then the
+     first `:set-leverage` (the falsify-6/7 class) — and
+     `torihiki.api/validate`'s open-interest-cap `>`, which runs INSIDE
+     apply-block.
+
+  Shapes as well as ranges, and the shape check is the cross-runtime one:
+  `torihiki.api/spec-ok?` caps integers and waves non-integers through (\"they
+  are judged where they are used\"), and `(integer? 4.5e17)` is TRUE on JS —
+  an integral double — and FALSE on the JVM — a Double — so the two runtimes
+  answered the same transaction differently at the DOOR: one refused it, one
+  stored it and forked later. A count is an integer everywhere; anything else
+  is refused here, on both runtimes, by the same rule.
+
+  `:tick` and `:lot` are judged here too although `:amend-market` drops them
+  (they are immutable): junk in a transaction is refused at the door, not
+  silently discarded — the same answer `spec-ok?` already gives an
+  out-of-domain tick on an amend."
+  [spec]
+  (let [count-ok? (fn [v lo] (and (integer? v) (<= lo v) (<= v fx/i53-max)))]
+    (and (or (nil? (:tick spec)) (count-ok? (:tick spec) 1))
+         (or (nil? (:lot spec)) (count-ok? (:lot spec) 1))
+         (or (nil? (:max-leverage spec)) (count-ok? (:max-leverage spec) 1))
+         (or (nil? (:open-interest-cap spec)) (count-ok? (:open-interest-cap spec) 0))
+         (or (nil? (:asset spec)) (count-ok? (:asset spec) 0)))))
 
 ;; ── positions ───────────────────────────────────────────────────────────────
 

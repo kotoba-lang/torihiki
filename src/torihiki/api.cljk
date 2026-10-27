@@ -594,9 +594,12 @@
       ;; and every rate must be a fraction of rate-scale (see `rates-ok?`)
       (not (rates-ok? (:spec t))) :rate-too-high
       ;; a schedule that replaces the old one must be complete like a new one
-      ;; (see `cl/margin-tiers-ok?`; `:list-market` judges the same shape)
+      ;; (see `cl/margin-tiers-ok?`; `:list-market` judges the same shape), and
+      ;; the flat fields beside it must be shaped like the encoder and the
+      ;; comparators read them (see `cl/flat-spec-ok?`)
       (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
-                (cl/fee-tiers-ok? (:fee-tiers (:spec t))))) :missing-field
+                (cl/fee-tiers-ok? (:fee-tiers (:spec t)))
+                (cl/flat-spec-ok? (:spec t)))) :missing-field
       :else nil)
 
     :list-market
@@ -619,9 +622,12 @@
       ;; `cl/market` documents (`{:max-notional n :max-leverage l}`, rates
       ;; derived) is a GENESIS shape: at listing the rates are stated, not
       ;; derived — a derivation here would silently pick a floor division the
-      ;; operator never saw. (see `cl/margin-tiers-ok?`)
+      ;; operator never saw. (see `cl/margin-tiers-ok?`) The flat fields are
+      ;; shaped the same way: `encode-market-spec` folds them raw into the
+      ;; state root and two readers compare them. (see `cl/flat-spec-ok?`)
       (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
-                (cl/fee-tiers-ok? (:fee-tiers (:spec t))))) :missing-field
+                (cl/fee-tiers-ok? (:fee-tiers (:spec t)))
+                (cl/flat-spec-ok? (:spec t)))) :missing-field
       (not (int-in? (:tick (:spec t)) 1 fx/i53-max)) :missing-field
       (not (int-in? (:lot (:spec t)) 1 fx/i53-max)) :missing-field
       ;; `new-book` enforces its option constraints by THROWING, so the shape

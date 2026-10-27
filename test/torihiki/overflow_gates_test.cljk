@@ -1312,3 +1312,118 @@
         (is (= [25000 12500] (cl/rates-for (get-in ex' [:markets 2]) 500000))
             "past the last tier the last tier applies — a position does not
              escape the schedule by being bigger than anyone anticipated")))))
+
+;; ── the flat spec-shape door (2026-10-27 08:2x audit) ───────────────────────
+;;
+;; The tier gate judged the SCHEDULES; the FLAT spec beside them was judged
+;; only by `spec-ok?`, which caps integers to the i53 domain and waves every
+;; non-integer through ("they are judged where they are used"). They are used
+;; in two places that cannot judge them:
+;;
+;;   1. `encode-market-spec` folds `:tick`, `:lot`, `:max-leverage`,
+;;      `:open-interest-cap` and every tier's `:max-leverage` RAW into the
+;;      STATE ROOT through `enc-int`, whose whole contract is "one i53 as 8
+;;      bytes". A float folds to bytes no other runtime reproduces and a
+;;      string dies in `(neg? v)` — the falsify-14 class, in the authenticated
+;;      encoding itself. A spot `:asset` is worse: it becomes a KEY in
+;;      `:balances`/`:committed`, and `encode-clearing-account` folds the keys.
+;;   2. Two readers COMPARE them: `cl/set-leverage`'s `(> lev (:max-leverage
+;;      market 1))` (a string is a ClassCastException on the JVM and a silent
+;;      coercion on JS — falsify-6/7's halt class through one bridge-signed
+;;      `:list-market`, then the first `:set-leverage`) and `api/validate`'s
+;;      open-interest-cap `>`, which runs INSIDE apply-block.
+;;
+;; A float `:max-leverage` compares fine and stores badly — the tier gate's
+;; own words for `:max-notional` — and a float past 2^53 lets a stored
+;; `:set-leverage` value through that JS cannot mirror (falsify-8). So every
+;; flat field is shaped where it enters, exactly like the tiers: refused
+;; `:missing-field` at `torihiki.api/validate`, no-op in `apply-tx` — the
+;; readers stay total by contract, not by luck.
+
+(deftest flat-spec-shape-gate-refuses-unstorable-values
+  (let [ex (ex-for)]
+    (testing "REASON: :max-leverage is a count, not a string and not a fraction"
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :max-leverage "20"}}))
+          "cl/set-leverage compares it — (> lev \"20\") is a ClassCastException
+           on the JVM and a string coercion on JS")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :max-leverage 2.5}}))
+          "compares fine and stores badly")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :max-leverage 0}})))
+      (is (= :missing-field
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:max-leverage -5}}))
+          "in-domain and meaningless — spec-ok? waved it through"))
+    (testing "REASON: the cap is compared at validate and folded into the root"
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :open-interest-cap 4.5e17}}))
+          "an integral double past 2^53 — and spec-ok?'s (integer? v) is TRUE
+           here (JS: an integral double) and FALSE on the JVM (a Double), so
+           the two runtimes answered THIS transaction differently at the door:
+           :missing-field on one, a store on the other")
+      (is (= :missing-field
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:open-interest-cap "abc"}}))))
+    (testing "REASON: a spot :asset is a balance KEY — the encoder folds the keys"
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :kind :spot :asset "XAU"}})))
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :kind :spot :asset 7.5}}))))
+    (testing "REASON: a tier :max-leverage is folded raw by the encoder too —
+              the tier gate shaped :max-notional and the rates and left it out"
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:max-notional 100
+                                                      :max-leverage 2.5
+                                                      :initial-margin-rate 25000
+                                                      :maintenance-margin-rate 12500}]}}))))
+    (testing "REASON: the amend path drops :tick/:lot but still stores the rest
+              of the spec — a float tick is junk at either door"
+      (is (= :missing-field
+             (api/validate ex {:tx :amend-market :account 1 :market 1
+                               :spec {:tick 2.5}}))))
+    (testing "VALUE: shaped fields pass (invariant pins — green from birth)"
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1 :max-leverage 20
+                                         :open-interest-cap 1000000
+                                         :kind :spot :asset 7}})))
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1 :max-leverage 20
+                                         :open-interest-cap 0}}))
+          "zero is storable and total — a market that allows no open interest")
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1
+                                         :margin-tiers [{:max-notional 100
+                                                         :max-leverage 10
+                                                         :initial-margin-rate 25000
+                                                         :maintenance-margin-rate 12500}]}}))
+          "a tier's :max-leverage is optional and, when present, a count"))))
+
+(deftest flat-spec-shape-gate-is-a-no-op-in-the-engine-too
+  ;; The validate-layer gate answers with its REASON; the engine's own net —
+  ;; the one a direct `apply-tx` caller meets — answers with a no-op, so an
+  ;; unstorable field can never be stored and folded into the root later.
+  (let [ex (-> (ex-for)
+               (assoc :bridge-authority 1)
+               (assoc-in [:books 1] (bk/new-book {:n-levels 64 :cap 32 :ev-cap 32})))]
+    (testing "VALUE: state-identical no-op — was a store the encoder would fold"
+      (is (= ex (st/apply-tx ex {:tx :list-market :account 1 :market 2
+                                 :spec {:tick 1 :lot 1 :max-leverage "20"}})))
+      (is (= ex (st/apply-tx ex {:tx :amend-market :account 1 :market 1
+                                 :spec {:open-interest-cap "abc"}}))))
+    (testing "VALUE: shaped fields store (invariant pin — green from birth)"
+      (let [ex' (st/apply-tx ex {:tx :list-market :account 1 :market 2
+                                 :spec {:tick 1 :lot 1 :max-leverage 20
+                                        :open-interest-cap 1000000
+                                        :kind :spot :asset 7}})]
+        (is (= 20 (get-in ex' [:markets 2 :max-leverage])))
+        (is (= 7 (get-in ex' [:markets 2 :asset])))))))
