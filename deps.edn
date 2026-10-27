@@ -1,5 +1,11 @@
 {:paths ["src" "resources"]
  :deps {
+        ;; The host-free, dependency-closed core of this repository (15 namespaces and their tests) lives in
+        ;; kotoba lib/kotoba.torihikiCore; this repository keeps the rest and requires the library, so the code exists once.
+        io.github.kotoba-lang/torihiki-core
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "c59d8fd4a5f4de6f8d51df28768e97b78d3f31fd"
+         :deps/root "lib/kotoba.torihikiCore"}
         ;; kotoba.io replaced clojure.java.io here (2026-09-24). An explicit floor:
         ;; kotoba.io carries clojure.java.io's file/as-file/as-relative-path/
         ;; make-parents/delete-file from 98045c7, and tools.deps takes the NEWEST
