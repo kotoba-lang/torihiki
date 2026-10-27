@@ -70,7 +70,7 @@
 ;; The floor. A classpath that resolves `cljs.test` but none of the test
 ;; namespaces would run zero tests and report zero failures, and this script
 ;; would exit 0 -- "could not measure" wearing the face of "measured, clean".
-;; Twenty-nine namespaces are required; fewer than twenty-nine ran means
+;; Twenty-six namespaces are required; fewer than twenty-six ran means
 ;; the run is unanswerable, and it exits 2 rather than 0 or 1. (This floor
 ;; said "sixteen" and checked 26 while `torihiki.overflow-gates-test` and
 ;; `torihiki.fuzz-seeded-test` were missing from the lists below: the leg
@@ -78,7 +78,18 @@
 ;; as "the suite" — measured 2026-10-24, 468 tests / 3265 assertions here
 ;; against 502 / 3504 on `kbb -M:test`. A floor that counts the namespaces
 ;; actually listed is only as honest as the list.)
-(def ^:private expected-namespaces 29)
+;;
+;; The floor is 26, not 29, since PR #74: `torihiki.address-test`,
+;; `torihiki.clearing-test` and `torihiki.thorchain-test` moved into kotoba
+;; `lib/kotoba.torihikiCore` with the 15 host-free namespaces they test
+;; (registered there in `lib/test-suites.json`), and the require list above
+;; was trimmed to match. PR #74 left this constant at 29 and merged with
+;; "Not run: this repository's build and tests"; the first nbb leg after the
+;; move measured the disagreement as a floor refusal (26 of 29 namespaces,
+;; 516 tests / 3605 assertions clean otherwise, exit 2 — 2026-10-28).
+;; 26 is the suite this repository owns; the constant stays hard so a
+;; classpath that drops more namespaces still exits 2.
+(def ^:private expected-namespaces 26)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))

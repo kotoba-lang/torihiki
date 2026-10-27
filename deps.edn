@@ -64,7 +64,17 @@
         io.github.kotoba-lang/bytes
         {:git/url "https://github.com/kotoba-lang/kotoba.git"
          :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
-         :deps/root "lib/kotoba.bytes"}}
+         :deps/root "lib/kotoba.bytes"}
+        ;; `ipld.core` (pulled by `chain.core`, which torihiki.log requires)
+        ;; requires `multiformats.core` / `multiformats.base32`, but the
+        ;; monorepo's lib/kotoba.ioIpld deps.edn does not name this sibling —
+        ;; measured: every leg dies at analysis with "Could not find namespace:
+        ;; multiformats.core". Named here explicitly, at the same kotoba sha as
+        ;; the ioIpld that requires it, so the pairing is one commit's.
+        io.github.kotoba-lang/io-multiformats
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
+         :deps/root "lib/kotoba.ioMultiformats"}}
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner

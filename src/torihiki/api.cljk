@@ -125,6 +125,79 @@
     (or (vector? v) (set? v)) (every? rates-ok? v)
     :else true))
 
+(defn tier-leverage-ok?
+  "A tier's `:max-leverage` is OPTIONAL (the rates are the contract) but when
+  present it is a COUNT: 1..i53-max. `encode-market-spec` folds it RAW into
+  the state root like `:max-notional`, so a fraction or a string there is
+  bytes no two runtimes agree on or a throw in `enc-int`'s `(neg? v)` — the
+  same door `:max-notional` keeps, one field to the right.
+
+  This clause is the piece of `cl/margin-tiers-ok?` (PR #72/#73) the kotoba
+  monorepo extraction (PR #74) took with it: the core copy at the pinned sha
+  shapes `:max-notional` and the rates and leaves `:max-leverage` out. It is
+  re-homed here, at the door that judges the request, beside `flat-spec-ok?`
+  — same loss, same recovery."
+  [tiers]
+  (or (nil? tiers)
+      (and (sequential? tiers)
+           (every? (fn [t]
+                     (or (nil? (:max-leverage t))
+                         (and (integer? (:max-leverage t))
+                              (<= 1 (:max-leverage t) fx/i53-max))))
+                   tiers))))
+
+(defn flat-spec-ok?
+  "Whether the spec's FLAT fields are shaped like the two places that read
+  them. All optional (the readers default); when present:
+
+    `:tick` `:lot` `:max-leverage`  a count — integer 1..i53-max
+    `:open-interest-cap`            integer 0..i53-max (0 allows no interest)
+    `:asset`                        integer 0..i53-max (a balance key)
+
+  Two readers cannot judge these and both are hurt by junk:
+
+  1. `torihiki.state/encode-market-spec` folds every one of them RAW into the
+     STATE ROOT through `enc-int`, whose whole contract is \"one i53 as 8
+     bytes\". A fraction folds to bytes no other runtime reproduces and a
+     string dies in `(neg? v)` — the falsify-14 class, in the authenticated
+     encoding itself. `:asset` is worse: it becomes a KEY in `:balances` /
+     `:committed`, and `encode-clearing-account` folds the keys.
+  2. Two readers COMPARE them: `set-leverage`'s `(> lev (:max-leverage
+     market 1))` — a string there is a ClassCastException on the JVM and a
+     silent coercion on JS, one bridge-signed `:list-market` and then the
+     first `:set-leverage` (the falsify-6/7 class) — and
+     `torihiki.api/validate`'s open-interest-cap `>`, which runs INSIDE
+     apply-block.
+
+  Shapes as well as ranges, and the shape check is the cross-runtime one:
+  `spec-ok?` caps integers and waves non-integers through (\"they are judged
+  where they are used\"), and `(integer? 4.5e17)` is TRUE on JS — an integral
+  double — and FALSE on the JVM — a Double — so the two runtimes answered the
+  same transaction differently at the DOOR: one refused it, one stored it and
+  forked later. A count is an integer everywhere; anything else is refused
+  here, on both runtimes, by the same rule.
+
+  `:tick` and `:lot` are judged here too although `:amend-market` drops them
+  (they are immutable): junk in a transaction is refused at the door, not
+  silently discarded — the same answer `spec-ok?` already gives an
+  out-of-domain tick on an amend.
+
+  Provenance: this gate landed as `cl/flat-spec-ok?` (PR #73) and was lost
+  with the core move — PR #74 extracted `torihiki.clearing` to the kotoba
+  monorepo from a tree that predated it, so HEAD called a predicate the
+  pinned core does not carry and the engine failed to LOAD (measured:
+  `Unable to resolve symbol: cl/flat-spec-ok?`, analysis phase, every leg).
+  Re-homed here: `torihiki.api` is where spec judgment already lives
+  (`spec-ok?`, `rates-ok?`), and `torihiki.state`'s no-op nets already
+  require this namespace."
+  [spec]
+  (let [count-ok? (fn [v lo] (or (nil? v) (int-in? v lo fx/i53-max)))]
+    (and (count-ok? (:tick spec) 1)
+         (count-ok? (:lot spec) 1)
+         (count-ok? (:max-leverage spec) 1)
+         (count-ok? (:open-interest-cap spec) 0)
+         (count-ok? (:asset spec) 0))))
+
 (defn- market-exists? [ex m] (contains? (:markets ex) m))
 
 (defn- publishers [ex] (vals/publishers ex))
@@ -594,12 +667,14 @@
       ;; and every rate must be a fraction of rate-scale (see `rates-ok?`)
       (not (rates-ok? (:spec t))) :rate-too-high
       ;; a schedule that replaces the old one must be complete like a new one
-      ;; (see `cl/margin-tiers-ok?`; `:list-market` judges the same shape), and
-      ;; the flat fields beside it must be shaped like the encoder and the
-      ;; comparators read them (see `cl/flat-spec-ok?`)
+      ;; (see `cl/margin-tiers-ok?` + `tier-leverage-ok?` for the tier
+      ;; `:max-leverage` the pinned core's copy leaves out; `:list-market`
+      ;; judges the same shape), and the flat fields beside it must be shaped
+      ;; like the encoder and the comparators read them (see `flat-spec-ok?`)
       (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
+                (tier-leverage-ok? (:margin-tiers (:spec t)))
                 (cl/fee-tiers-ok? (:fee-tiers (:spec t)))
-                (cl/flat-spec-ok? (:spec t)))) :missing-field
+                (flat-spec-ok? (:spec t)))) :missing-field
       :else nil)
 
     :list-market
@@ -622,12 +697,14 @@
       ;; `cl/market` documents (`{:max-notional n :max-leverage l}`, rates
       ;; derived) is a GENESIS shape: at listing the rates are stated, not
       ;; derived — a derivation here would silently pick a floor division the
-      ;; operator never saw. (see `cl/margin-tiers-ok?`) The flat fields are
+      ;; operator never saw. (see `cl/margin-tiers-ok?` + `tier-leverage-ok?`)
+      ;; The flat fields are
       ;; shaped the same way: `encode-market-spec` folds them raw into the
-      ;; state root and two readers compare them. (see `cl/flat-spec-ok?`)
+      ;; state root and two readers compare them. (see `flat-spec-ok?`)
       (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
+                (tier-leverage-ok? (:margin-tiers (:spec t)))
                 (cl/fee-tiers-ok? (:fee-tiers (:spec t)))
-                (cl/flat-spec-ok? (:spec t)))) :missing-field
+                (flat-spec-ok? (:spec t)))) :missing-field
       (not (int-in? (:tick (:spec t)) 1 fx/i53-max)) :missing-field
       (not (int-in? (:lot (:spec t)) 1 fx/i53-max)) :missing-field
       ;; `new-book` enforces its option constraints by THROWING, so the shape

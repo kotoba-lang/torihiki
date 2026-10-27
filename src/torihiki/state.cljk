@@ -1227,10 +1227,13 @@
             ;; — the same door `:list-market` keeps. An amend merges WHOLE, so
             ;; a malformed schedule here would replace a good one and throw on
             ;; the next sweep through the market; an unshaped flat field is
-            ;; folded raw into the state root by `encode-market-spec`.
+            ;; folded raw into the state root by `encode-market-spec`. The
+            ;; tier `:max-leverage` the pinned core's `margin-tiers-ok?` leaves
+            ;; out is shaped by `api/tier-leverage-ok?`.
             (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
                       (cl/fee-tiers-ok? (:fee-tiers spec))
-                      (cl/flat-spec-ok? spec))))
+                      (api/tier-leverage-ok? (:margin-tiers spec))
+                      (api/flat-spec-ok? spec))))
       ex
       (if (and (>= (gov/active-version ex) spot-version)
                (or (and (contains? spec :kind) (not= (:kind spec) (:kind cur)))
@@ -1301,10 +1304,11 @@
             ;; halted chain from one stored map. Refused whole, before the
             ;; spec is stored (see `cl/margin-tiers-ok?`). And the flat fields
             ;; beside the schedules are shaped the same way — the encoder
-            ;; folds them raw into the root (see `cl/flat-spec-ok?`).
+            ;; folds them raw into the root (see `api/flat-spec-ok?`).
             (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
                       (cl/fee-tiers-ok? (:fee-tiers spec))
-                      (cl/flat-spec-ok? spec))))
+                      (api/tier-leverage-ok? (:margin-tiers spec))
+                      (api/flat-spec-ok? spec))))
       ex
       (-> ex
           (assoc-in [:markets market] (assoc spec :id market))

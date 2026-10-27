@@ -1,0 +1,8 @@
+
+Ran 516 tests containing 3605 assertions.
+0 failures, 0 errors.
+namespaces 26/29
+
+Ran 516 tests containing 3605 assertions.
+0 failures, 0 errors.
+REFUSING to report a pass: 26 of 29 namespaces ran and 516 tests executed. The classpath did not carry the suite; this run is unanswerable, not clean.

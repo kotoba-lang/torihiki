@@ -1,0 +1,65 @@
+# BROKEN-first run for the tier pins (engine fix MINUS the tier clause):
+# kbb -M:test -> 516 tests / 3605 assertions, 4 failures, 0 errors, exit 1.
+# The 4 failures are exactly the designed RED pins: the 3 tier REASON pins in
+# flat-spec-shape-gate-refuses-unstorable-values (:max-leverage 2.5 / 0 / -5) and
+# the tier engine-net VALUE pin in flat-spec-shape-gate-is-a-no-op-in-the-engine-too.
+# Trimmed from the 16.9 MB full output (one engine-state line dominates); lines
+# over 1000 chars truncated at 1000. Counts unmodified.
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+FAIL in (flat-spec-shape-gate-refuses-unstorable-values) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-96656.cljk:1382)
+REASON: a tier :max-leverage is folded raw by the encoder too —
+              the tier gate shaped :max-notional and the rates and left it out
+expected: (= :missing-field (api/validate ex {:tx :list-market, :account 1, :market 2, :spec {:tick 1, :lot 1, :margin-tiers [{:max-notional 100, :max-leverage 2.5, :initial-margin-rate 25000, :maintenance-margin-rate 12500}]}}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (flat-spec-shape-gate-refuses-unstorable-values) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-96656.cljk:1389)
+REASON: a tier :max-leverage is folded raw by the encoder too —
+              the tier gate shaped :max-notional and the rates and left it out
+a tier count is 1..i53-max like every other count — a leverage of
+           zero is not a shape any reader survives
+expected: (= :missing-field (api/validate ex {:tx :list-market, :account 1, :market 2, :spec {:tick 1, :lot 1, :margin-tiers [{:max-notional 100, :max-leverage 0, :initial-margin-rate 25000, :maintenance-margin-rate 12500}]}}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (flat-spec-shape-gate-refuses-unstorable-values) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-96656.cljk:1398)
+REASON: a tier :max-leverage is folded raw by the encoder too —
+              the tier gate shaped :max-notional and the rates and left it out
+in-domain and meaningless — spec-ok? waves it through, the count
+           rule refuses it (the flat-level :max-leverage -5, one field deeper)
+expected: (= :missing-field (api/validate ex {:tx :list-market, :account 1, :market 2, :spec {:tick 1, :lot 1, :margin-tiers [{:max-notional 100, :max-leverage -5, :initial-margin-rate 25000, :maintenance-margin-rate 12500}]}}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (flat-spec-shape-gate-is-a-no-op-in-the-engine-too) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-96656.cljk:1441)
+VALUE: state-identical no-op — was a store the encoder would fold
+the tier clause's engine half — the clause the pinned core's copy
+           lost with the extraction; without it this STORES and the encoder
+           folds the fraction raw into the state root
+expected: (= ex (st/apply-tx ex {:tx :list-market, :account 1, :market 2, :spec {:tick 1, :lot 1, :margin-tiers [{:max-notional 100, :max-leverage 2.5, :initial-margin-rate 25000, :maintenance-margin-rate 12500}]}}))
+  actual: (not (= {:markets {1 {:kind :perp}}, :books {1 #torihiki.book.Book{:fw3 1, :ev-level #object[Float64Array 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], :w1 1, :bm3 #object[Float64Array 0,0], :ev-taker-side #object[Float64Array 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], :o-owner #object[Float64Array 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], :fb1 #object[Float64Array 1], :fb0 #object[Float64Array 4294967295], :fw1 1, :ev-cap 32, :lvl-tail #object[Float64Array -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1], :fw2 1, :w2 1, :ev-maker-oid #object[Float64Array 0,0,0,0,0,0,0,0,0,0,0,0,0
+
+Testing torihiki.principal-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 516 tests containing 3605 assertions.
+4 failures, 0 errors.
+kbb test: 516 test(s), 3601 pass, 4 fail, 0 error

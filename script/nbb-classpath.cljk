@@ -29,6 +29,16 @@
 ;; So each pin is extracted with `git archive <sha>` into `.nbb-deps/<name>/`.
 ;; The checkout is used only as an object store.
 ;;
+;; ## Monorepo pins (since PR #74/#75)
+;;
+;; The pins are git deps in one monorepo (kotoba.git) now, each with a
+;; `:deps/root` under `lib/`. Two consequences, both measured on 2026-10-28
+;; ("unresolvable: pprint @ b94158fd … — commit not in …/pprint", exit 2):
+;; the object store is the repo named by `:git/url` (basename minus `.git`),
+;; not the dep name's standalone checkout; and the extraction is the
+;; `:deps/root` SUBTREE (`git archive <sha>:<deps-root>`), so `<dest>/src`
+;; and `<dest>/deps.edn` are the library's own, not the monorepo root's.
+;;
 ;; ## It refuses rather than returning a short classpath
 ;;
 ;; An unresolvable pin exits 2 with the name and sha on stderr. A short
@@ -49,20 +59,29 @@
 ;; Where to look for the object store holding a pinned commit. `west` puts
 ;; every project at `orgs/<org>/<name>`, so the superproject root is four
 ;; levels up from this repo; `KOTOBA_CHECKOUTS` overrides that for a layout
-;; that is not this workspace's.
+;; that is not this workspace's. The name is the `:git/url` basename minus
+;; `.git` — the repo that OWNS the sha — not the dep name (they diverge for
+;; monorepo pins; see above).
 (defn- checkout-dir [nm]
   (or (some-> (aget js/process.env "KOTOBA_CHECKOUTS") (path/join nm))
       (path/join repo ".." nm)))
+
+(defn- store-name [spec]
+  (-> (or (:git/url spec) "")
+      (str/replace #"\.git$" "")
+      (path/basename)))
 
 (defn- run [cmd]
   (try {:ok (str (cp/execSync cmd #js{:stdio #js["ignore" "pipe" "ignore"]}))}
        (catch :default e {:err (.-message e)})))
 
-(defn- extract! [nm sha]
+(defn- extract! [nm sha spec]
   (let [dest (path/join cache nm)]
     (if (fs/existsSync dest)
       dest
-      (let [co (checkout-dir nm)]
+      (let [co (checkout-dir (store-name spec))
+            root (:deps/root spec)
+            tree (if root (str sha ":" root) sha)]
         (when-not (fs/existsSync co)
           (js/console.error (str "unresolvable: " nm " @ " sha " — no checkout at " co))
           (js/process.exit 2))
@@ -70,7 +89,7 @@
           (js/console.error (str "unresolvable: " nm " @ " sha " — commit not in " co))
           (js/process.exit 2))
         (fs/mkdirSync dest #js{:recursive true})
-        (when-let [e (:err (run (str "git -C " co " archive " sha " | tar -x -C " dest)))]
+        (when-let [e (:err (run (str "git -C " co " archive " tree " | tar -x -C " dest)))]
           (js/console.error (str "extract failed: " nm " @ " sha " — " e))
           (js/process.exit 2))
         dest))))
@@ -88,7 +107,7 @@
       (let [nm (name coord)]
         (when-not (@seen nm)
           (swap! seen conj nm)
-          (let [d (extract! nm sha)]
+          (let [d (extract! nm sha v)]
             (swap! acc conj (path/join d "src"))
             (walk! d seen acc)))))))
 

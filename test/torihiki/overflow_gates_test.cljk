@@ -1385,7 +1385,25 @@
                                       :margin-tiers [{:max-notional 100
                                                       :max-leverage 2.5
                                                       :initial-margin-rate 25000
-                                                      :maintenance-margin-rate 12500}]}}))))
+                                                      :maintenance-margin-rate 12500}]}})))
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:max-notional 100
+                                                      :max-leverage 0
+                                                      :initial-margin-rate 25000
+                                                      :maintenance-margin-rate 12500}]}}))
+          "a tier count is 1..i53-max like every other count — a leverage of
+           zero is not a shape any reader survives")
+      (is (= :missing-field
+             (api/validate ex {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1
+                                      :margin-tiers [{:max-notional 100
+                                                      :max-leverage -5
+                                                      :initial-margin-rate 25000
+                                                      :maintenance-margin-rate 12500}]}}))
+          "in-domain and meaningless — spec-ok? waves it through, the count
+           rule refuses it (the flat-level :max-leverage -5, one field deeper)"))
     (testing "REASON: the amend path drops :tick/:lot but still stores the rest
               of the spec — a float tick is junk at either door"
       (is (= :missing-field
@@ -1419,7 +1437,16 @@
       (is (= ex (st/apply-tx ex {:tx :list-market :account 1 :market 2
                                  :spec {:tick 1 :lot 1 :max-leverage "20"}})))
       (is (= ex (st/apply-tx ex {:tx :amend-market :account 1 :market 1
-                                 :spec {:open-interest-cap "abc"}}))))
+                                 :spec {:open-interest-cap "abc"}})))
+      (is (= ex (st/apply-tx ex {:tx :list-market :account 1 :market 2
+                                 :spec {:tick 1 :lot 1
+                                        :margin-tiers [{:max-notional 100
+                                                        :max-leverage 2.5
+                                                        :initial-margin-rate 25000
+                                                        :maintenance-margin-rate 12500}]}}))
+          "the tier clause's engine half — the clause the pinned core's copy
+           lost with the extraction; without it this STORES and the encoder
+           folds the fraction raw into the state root"))
     (testing "VALUE: shaped fields store (invariant pin — green from birth)"
       (let [ex' (st/apply-tx ex {:tx :list-market :account 1 :market 2
                                  :spec {:tick 1 :lot 1 :max-leverage 20
