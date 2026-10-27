@@ -2,9 +2,21 @@
  :deps {
         ;; The host-free, dependency-closed core of this repository (15 namespaces and their tests) lives in
         ;; kotoba lib/kotoba.torihikiCore; this repository keeps the rest and requires the library, so the code exists once.
+        ;; the same commit as every other kotoba pin below. One sha, on
+        ;; purpose: each pinned checkout reaches kotoba.text/bytes/merkleSum as
+        ;; its own {:local/root "../kotoba.text"} — one "local version" per
+        ;; CHECKOUT — and the kbb classpath builder refuses to order two of
+        ;; them when no top-level version is named to defer to ("No known
+        ;; ancestor relationship between local versions for
+        ;; io.github.kotoba-lang/text", measured 2026-10-27, `kbb -M:test`
+        ;; EXIT=1 at classpath build; nbb.edn now names text/merkle-sum at top
+        ;; level — that pin, not the sha, is what unblocks the build). One sha
+        ;; everywhere keeps every root at one version regardless. The core at
+        ;; b94158f is byte-identical to the c59d8fd import (empty `git diff`
+        ;; over lib/kotoba.torihikiCore); the commits between are harness-only.
         io.github.kotoba-lang/torihiki-core
         {:git/url "https://github.com/kotoba-lang/kotoba.git"
-         :git/sha "c59d8fd4a5f4de6f8d51df28768e97b78d3f31fd"
+         :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
          :deps/root "lib/kotoba.torihikiCore"}
         ;; kotoba.io replaced clojure.java.io here (2026-09-24). An explicit floor:
         ;; kotoba.io carries clojure.java.io's file/as-file/as-relative-path/

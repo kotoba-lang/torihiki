@@ -5,9 +5,13 @@
  :deps {
         ;; The host-free, dependency-closed core of this repository (15 namespaces and their tests) lives in
         ;; kotoba lib/kotoba.torihikiCore; this repository keeps the rest and requires the library, so the code exists once.
+        ;; One sha with every other kotoba pin (see the matching note in
+        ;; deps.edn): a mixed pair splits kotoba.text/bytes/merkleSum into two
+        ;; local versions and the kbb classpath build refuses to order them
+        ;; (measured 2026-10-27, `kbb -M:test` EXIT=1 at classpath build).
         io.github.kotoba-lang/torihiki-core
         {:git/url "https://github.com/kotoba-lang/kotoba.git"
-         :git/sha "c59d8fd4a5f4de6f8d51df28768e97b78d3f31fd"
+         :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
          :deps/root "lib/kotoba.torihikiCore"}
         ;; kotoba.io replaced clojure.java.io here (2026-09-24). An explicit floor:
         ;; kotoba.io carries clojure.java.io's file/as-file/as-relative-path/
@@ -42,4 +46,20 @@
         io.github.kotoba-lang/test
         {:git/url "https://github.com/kotoba-lang/kotoba.git"
          :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
-         :deps/root "lib/kotoba.test"}}}
+         :deps/root "lib/kotoba.test"}
+        ;; kotoba.lang.text and kotoba.merkle-sum, pinned HERE even though
+        ;; nothing in this map names them directly: every pinned checkout
+        ;; reaches them transitively as {:local/root "../kotoba.text"} etc.,
+        ;; which makes one "local version" per CHECKOUT — and with no top-level
+        ;; version to defer to, the classpath builder refuses to order two of
+        ;; them ("No known ancestor relationship between local versions for
+        ;; io.github.kotoba-lang/text", measured 2026-10-27). The top-level pin
+        ;; is the single version the transitive local roots fold into.
+        io.github.kotoba-lang/text
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
+         :deps/root "lib/kotoba.text"}
+        io.github.kotoba-lang/merkle-sum
+        {:git/url "https://github.com/kotoba-lang/kotoba.git"
+         :git/sha "b94158fd48ec541b70d3c455912a06f407537ddc"
+         :deps/root "lib/kotoba.merkleSum"}}}
