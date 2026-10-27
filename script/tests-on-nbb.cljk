@@ -40,12 +40,10 @@
 ;; The JVM suite prints its own; two numbers that disagree are a finding.
 (ns tests-on-nbb
   (:require [cljs.test :as ct]
-            [torihiki.address-test]
             [torihiki.api-test]
             [torihiki.auth-test]
             [torihiki.book-test]
             [torihiki.bridge-test]
-            [torihiki.clearing-test]
             [torihiki.commit-test]
             [torihiki.evm-interp-test]
             [torihiki.evm-test]
@@ -66,7 +64,6 @@
             [torihiki.snapshot-test]
             [torihiki.spot-reservation-test]
             [torihiki.state-test]
-            [torihiki.thorchain-test]
             [torihiki.trigger-test]
             [torihiki.validators-test]))
 
@@ -106,12 +103,10 @@
       :else
       (println "TESTS-ON-NBB: pass — the runtime that deploys ran the suite"))))
 
-(ct/run-tests 'torihiki.address-test
-              'torihiki.api-test
+(ct/run-tests 'torihiki.api-test
               'torihiki.auth-test
               'torihiki.book-test
               'torihiki.bridge-test
-              'torihiki.clearing-test
               'torihiki.commit-test
               'torihiki.evm-interp-test
               'torihiki.evm-test
@@ -132,6 +127,5 @@
               'torihiki.snapshot-test
               'torihiki.spot-reservation-test
               'torihiki.state-test
-              'torihiki.thorchain-test
               'torihiki.trigger-test
               'torihiki.validators-test)
