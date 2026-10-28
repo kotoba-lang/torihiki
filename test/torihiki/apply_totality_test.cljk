@@ -1,0 +1,278 @@
+(ns torihiki.apply-totality-test
+  "The apply path is TOTAL: an order, amend, cancel or trigger the engine
+  cannot apply is dropped as a no-op — never thrown with, never truncated,
+  never half-executed.
+
+  Everything here pins a defect class reachable through
+  `torihiki.state/apply-tx` — the door triggers, TWAP slices and amends'
+  re-dispatch take WITHOUT ever meeting `torihiki.api/validate`. A throw
+  inside `apply-block` is a halted chain: one malformed transaction and every
+  validator stops at the same place (the falsify-6/7 class). A truncation is
+  worse — `(long 2.5)` is 2, so a cancel naming a fractional id cancelled
+  somebody's live order.
+
+  Refusals are pinned by REASON (a keyword from `torihiki.api/reasons`, at the
+  shared shape functions both doors call) and by VALUE at the engine: nothing
+  rests, nothing shrinks, nothing cancels. A pin that only asserts \"no
+  throw\" is half a pin — so every no-throw pin here is paired with the value
+  it must leave alone, and a throw FAILS the pin rather than passing it."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private n 65536)   ; the fixture book's level count: valid levels 0..65535
+
+(defn- funded []
+  (-> (st/new-exchange {:market mkt :book-opts {:n-levels n :cap 1024 :ev-cap 1024}})
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 2 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 5 :amount 100000000})
+      (st/apply-tx {:tx :oracle :market 1 :price 1000})))
+
+(defn- with-order
+  "A funded exchange with account 1's bid of 10 resting at level 1000."
+  []
+  (st/apply-tx (funded) {:tx :order :account 1 :market 1 :side bk/bid :level 1000 :qty 10}))
+
+(defn- oid-at [ex side level]
+  (:oid (first (bk/level-orders (get-in ex [:books 1]) side level))))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+;; ── the order gate ───────────────────────────────────────────────────────────
+
+(deftest an-unappliable-order-is-a-no-op-not-a-throw
+  (doseq [[label tx] [["out-of-domain qty" {:qty (inc fx/i53-max)}]
+                      ["string qty" {:qty "5"}]
+                      ["fractional qty" {:qty 2.5}]
+                      ["off-ladder level" {:level n}]
+                      ["negative level" {:level -1}]
+                      ["string level" {:level "7"}]
+                      ["out-of-domain side" {:side 5}]
+                      ["nil account" {:account nil}]
+                      ["string account" {:account "one"}]
+                      ["string flags" {:flags "4"}]
+                      ["fractional flags" {:flags 2.5}]]]
+    (testing label
+      (let [ex (funded)
+            ex' (applied ex (merge {:tx :order :account 1 :market 1
+                                    :side bk/bid :level 1000 :qty 5} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= 0 (bk/resting-count (get-in ex' [:books 1])))
+              "the order is dropped WHOLE — nothing rests")
+          (is (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))))))))
+
+(deftest the-notional-cap-has-a-sharp-boundary
+  (testing "the boundary is quot(i53-max, level) — division, because the
+            product itself may overflow (falsify-7)"
+    (let [ex (funded)]
+      (is (nil? (api/validate ex {:tx :order :account 1 :market 1
+                                  :side bk/bid :level 1 :qty fx/i53-max})))
+      (let [ex' (applied ex {:tx :order :account 1 :market 1
+                             :side bk/bid :level 1 :qty fx/i53-max})]
+        (is (not= ::threw ex'))
+        (when (not= ::threw ex')
+          (is (= fx/i53-max (bk/level-qty (get-in ex' [:books 1]) bk/bid 1))
+              "qty i53-max at level 1 still places"))))
+    (let [ex (funded)
+          q (quot fx/i53-max 63)]
+      (is (nil? (api/validate ex {:tx :order :account 1 :market 1
+                                  :side bk/bid :level 63 :qty q})))
+      (let [ex' (applied ex {:tx :order :account 1 :market 1
+                             :side bk/bid :level 63 :qty q})]
+        (is (not= ::threw ex'))
+        (when (not= ::threw ex')
+          (is (= q (bk/level-qty (get-in ex' [:books 1]) bk/bid 63))
+              "the boundary quantity at level 63 still places")))))
+  (testing "one more lot at level 63 is refused at BOTH doors"
+    (let [ex (funded)
+          q (inc (quot fx/i53-max 63))
+          t {:tx :order :account 1 :market 1 :side bk/bid :level 63 :qty q}]
+      (is (= :bad-amount (api/validate ex t)) "the validate door")
+      (is (= :bad-amount (api/order-tx-shape ex t)) "the engine door's reason")
+      (let [ex' (applied ex t)]
+        (is (not= ::threw ex'))
+        (when (not= ::threw ex')
+          (is (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 63))
+              "and the engine drops it instead of resting it"))))))
+
+;; ── the amend gate ───────────────────────────────────────────────────────────
+
+(deftest an-unappliable-amend-is-a-no-op
+  ;; One fixture PER CASE: the book is a mutable slab — `bk/reduce-to!`,
+  ;; `bk/cancel!` and `bk/place!` change the state every `ex` in scope shares,
+  ;; so a case that ran first (or half-ran and threw mid-way) would otherwise
+  ;; hand its mutation to the next case and the pins would measure the wrong
+  ;; transaction. The cases that need the live id take it from the fixture.
+  (doseq [[label t] [["out-of-domain new size"
+                      (fn [_] {:level 1000 :qty (inc fx/i53-max)})]
+                     ["off-ladder new level"
+                      (fn [_] {:level n :qty 5})]
+                     ["fractional id"
+                      (fn [oid] {:oid (if (int? oid) (+ oid 0.5) oid)
+                                 :level 1000 :qty 5})]
+                     ["string id"
+                      (fn [_] {:oid "oid" :level 1000 :qty 5})]]]
+    (testing label
+      (let [ex (with-order)
+            oid (oid-at ex bk/bid 1000)]
+        (is (some? oid) "the fixture order is live")
+        (let [ex' (applied ex (merge {:tx :amend :account 1 :market 1 :oid oid} (t oid)))]
+          (is (not= ::threw ex') "apply-tx must answer, not throw")
+          (when (not= ::threw ex')
+            (is (= 10 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+                "the old order is untouched — the amend is dropped WHOLE")
+            (is (= 1 (bk/resting-count (get-in ex' [:books 1])))
+                "dropped whole: not cancelled, not shrunk, not replaced")))))))
+
+;; ── the cancel gate ──────────────────────────────────────────────────────────
+
+(deftest an-unappliable-cancel-is-a-no-op
+  ;; One fixture PER CASE, same mutable-slab reason as the amend gate above.
+  (doseq [[label t] [["fractional id — JVM (long 2.5) is 2, which named a
+                        live order and cancelled it"
+                      (fn [oid] {:oid (if (int? oid) (+ oid 0.5) oid)})]
+                     ["string id" (fn [_] {:oid "oid"})]
+                     ["nil account" (fn [_] {:account nil})]
+                     ["string account" (fn [_] {:account "one"})]]]
+    (testing label
+      (let [ex (with-order)
+            oid (oid-at ex bk/bid 1000)]
+        (is (some? oid) "the fixture order is live")
+        (let [ex' (applied ex (merge {:tx :cancel :market 1 :oid oid :account 1} (t oid)))]
+          (is (not= ::threw ex') "apply-tx must answer, not throw")
+          (when (not= ::threw ex')
+            (is (= 10 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+                "the order is still there at its full size")
+            (is (= 1 (bk/resting-count (get-in ex' [:books 1]))))))))))
+
+;; ── the trigger gate ─────────────────────────────────────────────────────────
+
+(deftest an-unappliable-trigger-is-never-stored
+  (doseq [[label t] [["string qty in the embedded order"
+                      {:tx :trigger :account 1 :market 1 :trigger-price 900
+                       :direction :below :order {:side bk/ask :level 0 :qty "5"}}]
+                     ["out-of-domain qty in the embedded order"
+                      {:tx :trigger :account 1 :market 1 :trigger-price 900
+                       :direction :below :order {:side bk/ask :level 0 :qty (inc fx/i53-max)}}]
+                     ["off-ladder level in the embedded order"
+                      {:tx :trigger :account 1 :market 1 :trigger-price 900
+                       :direction :below :order {:side bk/ask :level n :qty 20}}]
+                     ["string trigger price"
+                      {:tx :trigger :account 1 :market 1 :trigger-price "900"
+                       :direction :below :order {:side bk/ask :level 0 :qty 5}}]
+                     ["string account"
+                      {:tx :trigger :account "one" :market 1 :trigger-price 900
+                       :direction :below :order {:side bk/ask :level 0 :qty 5}}]]]
+    (testing label
+      (let [ex (funded)
+            ex' (applied ex t)]
+        (is (not= ::threw ex')
+            "even `trg/valid?` throws on a string qty — the gate runs before it")
+        (when (not= ::threw ex')
+          (is (empty? (get-in ex' [:triggers 1]))
+              "nothing is stored: a stop that cannot fire must never arm"))))))
+
+(deftest the-fire-time-gate-drops-garbage-stored-before-the-gate-existed
+  ;; Pre-fix state can carry triggers this engine never validated — the gate
+  ;; at submission does not see them. When the mark arms one, the RAW embedded
+  ;; order is judged again, BEFORE `cl/reducing-qty`'s arithmetic and
+  ;; `bk/place!`'s coercions, and dropped if it cannot be applied.
+  ;; One fixture PER CASE (mutable slabs — see the amend gate above).
+  (doseq [[label order] [["string qty" {:side bk/ask :level 0 :qty "20"}]
+                         ["off-ladder level" {:side bk/ask :level n :qty 20}]
+                         ["non-map order" "garbage"]]]
+    (testing label
+      (let [base (-> (funded)
+                     (st/apply-tx {:tx :order :account 2 :market 1 :side bk/ask :level 1010 :qty 20})
+                     (st/apply-tx {:tx :order :account 5 :market 1 :side bk/bid :level 1010 :qty 20}))]
+        (is (= 20 (:size (cl/position (:clearing base) 5 1)))
+            "the fixture is long 20 — a flat position dispatches nothing")
+        (let [ex (assoc-in base [:triggers 1]
+                           [{:id 99 :account 5 :market 1 :trigger-price 1200
+                             :direction :above :order order}])
+              ;; the oracle move arms it (:above 1200 at mark 1250)
+              ex' (applied ex {:tx :oracle :market 1 :price 1250})]
+          (is (not= ::threw ex') "firing must answer, not throw")
+          (when (not= ::threw ex')
+            (is (= 20 (:size (cl/position (:clearing ex') 5 1)))
+                "the stop fired into a no-op: the position is untouched")
+            (is (= 0 (bk/resting-count (get-in ex' [:books 1])))
+                "and the garbage order does not rest either")))))))
+
+;; ── the mirror doors: the gate must never refuse what validate passed ────────
+
+(deftest twap-mirrors-the-order-notional-cap
+  (let [ex (funded)
+        slice-level (dec n)]   ; bids fire at the top of the ladder (fire-twaps)
+    (testing "a schedule whose slices would compute an out-of-domain notional
+              is refused — at the level its slices actually fire at"
+      (is (= :bad-amount
+             (api/validate ex {:tx :twap :account 1 :market 1 :side bk/bid
+                               :qty (inc (quot fx/i53-max slice-level))
+                               :slices 2 :every 1}))))
+    (testing "at the boundary the schedule is accepted"
+      (is (nil? (api/validate ex {:tx :twap :account 1 :market 1 :side bk/bid
+                                  :qty (quot fx/i53-max slice-level)
+                                  :slices 2 :every 1}))))
+    (testing "an ask slices at level 0, where the notional is zero — uncapped"
+      (is (nil? (api/validate ex {:tx :twap :account 1 :market 1 :side bk/ask
+                                  :qty fx/i53-max :slices 2 :every 1}))))))
+
+(deftest scale-mirrors-the-order-shape-doors
+  (let [ex (funded)]
+    (testing "rung flags outside ioc|post-only|reduce-only are refused: the
+              engine gate judges every rung as an order, flags included"
+      (is (= :bad-flags
+             (api/validate ex {:tx :scale :account 1 :market 1 :side bk/bid
+                               :level 1000 :qty 5 :count* 3 :step 10 :flags 99}))))
+    (testing "a rung whose level x qty would leave the domain is refused"
+      (is (= :bad-amount
+             (api/validate ex {:tx :scale :account 1 :market 1 :side bk/bid
+                               :level 1000 :qty (inc (quot fx/i53-max 1000))
+                               :count* 3 :step 10}))))
+    (testing "at the boundary the ladder is accepted"
+      (is (nil? (api/validate ex {:tx :scale :account 1 :market 1 :side bk/bid
+                                  :level 1000 :qty (quot fx/i53-max 1000)
+                                  :count* 3 :step 10}))))))
+
+;; ── the shared shape functions speak the closed taxonomy ─────────────────────
+
+(deftest the-shape-gates-answer-with-closed-set-reasons
+  (let [ex (funded)
+        o {:tx :order :account 1 :market 1 :side bk/bid :level 1000 :qty 5}]
+    (is (= :bad-account (api/order-tx-shape ex (assoc o :account "one"))))
+    (is (= :bad-quantity (api/order-tx-shape ex (assoc o :qty "5"))))
+    (is (= :bad-side (api/order-tx-shape ex (assoc o :side 5))))
+    (is (= :bad-price-level (api/order-tx-shape ex (assoc o :level n))))
+    (is (= :bad-amount (api/order-tx-shape ex (assoc o :level 63 :qty (inc (quot fx/i53-max 63))))))
+    (is (= :bad-flags (api/order-tx-shape ex (assoc o :flags 99))))
+    (is (nil? (api/order-tx-shape ex o)))
+    (is (= :missing-field (api/amend-tx-shape ex {:tx :amend :account 1 :market 1
+                                                  :oid 2.5 :level 1000 :qty 5})))
+    (is (= :bad-account (api/cancel-tx-shape ex {:tx :cancel :account nil :market 1 :oid 1})))
+    (is (= :unknown-market (api/cancel-tx-shape ex {:tx :cancel :account 1 :market 99 :oid 1})))
+    (is (= :bad-trigger-price
+           (api/trigger-tx-shape ex {:tx :trigger :account 1 :market 1
+                                     :trigger-price 0 :direction :below
+                                     :order {:side 1 :level 0 :qty 5}})))
+    (is (= :bad-trigger-order
+           (api/trigger-tx-shape ex {:tx :trigger :account 1 :market 1
+                                     :trigger-price 9 :direction :below
+                                     :order {:side 1 :level 0 :qty "5"}})))
+    (is (= :bad-price-level
+           (api/trigger-tx-shape ex {:tx :trigger :account 1 :market 1
+                                     :trigger-price 9 :direction :below
+                                     :order {:side 1 :level n :qty 5}})))))

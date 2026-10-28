@@ -202,7 +202,13 @@
 
 (defn- publishers [ex] (vals/publishers ex))
 
-(defn- n-levels [ex m] (:n-levels (get-in ex [:books m])))
+(defn- n-levels
+  "How many price levels market `m`'s book has — 0 when there is no book.
+  The default matters: `(dec nil)` is a throw, and every level check in this
+  namespace funnels through here, so a market that exists without a book used
+  to answer a shape question with an exception at the door."
+  [ex m]
+  (or (:n-levels (get-in ex [:books m])) 0))
 
 (defn- validate-order-shape
   "Shared by `:order` and by a trigger's embedded order — the same fields mean
@@ -221,6 +227,86 @@
     (and (pos? level) (> qty (quot fx/i53-max level))) :bad-amount
     (not (int-in? (or flags 0) 0 7)) :bad-flags
     :else nil))
+
+;; ── the apply-path shape gates ───────────────────────────────────────────────
+;;
+;; What `torihiki.state/apply-tx` asks before it touches a book. The engine
+;; takes transactions that never met `validate` — a trigger's embedded order
+;; when the mark arms it, TWAP slices, a scale's rungs, an amend's
+;; re-dispatch — and until these existed it trusted every field: `(long 2.5)`
+;; cancelled somebody's live order, `(long nil)` threw inside `apply-block`
+;; (a halted chain — the falsify-6/7 class), and an off-ladder level threw
+;; from `bk/place!`. These are the SAME judgments `validate` makes, in the
+;; same order, answering with the same keyword from `reasons` — one shape
+;; rule, two doors. A refusal at the engine is a NO-OP: the transaction is
+;; dropped whole and the exchange is returned unchanged. Nothing here throws.
+
+(defn order-tx-shape
+  "nil when this order may be applied, otherwise its `reasons` keyword.
+
+  The full order door: the market, the account, and the resting shape
+  (`validate-order-shape` — side, quantity, ladder level, the notional a fill
+  will compute, the flags). Used by `apply-tx :order` before anything is
+  destructured arithmetically, and by `fire-triggers` on a trigger's raw
+  embedded order before `reducing-qty` computes with it."
+  [ex {:keys [account market] :as t}]
+  (cond
+    (not (market-exists? ex market)) :unknown-market
+    (not (account-ok? account)) :bad-account
+    :else (validate-order-shape ex market t)))
+
+(defn amend-tx-shape
+  "nil when this amend may be applied, otherwise its `reasons` keyword.
+
+  The id must be a NATURAL integer — `slot * gen-mod + generation`
+  (`bk/oid-of`), so 0 names a live order and a fraction names nothing. The
+  engine used to answer `(long 2.5)` with the order at slot 2, amending (or
+  cancelling) an order the transaction never named; `(long \"oid\")` was a
+  throw on one runtime and a NaN no-op on the other. After the id, the NEW
+  resting shape has to be a legal order in its own right — the same check
+  `:order` gets, because an amend that cannot keep its place in the queue
+  becomes exactly that (and the engine re-dispatches it as one)."
+  [ex {:keys [account market oid] :as t}]
+  (cond
+    (not (market-exists? ex market)) :unknown-market
+    (not (account-ok? account)) :bad-account
+    (not (nat-int? oid)) :missing-field
+    :else (validate-order-shape ex market (assoc t :side 0 :flags 0))))
+
+(defn cancel-tx-shape
+  "nil when this cancel may be applied, otherwise its `reasons` keyword.
+
+  Strictly shape: the market exists, the signer is a slab-storable account,
+  the id is a natural integer (see `amend-tx-shape`). Whose order it is is
+  the book's answer (`bk/cancel!` compares owners), not this function's —
+  but a cancel whose OWN fields cannot be read must be refused before the
+  engine compares anything, because the comparison itself used to be the
+  throw: `(long nil)` on the JVM, `(long \"one\")` as NaN on JS naming slot 0."
+  [ex {:keys [account market oid]}]
+  (cond
+    (not (market-exists? ex market)) :unknown-market
+    (not (account-ok? account)) :bad-account
+    (not (nat-int? oid)) :missing-field
+    :else nil))
+
+(defn trigger-tx-shape
+  "nil when this trigger may be stored, otherwise its `reasons` keyword.
+
+  Mirrors `validate`'s `:trigger` clause exactly — including the report
+  mapping: a bad embedded order is a bad TRIGGER (`:bad-trigger-order`)
+  except a price level, which is reported as itself, because the client asked
+  for a trigger, not for an order. The embedded order is judged by the same
+  `validate-order-shape` the engine will judge it with again when the mark
+  arms it."
+  [ex {:keys [account market trigger-price direction order]}]
+  (cond
+    (not (market-exists? ex market)) :unknown-market
+    (not (account-ok? account)) :bad-account
+    (not (int-in? trigger-price 1 fx/i53-max)) :bad-trigger-price
+    (not (contains? #{:above :below} direction)) :bad-trigger-direction
+    (not (map? order)) :bad-trigger-order
+    :else (when-let [r (validate-order-shape ex market order)]
+            (if (= r :bad-price-level) :bad-price-level :bad-trigger-order))))
 
 (def ^:const max-builder-fee-rate
   "The most a builder may charge, as a rate against `fx/rate-scale`. Ten basis
@@ -632,7 +718,24 @@
                          [side l qty (or (:flags t) 0)])]
              (not (om/orders-allowed? ex (:open-orders ex) account market rungs))))
       :insufficient-margin
-      :else nil)
+      ;; Mirror door. The engine gate judges every rung as an order the moment
+      ;; the ladder is placed (`torihiki.state/apply-tx :scale` dispatches each
+      ;; rung through `:order`), so what `validate-order-shape` would refuse
+      ;; for a rung has to be refused HERE too — or the gate would drop rungs
+      ;; this function passed and a ladder would arrive silently short. Same
+      ;; rungs, same judgment: out-of-bounds rungs are skipped by the engine
+      ;; (a scale that ran past the end of the book does not take the rungs
+      ;; that fit with it), so they are skipped here too.
+      :else
+      (let [dir (if (= (:side t) bk/bid) -1 1)
+            n (n-levels ex market)]
+        (some (fn [i]
+                (let [l (+ (:level t) (* dir i (:step t)))]
+                  (when (and (<= 0 l) (< l n))
+                    (validate-order-shape ex market
+                                          {:side (:side t) :level l
+                                           :qty (:qty t) :flags (:flags t)}))))
+              (range (:count* t)))))
 
     :twap
     (cond
@@ -648,7 +751,18 @@
       ;; Every slice must be at least one lot, or the tail of the schedule
       ;; fires empty orders forever.
       (< (:qty t) (:slices t)) :bad-quantity
-      :else nil)
+      ;; Mirror door. `fire-twaps` places each slice as an order at the top of
+      ;; the ladder (bids — level `n-levels - 1`) or at level 0 (asks, where
+      ;; the notional is zero and nothing is capped), and the engine gate
+      ;; judges that order like any other. A schedule whose TOTAL would
+      ;; compute an out-of-domain notional at the slice level is refused HERE:
+      ;; a slice is never bigger than the total, so the total against the
+      ;; slice level covers every slice the schedule will ever fire.
+      :else
+      (when (= (:side t) bk/bid)
+        (let [l (dec (n-levels ex market))]
+          (when (and (pos? l) (> (:qty t) (quot fx/i53-max l)))
+            :bad-amount))))
 
     :cancel-twap
     (cond

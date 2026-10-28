@@ -41,6 +41,7 @@
 (ns tests-on-nbb
   (:require [cljs.test :as ct]
             [torihiki.api-test]
+            [torihiki.apply-totality-test]
             [torihiki.auth-test]
             [torihiki.book-test]
             [torihiki.bridge-test]
@@ -70,7 +71,7 @@
 ;; The floor. A classpath that resolves `cljs.test` but none of the test
 ;; namespaces would run zero tests and report zero failures, and this script
 ;; would exit 0 -- "could not measure" wearing the face of "measured, clean".
-;; Twenty-six namespaces are required; fewer than twenty-six ran means
+;; Twenty-seven namespaces are required; fewer than twenty-seven ran means
 ;; the run is unanswerable, and it exits 2 rather than 0 or 1. (This floor
 ;; said "sixteen" and checked 26 while `torihiki.overflow-gates-test` and
 ;; `torihiki.fuzz-seeded-test` were missing from the lists below: the leg
@@ -87,9 +88,12 @@
 ;; "Not run: this repository's build and tests"; the first nbb leg after the
 ;; move measured the disagreement as a floor refusal (26 of 29 namespaces,
 ;; 516 tests / 3605 assertions clean otherwise, exit 2 — 2026-10-28).
-;; 26 is the suite this repository owns; the constant stays hard so a
-;; classpath that drops more namespaces still exits 2.
-(def ^:private expected-namespaces 26)
+;; The floor is 27, not 26: `torihiki.apply-totality-test` joined the suite
+;; with the apply-path shape gates (the `torihiki.api` order/amend/cancel/
+;; trigger doors and their `torihiki.state` engine gates) — 26 was the suite
+;; PR #74 left, and 27 is that suite plus the totality pins. The constant
+;; stays hard so a classpath that drops more namespaces still exits 2.
+(def ^:private expected-namespaces 27)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -115,6 +119,7 @@
       (println "TESTS-ON-NBB: pass — the runtime that deploys ran the suite"))))
 
 (ct/run-tests 'torihiki.api-test
+              'torihiki.apply-totality-test
               'torihiki.auth-test
               'torihiki.book-test
               'torihiki.bridge-test
