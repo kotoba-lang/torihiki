@@ -566,26 +566,34 @@
 
 (defmethod apply-tx :order
   [ex {:keys [account market side level qty flags builder builder-fee]
-      :or {flags 0}}]
-  (let [reduce-only? (pos? (bit-and flags bk/flag-reduce-only))
-        ;; Reduce-only is clamped, not rejected: a trader closing a position
-        ;; often sends slightly more than they hold, and the intent is
-        ;; unambiguous. What must not happen is the excess opening a position
-        ;; on the other side.
-        qty (if reduce-only?
-              (cl/reducing-qty (:clearing ex) account market side qty)
-              qty)
-        ;; A reduce-only order does NOT rest. Enforcing it once at placement is
-        ;; only sound if it cannot outlive the position it was checked against
-        ;; — a resting one would need re-validating on every position change,
-        ;; and a half-enforced flag is worse than a restricted one. Hyperliquid
-        ;; does let them rest; this is a stated difference, not an oversight.
-        flags (if reduce-only? (bit-or flags bk/flag-ioc) flags)]
-    (if (not (pos? qty))
-      ex
-      (if (spot? ex market)
-        (apply-tx-spot-order ex account market side level qty flags)
-        (apply-tx-order ex account market side level qty flags builder builder-fee)))))
+      :or {flags 0} :as t}]
+  ;; The gate runs before ANY destructured field is computed with: the
+  ;; reduce-only test below is `bit-and`, which throws on a JVM string and
+  ;; silently coerces on JS, and `reducing-qty` divides. An order that cannot
+  ;; be applied is dropped WHOLE — no throw, no truncation, no resting
+  ;; half-order (see `torihiki.api/order-tx-shape`; refusals are no-ops with
+  ;; reasons from `torihiki.api/reasons`).
+  (if (api/order-tx-shape ex t)
+    ex
+    (let [reduce-only? (pos? (bit-and flags bk/flag-reduce-only))
+          ;; Reduce-only is clamped, not rejected: a trader closing a position
+          ;; often sends slightly more than they hold, and the intent is
+          ;; unambiguous. What must not happen is the excess opening a position
+          ;; on the other side.
+          qty (if reduce-only?
+                (cl/reducing-qty (:clearing ex) account market side qty)
+                qty)
+          ;; A reduce-only order does NOT rest. Enforcing it once at placement is
+          ;; only sound if it cannot outlive the position it was checked against
+          ;; — a resting one would need re-validating on every position change,
+          ;; and a half-enforced flag is worse than a restricted one. Hyperliquid
+          ;; does let them rest; this is a stated difference, not an oversight.
+          flags (if reduce-only? (bit-or flags bk/flag-ioc) flags)]
+      (if (not (pos? qty))
+        ex
+        (if (spot? ex market)
+          (apply-tx-spot-order ex account market side level qty flags)
+          (apply-tx-order ex account market side level qty flags builder builder-fee))))))
 
 (defn spot?
   "Whether `market` settles as an exchange of balances rather than as a
@@ -827,21 +835,28 @@
 ;; ── conditional orders ──────────────────────────────────────────────────────
 
 (defmethod apply-tx :trigger
-  [ex {:keys [account market trigger-price direction order]}]
-  (let [id (inc (:trigger-seq ex 0))
-        t (trg/trigger {:id id :account account :market market
-                        :trigger-price trigger-price :direction direction
-                        :order order})]
-    (if-not (trg/valid? t)
-      ex
-      (-> ex
-          (assoc :trigger-seq id)
-          (update-in [:triggers market] (fnil conj []) t)
-          ;; A trigger submitted already past its price fires immediately
-          ;; rather than waiting for the next tick. Anything else would leave
-          ;; a stop sitting armed-but-unfired through a gap, which is when a
-          ;; trader needs it most.
-          (fire-triggers market)))))
+  [ex {:keys [account market trigger-price direction order] :as t}]
+  ;; Gated before `trg/trigger`/`trg/valid?` build or judge anything: `valid?`
+  ;; computes with the embedded order (`pos?` on its quantity), so a stop with
+  ;; a string there used to throw inside `apply-block` — a halted chain, the
+  ;; falsify-6/7 class. A trigger that cannot fire is never armed (see
+  ;; `torihiki.api/trigger-tx-shape`).
+  (if (api/trigger-tx-shape ex t)
+    ex
+    (let [id (inc (:trigger-seq ex 0))
+          t (trg/trigger {:id id :account account :market market
+                          :trigger-price trigger-price :direction direction
+                          :order order})]
+      (if-not (trg/valid? t)
+        ex
+        (-> ex
+            (assoc :trigger-seq id)
+            (update-in [:triggers market] (fnil conj []) t)
+            ;; A trigger submitted already past its price fires immediately
+            ;; rather than waiting for the next tick. Anything else would leave
+            ;; a stop sitting armed-but-unfired through a gap, which is when a
+            ;; trader needs it most.
+            (fire-triggers market))))))
 
 (defn- twap-slice-qty
   "How much this firing should place: the even share, plus whatever rounding
@@ -1185,23 +1200,41 @@
                 ;; stale stop opens a position on the other side. So the clamp
                 ;; is applied here explicitly.
                 ex (reduce (fn [e t]
-                             (let [o (:order t)
-                                   q (cl/reducing-qty (:clearing e) (:account t)
-                                                      market (:side o) (:qty o))]
-                               (if (pos? q)
-                                 (apply-tx-order e (:account t) market
-                                                 (:side o) (:level o) q
-                                                 ;; reduce-only too: the book
-                                                 ;; ignores that bit, and the
-                                                 ;; margin check reads it — a
-                                                 ;; stop must not be refused.
-                                                 (bit-or (:flags o 0) bk/flag-ioc bk/flag-reduce-only)
-                                                 ;; A trigger's order carries no
-                                                 ;; builder: the routing client
-                                                 ;; is not on the other end when
-                                                 ;; a stop fires blocks later.
-                                                 nil nil)
-                                 e)))
+                             (let [o (:order t)]
+                               ;; The fire-time gate. Pre-fix state can carry
+                               ;; triggers this engine never validated — the
+                               ;; door at submission does not see them — so the
+                               ;; RAW embedded order is judged again here,
+                               ;; BEFORE `reducing-qty` computes with it and
+                               ;; before `bit-or` reads its flags. The `assoc`
+                               ;; makes the embedded order an `:order` for the
+                               ;; shared door (the trigger itself carries the
+                               ;; account and the market). A stop that cannot
+                               ;; fire is consumed and dropped whole: the
+                               ;; position it would have touched is untouched,
+                               ;; and nothing rests.
+                               (if-not (and (map? o)
+                                            (nil? (api/order-tx-shape
+                                                   e (assoc o
+                                                            :account (:account t)
+                                                            :market market))))
+                                 e
+                                 (let [q (cl/reducing-qty (:clearing e) (:account t)
+                                                          market (:side o) (:qty o))]
+                                   (if (pos? q)
+                                     (apply-tx-order e (:account t) market
+                                                     (:side o) (:level o) q
+                                                     ;; reduce-only too: the book
+                                                     ;; ignores that bit, and the
+                                                     ;; margin check reads it — a
+                                                     ;; stop must not be refused.
+                                                     (bit-or (:flags o 0) bk/flag-ioc bk/flag-reduce-only)
+                                                     ;; A trigger's order carries no
+                                                     ;; builder: the routing client
+                                                     ;; is not on the other end when
+                                                     ;; a stop fires blocks later.
+                                                     nil nil)
+                                     e)))))
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))
 
@@ -1331,66 +1364,81 @@
         (update-oo om/clear account market))))
 
 (defmethod apply-tx :amend
-  [ex {:keys [market oid account level qty]}]
-  (let [book (get-in ex [:books market])
-        cur (bk/order-of book oid)]
-    (cond
-      ;; Not a live order, or not theirs. Same answer as a cancel naming
-      ;; somebody else's order: a no-op block entry.
-      (or (nil? cur) (not= account (:owner cur))) ex
+  [ex {:keys [market oid account level qty] :as t}]
+  ;; Gated before the book is read or anything is compared: `(< qty (:qty
+  ;; cur))` computes with the new size and `bk/order-of` used to answer
+  ;; `(long 2.5)` with the order at slot 2 — a truncation that amended (or
+  ;; half-amended) an order the transaction never named. The gate also covers
+  ;; the half-execution this method used to be able to perform: an unappliable
+  ;; new shape is dropped BEFORE the cancel half runs, so the old order is
+  ;; still there at its full size (see `torihiki.api/amend-tx-shape`).
+  (if (api/amend-tx-shape ex t)
+    ex
+    (let [book (get-in ex [:books market])
+          cur (bk/order-of book oid)]
+      (cond
+        ;; Not a live order, or not theirs. Same answer as a cancel naming
+        ;; somebody else's order: a no-op block entry.
+        (or (nil? cur) (not= account (:owner cur))) ex
 
-      ;; Same price, smaller size — the one modification that keeps its place
-      ;; in the queue. See `bk/reduce-to!` for why that matters enough to be a
-      ;; separate path.
-      (and (= level (:level cur)) (< qty (:qty cur)))
-      (let [removed (bk/reduce-to! book oid account qty)]
-        (cond
-          (not (spot? ex market))
-          (update-oo ex om/adjust account market (:side cur) level (- removed))
-          ;; From version 4 the part removed gives its reservation back.
-          (>= (gov/active-version ex) spot-version)
-          (let [[asset amount] (spot-backing ex market (:side cur) level removed)]
-            (update ex :clearing cl/release-spot account asset amount))
-          :else ex))
+        ;; Same price, smaller size — the one modification that keeps its place
+        ;; in the queue. See `bk/reduce-to!` for why that matters enough to be a
+        ;; separate path.
+        (and (= level (:level cur)) (< qty (:qty cur)))
+        (let [removed (bk/reduce-to! book oid account qty)]
+          (cond
+            (not (spot? ex market))
+            (update-oo ex om/adjust account market (:side cur) level (- removed))
+            ;; From version 4 the part removed gives its reservation back.
+            (>= (gov/active-version ex) spot-version)
+            (let [[asset amount] (spot-backing ex market (:side cur) level removed)]
+              (update ex :clearing cl/release-spot account asset amount))
+            :else ex))
 
-      ;; Anything else is a new order at the back of the line, so it IS one.
-      ;; Delegating rather than re-implementing: placing has to run fills
-      ;; through the clearinghouse, reprice the mark and arm triggers, and a
-      ;; second copy of that would be a second definition of what an order
-      ;; does.
-      :else
-      (let [cancelled (bk/cancel! book oid account)]
-        (if (zero? cancelled)
-          ex
-          (apply-tx (cond
-                      (not (spot? ex market))
-                      (update-oo ex om/adjust account market (:side cur) (:level cur) (- cancelled))
-                      ;; From version 4 the cancelled order's reservation comes
-                      ;; back before the new one takes its own.
-                      (>= (gov/active-version ex) spot-version)
-                      (let [[asset amount] (spot-backing ex market (:side cur) (:level cur) cancelled)]
-                        (update ex :clearing cl/release-spot account asset amount))
-                      :else ex)
-                    {:tx :order :account account :market market
-                     :side (:side cur) :level level :qty qty :flags 0}))))))
+        ;; Anything else is a new order at the back of the line, so it IS one.
+        ;; Delegating rather than re-implementing: placing has to run fills
+        ;; through the clearinghouse, reprice the mark and arm triggers, and a
+        ;; second copy of that would be a second definition of what an order
+        ;; does.
+        :else
+        (let [cancelled (bk/cancel! book oid account)]
+          (if (zero? cancelled)
+            ex
+            (apply-tx (cond
+                        (not (spot? ex market))
+                        (update-oo ex om/adjust account market (:side cur) (:level cur) (- cancelled))
+                        ;; From version 4 the cancelled order's reservation comes
+                        ;; back before the new one takes its own.
+                        (>= (gov/active-version ex) spot-version)
+                        (let [[asset amount] (spot-backing ex market (:side cur) (:level cur) cancelled)]
+                          (update ex :clearing cl/release-spot account asset amount))
+                        :else ex)
+                      {:tx :order :account account :market market
+                       :side (:side cur) :level level :qty qty :flags 0})))))))
 
 (defmethod apply-tx :cancel
-  [ex {:keys [market oid account]}]
-  ;; A cancelled spot order gives back what it had reserved. Doing it here,
-  ;; from the order the book still holds, is the only place both the size and
-  ;; the price are still known.
-  ;; `account` is who SIGNED this, and until it was passed here nothing
-  ;; compared it to who placed the order — see `bk/cancel!`. A cancel naming
-  ;; somebody else's order is now a no-op block entry rather than a free hand
-  ;; on their book.
-  (let [o (bk/order-of (get-in ex [:books market]) oid)
-        cancelled (bk/cancel! (get-in ex [:books market]) oid account)]
-    (cond
-      (not (pos? cancelled)) ex
-      (spot? ex market)
-      (let [[asset amount] (spot-backing ex market (:side o) (:level o) cancelled)]
-        (update ex :clearing cl/release-spot account asset amount))
-      :else (update-oo ex om/adjust account market (:side o) (:level o) (- cancelled)))))
+  [ex {:keys [market oid account] :as t}]
+  ;; Gated before the book is read: `bk/order-of` and `bk/cancel!` used to be
+  ;; the throw — `(long nil)` on the JVM and `(long "one")` as NaN on JS
+  ;; naming slot 0, one malformed cancel halting every validator inside
+  ;; `apply-block`. A cancel whose own fields cannot be read is dropped whole;
+  ;; whose order it is stays the book's answer below (see
+  ;; `torihiki.api/cancel-tx-shape`).
+  (if (api/cancel-tx-shape ex t)
+    ex
+    (let [o (bk/order-of (get-in ex [:books market]) oid)
+          cancelled (bk/cancel! (get-in ex [:books market]) oid account)]
+      ;; A cancelled spot order gives back what it had reserved, from the
+      ;; order the book still holds — the only place both the size and the
+      ;; price are still known. `account` is who SIGNED this, and `bk/cancel!`
+      ;; compares it to who placed the order: a cancel naming somebody else's
+      ;; order is a no-op block entry, not a free hand on their book.
+      (cond
+        (not (pos? cancelled)) ex
+        (spot? ex market)
+        (let [[asset amount] (spot-backing ex market (:side o) (:level o) cancelled)]
+          (update ex :clearing cl/release-spot account asset amount))
+        :else (update-oo ex om/adjust account market (:side o) (:level o) (- cancelled))))))
 
 ;; Set the oracle directly. Only permitted when no publisher set is configured
 ;; (see torihiki.api/validate). A devnet with one operator uses this; a market

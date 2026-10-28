@@ -1,0 +1,287 @@
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:71)
+out-of-domain qty
+apply-tx must answer, not throw
+expected: (not= :torihiki.apply-totality-test/threw ex')
+  actual: (not (not= :torihiki.apply-totality-test/threw :torihiki.apply-totality-test/threw))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+string qty
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:75)
+string qty
+expected: (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 0 5))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+fractional qty
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:75)
+fractional qty
+expected: (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 0 2))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:71)
+off-ladder level
+apply-tx must answer, not throw
+expected: (not= :torihiki.apply-totality-test/threw ex')
+  actual: (not (not= :torihiki.apply-totality-test/threw :torihiki.apply-totality-test/threw))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:71)
+negative level
+apply-tx must answer, not throw
+expected: (not= :torihiki.apply-totality-test/threw ex')
+  actual: (not (not= :torihiki.apply-totality-test/threw :torihiki.apply-totality-test/threw))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+string level
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+out-of-domain side
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+nil account
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:75)
+nil account
+expected: (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 0 5))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+string account
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:75)
+string account
+expected: (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 0 5))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:73)
+fractional flags
+the order is dropped WHOLE — nothing rests
+expected: (= 0 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 0 1))
+
+FAIL in (an-unappliable-order-is-a-no-op-not-a-throw) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:75)
+fractional flags
+expected: (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 0 5))
+
+FAIL in (the-notional-cap-has-a-sharp-boundary) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:104)
+one more lot at level 63 is refused at BOTH doors
+the engine door's reason
+expected: (= :bad-amount (api/order-tx-shape ex t))
+  actual: (not (= :bad-amount nil))
+
+FAIL in (the-notional-cap-has-a-sharp-boundary) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:108)
+one more lot at level 63 is refused at BOTH doors
+and the engine drops it instead of resting it
+expected: (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 63))
+  actual: (not (= 0 142971416741921))
+
+FAIL in (an-unappliable-amend-is-a-no-op) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:133)
+out-of-domain new size
+apply-tx must answer, not throw
+expected: (not= :torihiki.apply-totality-test/threw ex')
+  actual: (not (not= :torihiki.apply-totality-test/threw :torihiki.apply-totality-test/threw))
+
+FAIL in (an-unappliable-amend-is-a-no-op) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:133)
+off-ladder new level
+apply-tx must answer, not throw
+expected: (not= :torihiki.apply-totality-test/threw ex')
+  actual: (not (not= :torihiki.apply-totality-test/threw :torihiki.apply-totality-test/threw))
+
+FAIL in (an-unappliable-amend-is-a-no-op) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:135)
+fractional id
+the old order is untouched — the amend is dropped WHOLE
+expected: (= 10 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 10 5))
+
+FAIL in (an-unappliable-cancel-is-a-no-op) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:157)
+fractional id — JVM (long 2.5) is 2, which named a
+                        live order and cancelled it
+the order is still there at its full size
+expected: (= 10 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+  actual: (not (= 10 0))
+
+FAIL in (an-unappliable-cancel-is-a-no-op) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:159)
+fractional id — JVM (long 2.5) is 2, which named a
+                        live order and cancelled it
+expected: (= 1 (bk/resting-count (get-in ex' [:books 1])))
+  actual: (not (= 1 0))
+
+FAIL in (an-unappliable-trigger-is-never-stored) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:185)
+string qty in the embedded order
+nothing is stored: a stop that cannot fire must never arm
+expected: (empty? (get-in ex' [:triggers 1]))
+  actual: (not (empty? [{:id 1, :account 1, :market 1, :trigger-price 900, :direction :below, :order {:side 1, :level 0, :qty "5"}}]))
+
+FAIL in (an-unappliable-trigger-is-never-stored) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:185)
+out-of-domain qty in the embedded order
+nothing is stored: a stop that cannot fire must never arm
+expected: (empty? (get-in ex' [:triggers 1]))
+  actual: (not (empty? [{:id 1, :account 1, :market 1, :trigger-price 900, :direction :below, :order {:side 1, :level 0, :qty 9007199254740992}}]))
+
+FAIL in (an-unappliable-trigger-is-never-stored) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:185)
+off-ladder level in the embedded order
+nothing is stored: a stop that cannot fire must never arm
+expected: (empty? (get-in ex' [:triggers 1]))
+  actual: (not (empty? [{:id 1, :account 1, :market 1, :trigger-price 900, :direction :below, :order {:side 1, :level 65536, :qty 20}}]))
+
+FAIL in (an-unappliable-trigger-is-never-stored) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:185)
+string trigger price
+nothing is stored: a stop that cannot fire must never arm
+expected: (empty? (get-in ex' [:triggers 1]))
+  actual: (not (empty? [{:id 1, :account 1, :market 1, :trigger-price "900", :direction :below, :order {:side 1, :level 0, :qty 5}}]))
+
+FAIL in (an-unappliable-trigger-is-never-stored) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:185)
+string account
+nothing is stored: a stop that cannot fire must never arm
+expected: (empty? (get-in ex' [:triggers 1]))
+  actual: (not (empty? [{:id 1, :account "one", :market 1, :trigger-price 900, :direction :below, :order {:side 1, :level 0, :qty 5}}]))
+
+FAIL in (the-fire-time-gate-drops-garbage-stored-before-the-gate-existed) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:208)
+off-ladder level
+firing must answer, not throw
+expected: (not= :torihiki.apply-totality-test/threw ex')
+  actual: (not (not= :torihiki.apply-totality-test/threw :torihiki.apply-totality-test/threw))
+
+FAIL in (twap-mirrors-the-order-notional-cap) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:222)
+a schedule whose slices would compute an out-of-domain notional
+              is refused — at the level its slices actually fire at
+expected: (= :bad-amount (api/validate ex {:tx :twap, :account 1, :market 1, :side bk/bid, :qty (inc (quot fx/i53-max slice-level)), :slices 2, :every 1}))
+  actual: (not (= :bad-amount nil))
+
+FAIL in (scale-mirrors-the-order-shape-doors) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:238)
+rung flags outside ioc|post-only|reduce-only are refused: the
+              engine gate judges every rung as an order, flags included
+expected: (= :bad-flags (api/validate ex {:count* 3, :account 1, :level 1000, :tx :scale, :side bk/bid, :qty 5, :market 1, :flags 99, :step 10}))
+  actual: (not (= :bad-flags nil))
+
+FAIL in (scale-mirrors-the-order-shape-doors) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:242)
+a rung whose level x qty would leave the domain is refused
+expected: (= :bad-amount (api/validate ex {:tx :scale, :account 1, :market 1, :side bk/bid, :level 1000, :qty (inc (quot fx/i53-max 1000)), :count* 3, :step 10}))
+  actual: (not (= :bad-amount nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:256)
+expected: (= :bad-account (api/order-tx-shape ex (assoc o :account "one")))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:257)
+expected: (= :bad-quantity (api/order-tx-shape ex (assoc o :qty "5")))
+  actual: (not (= :bad-quantity nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:258)
+expected: (= :bad-side (api/order-tx-shape ex (assoc o :side 5)))
+  actual: (not (= :bad-side nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:259)
+expected: (= :bad-price-level (api/order-tx-shape ex (assoc o :level n)))
+  actual: (not (= :bad-price-level nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:260)
+expected: (= :bad-amount (api/order-tx-shape ex (assoc o :level 63 :qty (inc (quot fx/i53-max 63)))))
+  actual: (not (= :bad-amount nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:261)
+expected: (= :bad-flags (api/order-tx-shape ex (assoc o :flags 99)))
+  actual: (not (= :bad-flags nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:263)
+expected: (= :missing-field (api/amend-tx-shape ex {:tx :amend, :account 1, :market 1, :oid 2.5, :level 1000, :qty 5}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:265)
+expected: (= :bad-account (api/cancel-tx-shape ex {:tx :cancel, :account nil, :market 1, :oid 1}))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:266)
+expected: (= :unknown-market (api/cancel-tx-shape ex {:tx :cancel, :account 1, :market 99, :oid 1}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:267)
+expected: (= :bad-trigger-price (api/trigger-tx-shape ex {:tx :trigger, :account 1, :market 1, :trigger-price 0, :direction :below, :order {:side 1, :level 0, :qty 5}}))
+  actual: (not (= :bad-trigger-price nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:271)
+expected: (= :bad-trigger-order (api/trigger-tx-shape ex {:tx :trigger, :account 1, :market 1, :trigger-price 9, :direction :below, :order {:side 1, :level 0, :qty "5"}}))
+  actual: (not (= :bad-trigger-order nil))
+
+FAIL in (the-shape-gates-answer-with-closed-set-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-32220.cljk:275)
+expected: (= :bad-price-level (api/trigger-tx-shape ex {:tx :trigger, :account 1, :market 1, :trigger-price 9, :direction :below, :order {:side 1, :level n, :qty 5}}))
+  actual: (not (= :bad-price-level nil))
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 525 tests containing 3709 assertions.
+43 failures, 0 errors.
+kbb test: 525 test(s), 3666 pass, 43 fail, 0 error
