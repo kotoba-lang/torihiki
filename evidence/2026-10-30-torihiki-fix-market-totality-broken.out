@@ -1,0 +1,378 @@
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:96)
+garbage market id: string
+no garbage :markets key (the id is folded into the root)
+expected: (= #{1} (set (keys (:markets ex'))))
+  actual: (not (= #{1} #{1 "5"}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:98)
+garbage market id: string
+no garbage :books key
+expected: (= #{1} (set (keys (:books ex'))))
+  actual: (not (= #{1} #{1 "5"}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:99)
+garbage market id: string
+no garbage :funding key
+expected: (= #{1} (set (keys (:funding ex'))))
+  actual: (not (= #{1} #{1 "5"}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:96)
+garbage market id: fractional
+no garbage :markets key (the id is folded into the root)
+expected: (= #{1} (set (keys (:markets ex'))))
+  actual: (not (= #{1} #{1 2.5}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:98)
+garbage market id: fractional
+no garbage :books key
+expected: (= #{1} (set (keys (:books ex'))))
+  actual: (not (= #{1} #{1 2.5}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:99)
+garbage market id: fractional
+no garbage :funding key
+expected: (= #{1} (set (keys (:funding ex'))))
+  actual: (not (= #{1} #{1 2.5}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:96)
+garbage market id: negative
+no garbage :markets key (the id is folded into the root)
+expected: (= #{1} (set (keys (:markets ex'))))
+  actual: (not (= #{1} #{1 -1}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:98)
+garbage market id: negative
+no garbage :books key
+expected: (= #{1} (set (keys (:books ex'))))
+  actual: (not (= #{1} #{1 -1}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:99)
+garbage market id: negative
+no garbage :funding key
+expected: (= #{1} (set (keys (:funding ex'))))
+  actual: (not (= #{1} #{1 -1}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:96)
+garbage market id: zero
+no garbage :markets key (the id is folded into the root)
+expected: (= #{1} (set (keys (:markets ex'))))
+  actual: (not (= #{1} #{1 0}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:98)
+garbage market id: zero
+no garbage :books key
+expected: (= #{1} (set (keys (:books ex'))))
+  actual: (not (= #{1} #{1 0}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:99)
+garbage market id: zero
+no garbage :funding key
+expected: (= #{1} (set (keys (:funding ex'))))
+  actual: (not (= #{1} #{1 0}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:96)
+garbage market id: out-of-domain
+no garbage :markets key (the id is folded into the root)
+expected: (= #{1} (set (keys (:markets ex'))))
+  actual: (not (= #{1} #{1 9007199254740992}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:98)
+garbage market id: out-of-domain
+no garbage :books key
+expected: (= #{1} (set (keys (:books ex'))))
+  actual: (not (= #{1} #{1 9007199254740992}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:99)
+garbage market id: out-of-domain
+no garbage :funding key
+expected: (= #{1} (set (keys (:funding ex'))))
+  actual: (not (= #{1} #{1 9007199254740992}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:96)
+garbage market id: nil
+no garbage :markets key (the id is folded into the root)
+expected: (= #{1} (set (keys (:markets ex'))))
+  actual: (not (= #{1} #{1 nil}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:98)
+garbage market id: nil
+no garbage :books key
+expected: (= #{1} (set (keys (:books ex'))))
+  actual: (not (= #{1} #{1 nil}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:99)
+garbage market id: nil
+no garbage :funding key
+expected: (= #{1} (set (keys (:funding ex'))))
+  actual: (not (= #{1} #{1 nil}))
+
+FAIL in (list-market-never-keys-markets-with-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:102)
+the garbage also arrives through VALIDATED traffic — validate's own market-id door used to pass an out-of-domain id
+expected: (= :unknown-market (api/validate (base) {:tx :list-market, :account 1, :market ood, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (list-market-never-stores-a-garbage-spec) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:113)
+garbage spec: fee rate string
+no market — and no rate folded RAW into enc-ints
+expected: (not (contains? (:markets ex') 2))
+  actual: (not (not true))
+
+FAIL in (list-market-never-stores-a-garbage-spec) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:113)
+garbage spec: fee rate over ceiling
+no market — and no rate folded RAW into enc-ints
+expected: (not (contains? (:markets ex') 2))
+  actual: (not (not true))
+
+FAIL in (list-market-never-stores-a-garbage-spec) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:113)
+garbage spec: fee rate out-of-domain
+no market — and no rate folded RAW into enc-ints
+expected: (not (contains? (:markets ex') 2))
+  actual: (not (not true))
+
+FAIL in (list-market-never-stores-a-garbage-spec) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:113)
+garbage spec: negative margin rate
+no market — and no rate folded RAW into enc-ints
+expected: (not (contains? (:markets ex') 2))
+  actual: (not (not true))
+
+FAIL in (list-market-never-stores-a-garbage-spec) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:113)
+garbage spec: nested out-of-domain integer
+no market — and no rate folded RAW into enc-ints
+expected: (not (contains? (:markets ex') 2))
+  actual: (not (not true))
+
+FAIL in (amend-market-never-merges-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:131)
+garbage spec: fee rate string
+the live market record is untouched — never a coerced rate
+expected: (= before (get-in ex' [:markets 1]))
+  actual: (not (= {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000} {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000, :taker-fee-rate "5"}))
+
+FAIL in (amend-market-never-merges-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:131)
+garbage spec: fee rate over ceiling
+the live market record is untouched — never a coerced rate
+expected: (= before (get-in ex' [:markets 1]))
+  actual: (not (= {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000} {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000, :taker-fee-rate 1000000001}))
+
+FAIL in (amend-market-never-merges-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:131)
+garbage spec: fee rate out-of-domain
+the live market record is untouched — never a coerced rate
+expected: (= before (get-in ex' [:markets 1]))
+  actual: (not (= {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000} {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000, :taker-fee-rate 9007199254740992}))
+
+FAIL in (amend-market-never-merges-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:131)
+garbage spec: negative margin rate
+the live market record is untouched — never a coerced rate
+expected: (= before (get-in ex' [:markets 1]))
+  actual: (not (= {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000} {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate -1}))
+
+FAIL in (amend-market-never-merges-garbage) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:131)
+garbage spec: nested out-of-domain integer
+the live market record is untouched — never a coerced rate
+expected: (= before (get-in ex' [:markets 1]))
+  actual: (not (= {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000} {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000, :weird 9007199254740992}))
+
+FAIL in (cancel-twap-never-mints-the-twaps-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:152)
+garbage cancel: nil account
+a cancel that names nothing must not mint the :twaps key
+expected: (not (contains? ex' :twaps))
+  actual: (not (not true))
+
+FAIL in (cancel-twap-never-mints-the-twaps-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:152)
+garbage cancel: nil account, nil id
+a cancel that names nothing must not mint the :twaps key
+expected: (not (contains? ex' :twaps))
+  actual: (not (not true))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:160)
+garbage market id: string
+string refused with the word validate answers
+expected: (= :unknown-market (api/market-tx-shape (base) {:tx :list-market, :account 1, :market m, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:160)
+garbage market id: fractional
+fractional refused with the word validate answers
+expected: (= :unknown-market (api/market-tx-shape (base) {:tx :list-market, :account 1, :market m, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:160)
+garbage market id: negative
+negative refused with the word validate answers
+expected: (= :unknown-market (api/market-tx-shape (base) {:tx :list-market, :account 1, :market m, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:160)
+garbage market id: zero
+zero refused with the word validate answers
+expected: (= :unknown-market (api/market-tx-shape (base) {:tx :list-market, :account 1, :market m, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:160)
+garbage market id: out-of-domain
+out-of-domain refused with the word validate answers
+expected: (= :unknown-market (api/market-tx-shape (base) {:tx :list-market, :account 1, :market m, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:160)
+garbage market id: nil
+nil refused with the word validate answers
+expected: (= :unknown-market (api/market-tx-shape (base) {:tx :list-market, :account 1, :market m, :spec {:tick 1, :lot 1}}))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:166)
+garbage spec: fee rate string
+expected: (= reason (api/market-tx-shape (base) {:tx :list-market, :account 1, :market 2, :spec (merge {:tick 1, :lot 1} spec)}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:169)
+garbage spec: fee rate string
+expected: (= reason (api/market-tx-shape (base) {:tx :amend-market, :account 1, :market 1, :spec spec}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:166)
+garbage spec: fee rate over ceiling
+expected: (= reason (api/market-tx-shape (base) {:tx :list-market, :account 1, :market 2, :spec (merge {:tick 1, :lot 1} spec)}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:169)
+garbage spec: fee rate over ceiling
+expected: (= reason (api/market-tx-shape (base) {:tx :amend-market, :account 1, :market 1, :spec spec}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:166)
+garbage spec: fee rate out-of-domain
+expected: (= reason (api/market-tx-shape (base) {:tx :list-market, :account 1, :market 2, :spec (merge {:tick 1, :lot 1} spec)}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:169)
+garbage spec: fee rate out-of-domain
+expected: (= reason (api/market-tx-shape (base) {:tx :amend-market, :account 1, :market 1, :spec spec}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:166)
+garbage spec: negative margin rate
+expected: (= reason (api/market-tx-shape (base) {:tx :list-market, :account 1, :market 2, :spec (merge {:tick 1, :lot 1} spec)}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:169)
+garbage spec: negative margin rate
+expected: (= reason (api/market-tx-shape (base) {:tx :amend-market, :account 1, :market 1, :spec spec}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:166)
+garbage spec: nested out-of-domain integer
+expected: (= reason (api/market-tx-shape (base) {:tx :list-market, :account 1, :market 2, :spec (merge {:tick 1, :lot 1} spec)}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:169)
+garbage spec: nested out-of-domain integer
+expected: (= reason (api/market-tx-shape (base) {:tx :amend-market, :account 1, :market 1, :spec spec}))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:173)
+a garbage rate in a TIER is a rate answer
+expected: (= :rate-too-high (api/market-tx-shape (base) {:tx :list-market, :account 1, :market 2, :spec {:tick 1, :lot 1, :fee-tiers [{:min-volume 0, :maker-fee-rate (inc fx/rate-scale)}]}}))
+  actual: (not (= :rate-too-high nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:180)
+garbage cancel: string id
+string id refused with the word validate answers
+expected: (= reason (api/market-tx-shape (base) tx))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:180)
+garbage cancel: fractional id
+fractional id refused with the word validate answers
+expected: (= reason (api/market-tx-shape (base) tx))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:180)
+garbage cancel: nil id
+nil id refused with the word validate answers
+expected: (= reason (api/market-tx-shape (base) tx))
+  actual: (not (= :missing-field nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:180)
+garbage cancel: nil account
+nil account refused with the word validate answers
+expected: (= reason (api/market-tx-shape (base) tx))
+  actual: (not (= :bad-account nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:180)
+garbage cancel: string account
+string account refused with the word validate answers
+expected: (= reason (api/market-tx-shape (base) tx))
+  actual: (not (= :bad-account nil))
+
+FAIL in (market-tx-shape-reasons) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-14439.cljk:180)
+garbage cancel: nil account, nil id
+nil account, nil id refused with the word validate answers
+expected: (= reason (api/market-tx-shape (base) tx))
+  actual: (not (= :bad-account nil))
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 558 tests containing 4395 assertions.
+54 failures, 0 errors.
+kbb test: 558 test(s), 4341 pass, 54 fail, 0 error

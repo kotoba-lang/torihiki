@@ -55,6 +55,7 @@
             [torihiki.liquidation-makers-test]
             [torihiki.log-test]
             [torihiki.mark-test]
+            [torihiki.market-totality-test]
             [torihiki.money-totality-test]
             [torihiki.oracle-test]
             [torihiki.oracle-set-test]
@@ -117,7 +118,13 @@
 ;; the store totality gates left, and 30 is that suite plus the money totality
 ;; pins. The constant stays hard so a classpath that drops more namespaces
 ;; still exits 2.
-(def ^:private expected-namespaces 30)
+;; The floor is 31, not 30: `torihiki.market-totality-test` joined the suite
+;; with the market-admin shape gates (the `torihiki.api/market-tx-shape` door
+;; over :list-market/:amend-market/:cancel-twap and its `torihiki.state`
+;; engine gates) — 30 was the suite the money totality gates left, and 31 is
+;; that suite plus the market totality pins. The constant stays hard so a
+;; classpath that drops more namespaces still exits 2.
+(def ^:private expected-namespaces 31)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -157,6 +164,7 @@
               'torihiki.liquidation-makers-test
               'torihiki.log-test
               'torihiki.mark-test
+              'torihiki.market-totality-test
               'torihiki.money-totality-test
               'torihiki.oracle-test
               'torihiki.oracle-set-test

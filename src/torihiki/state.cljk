@@ -1266,11 +1266,17 @@
                    :started-at (:height ex 0)})))))
 
 (defmethod apply-tx :cancel-twap
-  [ex {:keys [account id]}]
+  [ex {:keys [account id] :as t}]
   ;; Only the owner. Same rule as cancelling an order, and for the same reason.
-  (if (= account (:account (get-in ex [:twaps id])))
-    (update ex :twaps dissoc id)
-    ex))
+  ;; The market door runs first: with a nil account `(= nil nil)` used to MATCH
+  ;; a schedule that was not there, and `(update ex :twaps dissoc id)` then
+  ;; MINTED the `:twaps` key itself (:twaps nil in state) — a garbage cancel
+  ;; that created a key.
+  (if (api/market-tx-shape ex t)
+    ex
+    (if (= account (:account (get-in ex [:twaps id])))
+      (update ex :twaps dissoc id)
+      ex)))
 
 (defmethod apply-tx :cancel-trigger
   [ex {:keys [market id] :as t}]
@@ -1346,7 +1352,7 @@
             (recur (reprice! ex market) (inc round))))))))
 
 (defmethod apply-tx :amend-market
-  [ex {:keys [account market spec]}]
+  [ex {:keys [account market spec] :as t}]
   ;; Changing a listed market's parameters — fees, leverage, tiers, the name.
   ;;
   ;; `:list-market` refuses an id that already exists, and it should: replacing
@@ -1362,18 +1368,15 @@
   ;; arriving through a door labelled amend.
   (let [bridge (:bridge-authority ex)
         cur (get-in ex [:markets market])]
-    (if (or (nil? bridge) (not= account bridge) (nil? cur) (not (map? spec))
-            ;; The safety net behind `torihiki.api/validate`'s `:missing-field`
-            ;; — the same door `:list-market` keeps. An amend merges WHOLE, so
-            ;; a malformed schedule here would replace a good one and throw on
-            ;; the next sweep through the market; an unshaped flat field is
-            ;; folded raw into the state root by `encode-market-spec`. The
-            ;; tier `:max-leverage` the pinned core's `margin-tiers-ok?` leaves
-            ;; out is shaped by `api/tier-leverage-ok?`.
-            (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
-                      (cl/fee-tiers-ok? (:fee-tiers spec))
-                      (api/tier-leverage-ok? (:margin-tiers spec))
-                      (api/flat-spec-ok? spec))))
+    ;; The market door runs first (`torihiki.api/market-tx-shape` — the same
+    ;; judgments `validate` makes, now including `spec-ok?`/`rates-ok?`, which
+    ;; the safety net below used to leave out). An amend merges WHOLE, so a
+    ;; malformed schedule here would replace a good one and throw on the next
+    ;; sweep through the market; an unshaped flat field or rate is folded raw
+    ;; into the state root by `encode-market-spec`. The bridge policy and the
+    ;; kind/asset immutability below are the ENGINE's own questions, beside
+    ;; the shape rule.
+    (if (or (api/market-tx-shape ex t) (nil? bridge) (not= account bridge) (nil? cur))
       ex
       (if (and (>= (gov/active-version ex) spot-version)
                (or (and (contains? spec :kind) (not= (:kind spec) (:kind cur)))
@@ -1423,7 +1426,7 @@
       ex)))
 
 (defmethod apply-tx :list-market
-  [ex {:keys [account market spec book-opts]}]
+  [ex {:keys [account market spec book-opts] :as t}]
   ;; Listing a market on a RUNNING chain.
   ;;
   ;; Markets were genesis-only, and a chain restores from a checkpoint — so
@@ -1437,24 +1440,11 @@
   ;; gives, and for the same reason: an unconfigured chain has no governance,
   ;; and pretending otherwise would hand it to whoever asks first.
   (let [bridge (:bridge-authority ex)]
-    (if (or (nil? bridge) (not= account bridge)
-            (contains? (:markets ex) market)
-            (not (map? spec))
-            ;; The safety net behind `torihiki.api/validate`'s `:missing-field`:
-            ;; `new-book` enforces its shape constraints by THROWING, and a
-            ;; throw in here is a halted chain, so the transaction is refused
-            ;; whole before the allocator sees it.
-            (not (bk/book-opts-ok? book-opts))
-            ;; Same door for the schedules: a tier missing a field its reader
-            ;; derefs is a throw on the next sweep through the market — a
-            ;; halted chain from one stored map. Refused whole, before the
-            ;; spec is stored (see `cl/margin-tiers-ok?`). And the flat fields
-            ;; beside the schedules are shaped the same way — the encoder
-            ;; folds them raw into the root (see `api/flat-spec-ok?`).
-            (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
-                      (cl/fee-tiers-ok? (:fee-tiers spec))
-                      (api/tier-leverage-ok? (:margin-tiers spec))
-                      (api/flat-spec-ok? spec))))
+    ;; The market door runs first (`torihiki.api/market-tx-shape` — the same
+    ;; judgments `validate` makes: the id as the slab-storable key it becomes,
+    ;; the spec as the root bytes it enters, `new-book`'s throw-carrying
+    ;; option shapes). The bridge policy below is the ENGINE's own question.
+    (if (or (api/market-tx-shape ex t) (nil? bridge) (not= account bridge))
       ex
       (-> ex
           (assoc-in [:markets market] (assoc spec :id market))
