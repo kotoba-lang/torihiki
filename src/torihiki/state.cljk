@@ -955,28 +955,39 @@
      due)))
 
 (defmethod apply-tx :bond
-  [ex {:keys [account validator amount]}]
+  [ex {:keys [account validator amount] :as t}]
   ;; Delegated stake. `validator` is any account — a publisher, a witness's
   ;; operator, or somebody else's name for one. On a chain configured with a
   ;; validator set (`torihiki.validators`), the stake bonded to a witness's
   ;; operator account is that witness's weight at the next epoch boundary, and
   ;; what a proved equivocation takes. Bonding to an account that operates no
   ;; witness is still allowed: publishers are weighted by the same bonds.
-  (if (vals/jailed-operator? ex validator)
+  ;;
+  ;; The store door runs first: the validator becomes a :bonds KEY and the
+  ;; amount its VALUE — `cl/bond` coerces a garbage amount instead of
+  ;; refusing it.
+  (if (api/store-tx-shape ex t)
     ex
-    (update ex :clearing cl/bond account validator amount
-            (om/free-collateral ex account))))
+    (if (vals/jailed-operator? ex validator)
+      ex
+      (update ex :clearing cl/bond account validator amount
+              (om/free-collateral ex account)))))
 
 (defmethod apply-tx :unbond
-  [ex {:keys [account validator amount]}]
-  (update ex :clearing cl/unbond account validator amount (:height ex 0)))
+  [ex {:keys [account validator amount] :as t}]
+  ;; The store door runs first: a coerced amount unbonds real stake.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/unbond account validator amount (:height ex 0))))
 
 (defmethod apply-tx :collect-unbonded
-  [ex {:keys [account]}]
+  [ex {:keys [account] :as t}]
   ;; Asked for rather than swept, because a sweep would have to walk every
   ;; account every block to find the few that have something matured. The
   ;; money never moved, so waiting costs the holder nothing but the ask.
-  (update ex :clearing cl/collect-unbonded account (:height ex 0)))
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/collect-unbonded account (:height ex 0))))
 
 ;; ── the validator set (torihiki.validators) ─────────────────────────────────
 ;;
@@ -1063,11 +1074,16 @@
           ex')))))
 
 (defmethod apply-tx :transfer
-  [ex {:keys [account to amount]}]
+  [ex {:keys [account to amount] :as t}]
   ;; Inside one family only. Paying somebody else is a deposit with a
   ;; `:credit`, and that is gated on the bridge.
-  (update ex :clearing cl/transfer account to amount
-          (om/free-collateral ex account)))
+  ;;
+  ;; The store door runs first: `cl/transfer` coerces a string or fractional
+  ;; amount into moving real money.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/transfer account to amount
+            (om/free-collateral ex account))))
 
 (defmethod apply-tx :anchor
   [ex {:keys [account cid] :as t}]
@@ -1082,14 +1098,19 @@
     (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)})))
 
 (defmethod apply-tx :set-leverage
-  [ex {:keys [account market leverage]}]
+  [ex {:keys [account market leverage] :as t}]
   ;; A trader asking for a stricter margin requirement than the market
   ;; demands. See `cl/set-leverage` for why it is refused rather than clamped,
   ;; and why it cannot be changed under an open position.
-  (update ex :clearing cl/set-leverage account market
-          (get-in ex [:markets market])
-          leverage
-          (pos? (fx/abs* (:size (cl/position (:clearing ex) account market))))))
+  ;;
+  ;; The store door runs first: `cl/set-leverage` assoc-in's [:leverage
+  ;; account market] directly — a garbage account is a garbage key.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/set-leverage account market
+            (get-in ex [:markets market])
+            leverage
+            (pos? (fx/abs* (:size (cl/position (:clearing ex) account market)))))))
 
 (defmethod apply-tx :attest-reserves
   [ex {:keys [account amount height*]}]
@@ -1127,7 +1148,7 @@
               :as-of height*}))))
 
 (defmethod apply-tx :vault-deposit
-  [ex {:keys [account vault amount]}]
+  [ex {:keys [account vault amount] :as t}]
   ;; Outside money into a vault, for shares.
   ;;
   ;; The backstop vault was already an ordinary account — a position it absorbs
@@ -1137,14 +1158,24 @@
   ;; operator, so the capital standing behind the liquidation waterfall was
   ;; whatever one account happened to hold. The gap ledger called that out:
   ;; Hyperliquid's backstop takes outside deposits and this one could not.
-  (update ex :clearing cl/vault-deposit account vault amount))
+  ;;
+  ;; The store door runs first: the vault is BOTH a :vaults key and the
+  ;; :accounts key the shares credit — a garbage vault minted a garbage
+  ;; account, and a coerced amount minted coerced shares.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/vault-deposit account vault amount)))
 
 (defmethod apply-tx :vault-withdraw
-  [ex {:keys [account vault shares]}]
+  [ex {:keys [account vault shares] :as t}]
   ;; Paid out of what the vault holds FREE — collateral that is not backing its
   ;; positions.
-  (update ex :clearing cl/vault-withdraw account vault shares
-          (om/free-collateral ex vault)))
+  ;;
+  ;; The store door runs first: a coerced share count burns real shares.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/vault-withdraw account vault shares
+            (om/free-collateral ex vault))))
 
 (defmethod apply-tx :set-referrer
   [ex {:keys [account referrer] :as t}]

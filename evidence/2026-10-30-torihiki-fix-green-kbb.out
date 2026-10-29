@@ -29,6 +29,8 @@ Testing torihiki.log-test
 
 Testing torihiki.mark-test
 
+Testing torihiki.money-totality-test
+
 Testing torihiki.oracle-set-test
 
 Testing torihiki.oracle-test
@@ -57,6 +59,6 @@ Testing torihiki.trigger-test
 
 Testing torihiki.validators-test
 
-Ran 543 tests containing 4111 assertions.
+Ran 551 tests containing 4292 assertions.
 0 failures, 0 errors.
-kbb test: 543 test(s), 4111 pass, 0 fail, 0 error
+kbb test: 551 test(s), 4292 pass, 0 fail, 0 error

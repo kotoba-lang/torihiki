@@ -1,0 +1,258 @@
+(ns torihiki.money-totality-test
+  "The money doors are TOTAL: a transaction `torihiki.api/validate` refuses
+  must never reach a KEY in state, never move money, and never throw inside
+  `apply-block`.
+
+  The apply-path shape gates (PRs #78/#79/#80) covered :order/:amend/:cancel/
+  :trigger/:scale/:twap and the store dispatches. These pins are the money
+  movement dispatches, where the same disagreement between `validate` and the
+  engine was MEASURED (2026-10-30 probes at 6083458, kbb/SCI leg):
+  `:bond` keyed `:clearing :bonds` with a garbage validator (\"5\", 2.5,
+  2^53+1, -3, nil) and ARITHMETICED a garbage amount (\"5\" coerced to 5,
+  2.5 to 2 — the falsify-8 class: garbage bytes no two runtimes agree on);
+  `:unbond` moved stake on the same coerced amounts; `:vault-deposit` keyed
+  `:clearing :vaults` AND minted a garbage ACCOUNT KEY in `:clearing
+  :accounts` from its vault field (the store-totality class through a second
+  door) and minted shares on coerced amounts; `:transfer` moved money on
+  coerced amounts. `:collect-unbonded`, `:set-leverage` and `:vault-withdraw`
+  already refused garbage — pinned here as regression guards.
+
+  Refusals are pinned by VALUE at the engine (nothing lands, nothing moves)
+  and by REASON at both `api/store-tx-shape` (the engine door) and
+  `api/validate` (the words the door mirrors). A pin that only asserts
+  \"no throw\" is half a pin — so every no-throw pin here is paired with the
+  value it must leave alone, and a throw FAILS the pin rather than passing
+  it. One fixture PER CASE: the book is a mutable slab.
+
+  Garbage taxonomy (the `store-totality` one): a NEGATIVE id is a legal
+  account id — `account-ok?` judges slab-storability, and `:backstop-vault
+  -1` is one — so account-id pins refuse string/fractional/out-of-domain/nil
+  only, while amount pins add negative (and zero at the door). Pin
+  corrections found BY the first GREEN run are recorded in the landing
+  evidence: the account-id garbage set carried -3 against the contract, and
+  one key-set pin forgot the fixture's second funded account."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private ood (inc fx/i53-max))
+
+(defn- funded-unpriced []
+  (-> (st/new-exchange {:market mkt :book-opts {:n-levels 1024 :cap 1024 :ev-cap 1024}})
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 2 :amount 100000000})))
+
+(defn- bonded
+  "Account 1 has 5000 bonded to validator 2."
+  []
+  (st/apply-tx (funded-unpriced) {:tx :bond :account 1 :validator 2 :amount 5000}))
+
+(defn- familiaed
+  "Account 7 is account 1's sub-account — a transfer between them is legal."
+  []
+  (st/apply-tx (funded-unpriced) {:tx :create-sub-account :account 1 :sub 7}))
+
+(defn- vaulted
+  "Account 1 holds 5000 shares of vault 2."
+  []
+  (st/apply-tx (funded-unpriced) {:tx :vault-deposit :account 1 :vault 2 :amount 5000}))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(def ^:private id-garbages
+  "Garbage for an account-id field: what `account-ok?` refuses. A NEGATIVE id
+  is a legal account id (the slab stores it; `:backstop-vault -1` is one) —
+  it is not garbage here."
+  [["string" "5"] ["fractional" 2.5] ["out-of-domain" ood] ["nil" nil]])
+
+(def ^:private amount-garbages
+  "Garbage for an amount/shares field: what `int-in? 1..i53-max` refuses —
+  the account-id garbage plus negative and (where pinned) zero."
+  [["string" "5"] ["fractional" 2.5] ["out-of-domain" ood] ["negative" -3] ["nil" nil]])
+
+;; ── garbage validator keys never reach :bonds ───────────────────────────────
+
+(deftest a-bond-key-never-lands-on-a-garbage-validator
+  (doseq [[label v] id-garbages]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :bond :account 1 :validator v :amount 5000})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (get-in ex' [:clearing :bonds 1]))
+              "no garbage validator key in :bonds")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+              "and the real balances are untouched"))))))
+
+;; ── garbage amounts never enter the bond arithmetic ─────────────────────────
+
+(deftest a-bond-or-unbond-never-reckons-on-a-garbage-amount
+  (doseq [[label v] amount-garbages]
+    (testing (str "bond amount " label)
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :bond :account 1 :validator 2 :amount v})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (get-in ex' [:clearing :bonds 1]))
+              "no coerced amount is bonded")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))))))
+    (testing (str "unbond amount " label)
+      (let [ex (bonded)
+            ex' (applied ex {:tx :unbond :account 1 :validator 2 :amount v})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= 5000 (get-in ex' [:clearing :bonds 1 2]))
+              "the bond is whole")
+          (is (empty? (get-in ex' [:clearing :unbonding 1]))
+              "no coerced amount is unbonding"))))))
+
+;; ── garbage vault keys never become account keys ────────────────────────────
+
+(deftest a-vault-key-never-lands-as-a-garbage-account
+  (doseq [[label v] id-garbages]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :vault-deposit :account 1 :vault v :amount 5000})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:vaults (get-in ex' [:clearing])))
+              "no garbage vault key in :vaults")
+          (is (= #{1 2} (set (keys (get-in ex' [:clearing :accounts]))))
+              "and no garbage account key beside the real ones")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+              "the depositor keeps its collateral"))))))
+
+;; ── garbage amounts never mint vault shares ─────────────────────────────────
+
+(deftest a-vault-shares-never-mint-on-a-garbage-amount
+  (doseq [[label v] amount-garbages]
+    (testing (str "vault-deposit amount " label)
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :vault-deposit :account 1 :vault 2 :amount v})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:vaults (get-in ex' [:clearing])))
+              "no shares are minted")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))))))
+    (testing (str "vault-withdraw shares " label)
+      (let [ex (vaulted)
+            ex' (applied ex {:tx :vault-withdraw :account 1 :vault 2 :shares v})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= 5000 (get-in ex' [:clearing :vaults 2 :shares 1]))
+              "the shares are whole")
+          (is (= 99995000 (get-in ex' [:clearing :accounts 1 :collateral]))
+              "and nothing is paid out"))))))
+
+;; ── garbage amounts never move money at the transfer door ───────────────────
+
+(deftest a-transfer-never-moves-money-on-a-garbage-amount
+  (doseq [[label v] amount-garbages]
+    (testing (str "transfer amount " label)
+      (let [ex (familiaed)
+            ex' (applied ex {:tx :transfer :account 1 :to 7 :amount v})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+              "the payer keeps its collateral")
+          (is (nil? (get-in ex' [:clearing :accounts 7]))
+              "and the payee is not paid")))))
+  (doseq [[label v] id-garbages]
+    (testing (str "transfer to " label)
+      (let [ex (familiaed)
+            ex' (applied ex {:tx :transfer :account 1 :to v :amount 100})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= #{1 2} (set (keys (get-in ex' [:clearing :accounts]))))
+              "no garbage payee key")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))))))))
+
+;; ── the doors that already refused garbage keep refusing it ─────────────────
+
+(deftest a-garbage-account-never-reaches-the-unbonding-or-leverage-maps
+  (doseq [[label v] id-garbages]
+    (testing (str "collect-unbonded account " label)
+      (let [ex (bonded)
+            ex' (applied ex {:tx :collect-unbonded :account v})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= {1 {2 5000}} (get-in ex' [:clearing :bonds]))
+              "nothing unbonds for a garbage account"))))
+    (testing (str "set-leverage account " label)
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :set-leverage :account v :market 1 :leverage 2})]
+        (is (= ex ex') "a garbage account is a whole no-op")))
+    (testing (str "set-leverage market " label)
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :set-leverage :account 1 :market v :leverage 2})]
+        (is (= ex ex') "an unknown market is a whole no-op"))))
+  (doseq [[label v] amount-garbages]
+    (testing (str "set-leverage leverage " label)
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :set-leverage :account 1 :market 1 :leverage v})]
+        (is (= ex ex') "a garbage leverage is a whole no-op")))))
+
+;; ── the doors must never refuse what validate passed ────────────────────────
+
+(deftest a-valid-money-tx-still-lands
+  (testing "bond records the stake"
+    (let [ex' (applied (funded-unpriced) {:tx :bond :account 1 :validator 2 :amount 5000})]
+      (is (= 5000 (get-in ex' [:clearing :bonds 1 2])))))
+  (testing "unbond moves stake to unbonding"
+    (let [ex' (applied (bonded) {:tx :unbond :account 1 :validator 2 :amount 100})]
+      (is (= 4900 (get-in ex' [:clearing :bonds 1 2])))
+      (is (= [{:validator 2 :amount 100 :at 20000}]
+             (get-in ex' [:clearing :unbonding 1])))))
+  (testing "transfer pays inside the family"
+    (let [ex' (applied (familiaed) {:tx :transfer :account 1 :to 7 :amount 100})]
+      (is (= 99999900 (get-in ex' [:clearing :accounts 1 :collateral])))
+      (is (= 100 (get-in ex' [:clearing :accounts 7 :collateral])))))
+  (testing "vault-deposit mints shares and vault-withdraw burns them"
+    (let [ex (applied (funded-unpriced) {:tx :vault-deposit :account 1 :vault 2 :amount 5000})
+          ex' (applied ex {:tx :vault-withdraw :account 1 :vault 2 :shares 500})]
+      (is (= 5000 (get-in ex [:clearing :vaults 2 :shares 1])))
+      (is (= 4500 (get-in ex' [:clearing :vaults 2 :shares 1])))
+      (is (= 109995500 (get-in ex' [:clearing :accounts 1 :collateral])))))
+  (testing "collect-unbonded on an immature bond is the whole no-op it was"
+    (let [ex (bonded)
+          ex' (applied ex {:tx :collect-unbonded :account 1})]
+      (is (= ex ex') "immature stake stays where it is"))))
+
+;; ── the shared vocabulary speaks the closed taxonomy ────────────────────────
+
+(deftest the-money-doors-answer-with-the-same-words-as-validate
+  (let [ex (funded-unpriced)]
+    (doseq [[label t expect]
+            [["bond: string account" {:tx :bond :account "5" :validator 2 :amount 5000} :bad-account]
+             ["bond: nil validator" {:tx :bond :account 1 :validator nil :amount 5000} :bad-account]
+             ["bond: zero amount" {:tx :bond :account 1 :validator 2 :amount 0} :bad-amount]
+             ["bond: negative amount" {:tx :bond :account 1 :validator 2 :amount -3} :bad-amount]
+             ["bond: out-of-domain amount" {:tx :bond :account 1 :validator 2 :amount ood} :bad-amount]
+             ["unbond: fractional amount" {:tx :unbond :account 1 :validator 2 :amount 2.5} :bad-amount]
+             ["collect-unbonded: nil account" {:tx :collect-unbonded :account nil} :bad-account]
+             ["vault-deposit: fractional vault" {:tx :vault-deposit :account 1 :vault 2.5 :amount 5000} :bad-account]
+             ["vault-deposit: zero amount" {:tx :vault-deposit :account 1 :vault 2 :amount 0} :bad-amount]
+             ["vault-withdraw: string shares" {:tx :vault-withdraw :account 1 :vault 2 :shares "5"} :bad-quantity]
+             ["vault-withdraw: out-of-domain shares" {:tx :vault-withdraw :account 1 :vault 2 :shares ood} :bad-quantity]
+             ["transfer: nil account" {:tx :transfer :account nil :to 7 :amount 100} :bad-account]
+             ["transfer: string to" {:tx :transfer :account 1 :to "5" :amount 100} :bad-account]
+             ["transfer: fractional amount" {:tx :transfer :account 1 :to 7 :amount 2.5} :bad-amount]
+             ["set-leverage: string account" {:tx :set-leverage :account "5" :market 1 :leverage 2} :bad-account]
+             ["set-leverage: unknown market" {:tx :set-leverage :account 1 :market 99 :leverage 2} :unknown-market]
+             ["set-leverage: zero leverage" {:tx :set-leverage :account 1 :market 1 :leverage 0} :missing-field]
+             ["set-leverage: fractional leverage" {:tx :set-leverage :account 1 :market 1 :leverage 2.5} :missing-field]]]
+      (testing label
+        (is (= expect (api/validate ex t))
+            "`validate` answers with the word the engine door mirrors")
+        (is (= expect (api/store-tx-shape ex t))
+            "and the door answers with the same word")))))

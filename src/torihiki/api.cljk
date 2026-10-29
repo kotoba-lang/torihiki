@@ -483,6 +483,52 @@
     (:authorize-agent :revoke-agent)
     (when-not (account-ok? account) :bad-account)
 
+    (:bond :unbond)
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; `validator` is the KEY the bond lands under in :bonds — judged as
+      ;; the key it becomes, like every account id here.
+      (not (account-ok? (:validator t))) :bad-account
+      ;; The amount enters the bond/unbond arithmetic — `cl/bond` COERCES a
+      ;; string or fractional amount ("5" bonds 5, 2.5 bonds 2) instead of
+      ;; refusing it.
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
+      :else nil)
+
+    :collect-unbonded
+    (when-not (account-ok? account) :bad-account)
+
+    (:vault-deposit :vault-withdraw)
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; `vault` is an account id and becomes BOTH a :vaults key and the
+      ;; :accounts key its shares credit — a garbage vault minted a garbage
+      ;; account.
+      (not (account-ok? (:vault t))) :bad-account
+      (and (= tx :vault-deposit)
+           (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
+      (and (= tx :vault-withdraw)
+           (not (int-in? (:shares t) 1 fx/i53-max))) :bad-quantity
+      :else nil)
+
+    :transfer
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (account-ok? (:to t))) :bad-account
+      ;; The amount moves money through `cl/transfer`, which coerces a
+      ;; string or fractional amount like the bond path does.
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
+      :else nil)
+
+    :set-leverage
+    (cond
+      ;; `cl/set-leverage` assoc-in's [:leverage account market] directly —
+      ;; a garbage account is a garbage :leverage key.
+      (not (account-ok? account)) :bad-account
+      (not (market-exists? ex market)) :unknown-market
+      (not (and (integer? (:leverage t)) (pos? (:leverage t)))) :missing-field
+      :else nil)
+
     :cancel-trigger
     (when-not (market-exists? ex market) :unknown-market)
 
