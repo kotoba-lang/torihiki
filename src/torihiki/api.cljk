@@ -308,6 +308,103 @@
     :else (when-let [r (validate-order-shape ex market order)]
             (if (= r :bad-price-level) :bad-price-level :bad-trigger-order))))
 
+;; ── the schedule shape gates ─────────────────────────────────────────────────
+;;
+;; What `torihiki.state/apply-tx` asks before it computes with a schedule's
+;; fields. A scale ranges `count*` and adds `step` into `level` — a throw on
+;; a string on one runtime, a silent rung on the other (the asymmetric
+;; class) — and a TWAP's fields are folded into `:next-at` and divided at
+;; fire time. These are the SAME judgments `validate` makes, in the same
+;; order, answering with the same keyword from `reasons` — one shape rule,
+;; two doors. A refusal at the engine is a NO-OP: the schedule is dropped
+;; whole and the exchange is returned unchanged. Nothing here throws.
+
+(defn- scale-basics
+  "The ladder's own shape, before its rungs are judged: the market, the
+  signer, and the fields the rung walk computes with. Shared by
+  `scale-tx-shape` and `validate`'s `:scale` clause — the same judgments in
+  the same order, so the two doors cannot drift."
+  [ex {:keys [account market] :as t}]
+  (cond
+    (not (account-ok? account)) :bad-account
+    (not (market-exists? ex market)) :unknown-market
+    (not (contains? #{0 1} (:side t))) :bad-side
+    (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
+    ;; :level is folded into rung prices — `(+ level (* dir i step))` — so
+    ;; it is capped like the order's level, not merely signed.
+    (not (int-in? (:level t) 0 fx/i53-max)) :bad-price-level
+    ;; A ladder of one is an order, and this is not the way to send one.
+    (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
+    :missing-field
+    ;; A step of zero stacks every rung on one level, which is an order for
+    ;; count x qty wearing a ladder's clothes.
+    (not (int-in? (:step t) 1 fx/i53-max)) :missing-field
+    :else nil))
+
+(defn- scale-rungs
+  "The rung mirror. The engine gate judges every rung as an order the moment
+  the ladder is placed (`torihiki.state/apply-tx :scale` dispatches each
+  rung through `:order`), so what `validate-order-shape` would refuse for a
+  rung has to be refused at BOTH doors — or the gate would drop rungs one
+  door passed and a ladder would arrive silently short. Same rungs, same
+  judgment: out-of-bounds rungs are skipped by the engine (a scale that ran
+  past the end of the book does not take the rungs that fit with it), so
+  they are skipped here too. Only reached with `scale-basics` answered nil —
+  the walk ranges over `count*` and adds `step`."
+  [ex {:keys [market] :as t}]
+  (let [dir (if (= (:side t) bk/bid) -1 1)
+        n (n-levels ex market)]
+    (some (fn [i]
+            (let [l (+ (:level t) (* dir i (:step t)))]
+              (when (and (<= 0 l) (< l n))
+                (validate-order-shape ex market
+                                      {:side (:side t) :level l
+                                       :qty (:qty t) :flags (:flags t)}))))
+          (range (:count* t)))))
+
+(defn scale-tx-shape
+  "nil when this scale may be applied, otherwise its `reasons` keyword.
+
+  The ladder door: `scale-basics` (the market, the signer, the fields the
+  rung walk computes with) then `scale-rungs` (every rung judged as the
+  order it will be dispatched as). Used by `apply-tx :scale` before
+  `(range count*)` computes with anything. Margin is NOT here: the engine
+  judges affordability per rung as it dispatches (`torihiki.order-margin`),
+  and a ladder `validate` refused for margin is refused at `validate`."
+  [ex t]
+  (or (scale-basics ex t) (scale-rungs ex t)))
+
+(defn twap-tx-shape
+  "nil when this schedule may be stored, otherwise its `reasons` keyword.
+
+  The schedule door — `validate`'s `:twap` clause verbatim (extracted so the
+  two doors cannot drift): the market, the signer, the fields the fire path
+  computes with (quantity, slices, spacing), and the mirror of the order
+  notional cap at the level the slices fire at (`fire-twaps` places each
+  slice at the top of the ladder for bids — level `n-levels - 1` — or at
+  level 0 for asks, where the notional is zero). A slice is never bigger
+  than the total, so the total against the slice level covers every slice
+  the schedule will ever fire."
+  [ex {:keys [account market] :as t}]
+  (cond
+    (not (account-ok? account)) :bad-account
+    (not (market-exists? ex market)) :unknown-market
+    (not (contains? #{0 1} (:side t))) :bad-side
+    (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
+    ;; A schedule of one slice is an order, and a schedule of none is
+    ;; nothing. Both are better refused than quietly turned into something
+    ;; the trader did not ask for.
+    (not (and (integer? (:slices t)) (> (:slices t) 1))) :missing-field
+    (not (int-in? (:every t) 1 fx/i53-max)) :missing-field
+    ;; Every slice must be at least one lot, or the tail of the schedule
+    ;; fires empty orders forever.
+    (< (:qty t) (:slices t)) :bad-quantity
+    :else
+    (when (= (:side t) bk/bid)
+      (let [l (dec (n-levels ex market))]
+        (when (and (pos? l) (> (:qty t) (quot fx/i53-max l)))
+          :bad-amount)))))
+
 (def ^:const max-builder-fee-rate
   "The most a builder may charge, as a rate against `fx/rate-scale`. Ten basis
   points.
@@ -691,78 +788,33 @@
       :else nil)
 
     :scale
-    (cond
-      (not (account-ok? account)) :bad-account
-      (not (contains? (:markets ex) market)) :unknown-market
-      (not (contains? #{0 1} (:side t))) :bad-side
-      (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
-      ;; :level is folded into rung prices — `(+ level (* dir i step))` — so
-      ;; it is capped like the order's level, not merely signed.
-      (not (int-in? (:level t) 0 fx/i53-max)) :bad-price-level
-      ;; A ladder of one is an order, and this is not the way to send one.
-      (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
-      :missing-field
-      ;; A step of zero stacks every rung on one level, which is an order for
-      ;; count x qty wearing a ladder's clothes.
-      (not (int-in? (:step t) 1 fx/i53-max)) :missing-field
-      ;; From version 2 the ladder is checked WHOLE, as it is placed whole:
-      ;; refusing it here is what keeps the engine from placing the rungs it
-      ;; can back and silently dropping the rest.
-      (and (om/active? ex) (perp? ex market)
-           (let [{:keys [side level qty step]} t
-                 dir (if (= side bk/bid) -1 1)
-                 n (n-levels ex market)
-                 rungs (for [i (range (:count* t))
-                             :let [l (+ level (* dir i step))]
-                             :when (and (<= 0 l) (< l n))]
-                         [side l qty (or (:flags t) 0)])]
-             (not (om/orders-allowed? ex (:open-orders ex) account market rungs))))
-      :insufficient-margin
-      ;; Mirror door. The engine gate judges every rung as an order the moment
-      ;; the ladder is placed (`torihiki.state/apply-tx :scale` dispatches each
-      ;; rung through `:order`), so what `validate-order-shape` would refuse
-      ;; for a rung has to be refused HERE too — or the gate would drop rungs
-      ;; this function passed and a ladder would arrive silently short. Same
-      ;; rungs, same judgment: out-of-bounds rungs are skipped by the engine
-      ;; (a scale that ran past the end of the book does not take the rungs
-      ;; that fit with it), so they are skipped here too.
-      :else
-      (let [dir (if (= (:side t) bk/bid) -1 1)
-            n (n-levels ex market)]
-        (some (fn [i]
-                (let [l (+ (:level t) (* dir i (:step t)))]
-                  (when (and (<= 0 l) (< l n))
-                    (validate-order-shape ex market
-                                          {:side (:side t) :level l
-                                           :qty (:qty t) :flags (:flags t)}))))
-              (range (:count* t)))))
+    (or (scale-basics ex t)
+        ;; From version 2 the ladder is checked WHOLE, as it is placed whole:
+        ;; refusing it here is what keeps the engine from placing the rungs it
+        ;; can back and silently dropping the rest.
+        (when (and (om/active? ex) (perp? ex market)
+                   (let [{:keys [side level qty step]} t
+                         dir (if (= side bk/bid) -1 1)
+                         n (n-levels ex market)
+                         rungs (for [i (range (:count* t))
+                                     :let [l (+ level (* dir i step))]
+                                     :when (and (<= 0 l) (< l n))]
+                                 [side l qty (or (:flags t) 0)])]
+                     (not (om/orders-allowed? ex (:open-orders ex) account market rungs))))
+          :insufficient-margin)
+        ;; Mirror door — `scale-rungs`: the engine gate judges every rung as
+        ;; an order the moment the ladder is placed
+        ;; (`torihiki.state/apply-tx :scale` dispatches each rung through
+        ;; `:order`), so what `validate-order-shape` would refuse for a rung
+        ;; has to be refused HERE too — or the gate would drop rungs this
+        ;; function passed and a ladder would arrive silently short. Same
+        ;; rungs, same judgment: out-of-bounds rungs are skipped by the
+        ;; engine (a scale that ran past the end of the book does not take
+        ;; the rungs that fit with it), so they are skipped here too.
+        (scale-rungs ex t))
 
     :twap
-    (cond
-      (not (account-ok? account)) :bad-account
-      (not (contains? (:markets ex) market)) :unknown-market
-      (not (contains? #{0 1} (:side t))) :bad-side
-      (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
-      ;; A schedule of one slice is an order, and a schedule of none is
-      ;; nothing. Both are better refused than quietly turned into something
-      ;; the trader did not ask for.
-      (not (and (integer? (:slices t)) (> (:slices t) 1))) :missing-field
-      (not (int-in? (:every t) 1 fx/i53-max)) :missing-field
-      ;; Every slice must be at least one lot, or the tail of the schedule
-      ;; fires empty orders forever.
-      (< (:qty t) (:slices t)) :bad-quantity
-      ;; Mirror door. `fire-twaps` places each slice as an order at the top of
-      ;; the ladder (bids — level `n-levels - 1`) or at level 0 (asks, where
-      ;; the notional is zero and nothing is capped), and the engine gate
-      ;; judges that order like any other. A schedule whose TOTAL would
-      ;; compute an out-of-domain notional at the slice level is refused HERE:
-      ;; a slice is never bigger than the total, so the total against the
-      ;; slice level covers every slice the schedule will ever fire.
-      :else
-      (when (= (:side t) bk/bid)
-        (let [l (dec (n-levels ex market))]
-          (when (and (pos? l) (> (:qty t) (quot fx/i53-max l)))
-            :bad-amount))))
+    (twap-tx-shape ex t)
 
     :cancel-twap
     (cond

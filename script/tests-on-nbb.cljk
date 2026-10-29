@@ -60,6 +60,7 @@
             [torihiki.order-margin-test]
             [torihiki.overflow-gates-test]
             [torihiki.principal-test]
+            [torihiki.schedule-totality-test]
             [torihiki.settlement-test]
             [torihiki.slab-full-test]
             [torihiki.snapshot-test]
@@ -93,7 +94,13 @@
 ;; trigger doors and their `torihiki.state` engine gates) — 26 was the suite
 ;; PR #74 left, and 27 is that suite plus the totality pins. The constant
 ;; stays hard so a classpath that drops more namespaces still exits 2.
-(def ^:private expected-namespaces 27)
+;; The floor is 28, not 27: `torihiki.schedule-totality-test` joined the
+;; suite with the schedule-path shape gates (the `torihiki.api` scale/twap
+;; doors and their `torihiki.state` engine gates + `fire-twaps` fire-time
+;; gate) — 27 was the suite the apply-path totality gates left, and 28 is
+;; that suite plus the schedule totality pins. The constant stays hard so a
+;; classpath that drops more namespaces still exits 2.
+(def ^:private expected-namespaces 28)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -138,6 +145,7 @@
               'torihiki.order-margin-test
               'torihiki.overflow-gates-test
               'torihiki.principal-test
+              'torihiki.schedule-totality-test
               'torihiki.settlement-test
               'torihiki.slab-full-test
               'torihiki.snapshot-test
