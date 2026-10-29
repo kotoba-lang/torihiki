@@ -55,6 +55,7 @@
             [torihiki.liquidation-makers-test]
             [torihiki.log-test]
             [torihiki.mark-test]
+            [torihiki.money-totality-test]
             [torihiki.oracle-test]
             [torihiki.oracle-set-test]
             [torihiki.order-margin-test]
@@ -109,7 +110,14 @@
 ;; totality gates left, and 29 is that suite plus the store totality pins.
 ;; The constant stays hard so a classpath that drops more namespaces still
 ;; exits 2.
-(def ^:private expected-namespaces 29)
+;; The floor is 30, not 29: `torihiki.money-totality-test` joined the suite
+;; with the money-door shape gates (the `torihiki.api/store-tx-shape` door
+;; over :bond/:unbond/:collect-unbonded/:transfer/:set-leverage/:vault-deposit/
+;; :vault-withdraw and its `torihiki.state` engine gates) — 29 was the suite
+;; the store totality gates left, and 30 is that suite plus the money totality
+;; pins. The constant stays hard so a classpath that drops more namespaces
+;; still exits 2.
+(def ^:private expected-namespaces 30)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -149,6 +157,7 @@
               'torihiki.liquidation-makers-test
               'torihiki.log-test
               'torihiki.mark-test
+              'torihiki.money-totality-test
               'torihiki.oracle-test
               'torihiki.oracle-set-test
               'torihiki.order-margin-test
