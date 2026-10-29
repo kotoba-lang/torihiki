@@ -1,0 +1,236 @@
+(ns torihiki.schedule-totality-test
+  "The schedule path is TOTAL: a scale or TWAP the engine cannot apply is
+  dropped as a no-op — never thrown with, never stored, never half-fired.
+
+  `torihiki.state/apply-tx` takes transactions that never met
+  `torihiki.api/validate` — raw schedules, and `:twaps` state that predates
+  every gate — and until now it computed with their fields raw:
+  `(range count*)` on a string, `(+ level (* dir i step))` with a string
+  step (a throw on one runtime and a silent coercion on the other — the
+  asymmetric class), `(:n-levels book)` nil for a market with no book, and
+  `fire-twaps` dividing a stored `:remaining` it never re-checked. A throw
+  inside `apply-block` is a halted chain: one malformed schedule and every
+  validator stops at the same place (the falsify-6/7 class). A silent
+  coercion is worse — the step-\"2\" ladder places rungs on one runtime and
+  halts the other.
+
+  Refusals are pinned by REASON (a keyword from `torihiki.api/reasons`, at
+  the shared shape functions both doors call) and by VALUE at the engine:
+  nothing rests, nothing is stored, no schedule fires. A pin that only
+  asserts \"no throw\" is half a pin — so every no-throw pin here is paired
+  with the value it must leave alone, and a throw FAILS the pin rather than
+  passing it."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private n 65536)   ; the fixture book's level count: valid levels 0..65535
+
+(defn- funded []
+  (-> (st/new-exchange {:market mkt :book-opts {:n-levels n :cap 1024 :ev-cap 1024}})
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 2 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 5 :amount 100000000})
+      (st/apply-tx {:tx :oracle :market 1 :price 1000})))
+
+(defn- with-wall
+  "A funded exchange with account 2's ask wall of 200 resting at level 1010 —
+  the counterparty a fired slice would take from. Every fire-time pin asserts
+  the wall is untouched."
+  []
+  (st/apply-tx (funded) {:tx :order :account 2 :market 1 :side bk/ask
+                         :level 1010 :qty 200}))
+
+(defn- with-bookless-market
+  "Market 2 exists but has NO book — `validate` passes a scale on it (its rung
+  mirror iterates zero in-bounds rungs), so the engine has to be total on it."
+  [ex]
+  (assoc-in ex [:markets 2] (cl/market {:id 2 :max-leverage 40 :tick 1 :lot 1})))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(defn- applied-block
+  "The same for `st/apply-block` — the path `fire-twaps` runs on."
+  [ex blk]
+  (try (st/apply-block ex blk)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+;; ── the scale gate ───────────────────────────────────────────────────────────
+
+(deftest an-unappliable-scale-is-a-no-op-not-a-throw
+  (doseq [[label tx] [["string count*" {:count* "3"}]
+                      ["fractional count*" {:count* 2.5}]
+                      ["nil count*" {:count* nil}]
+                      ["string level" {:level "7"}]
+                      ["string step" {:step "10"}]
+                      ["unknown market" {:market 99}]
+                      ["zero step" {:step 0}]
+                      ["one-rung ladder" {:count* 1}]]]
+    (testing label
+      (let [ex (funded)
+            ex' (applied ex (merge {:tx :scale :account 1 :market 1
+                                    :side bk/bid :level 1000 :qty 5
+                                    :count* 3 :step 10} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= 0 (bk/resting-count (get-in ex' [:books 1])))
+              "the ladder is dropped WHOLE — nothing rests")
+          (is (= 0 (bk/level-qty (get-in ex' [:books 1]) bk/bid 1000))
+              "and nothing is stacked on the first rung's level")))))
+  (testing "a market with no book runs every rung off the ladder — skipped,
+            not thrown: `(>= lvl (:n-levels nil))` used to halt the block"
+    (let [ex (with-bookless-market (funded))
+          ex' (applied ex {:tx :scale :account 1 :market 2 :side bk/bid
+                           :level 1000 :qty 5 :count* 3 :step 10})]
+      (is (not= ::threw ex') "apply-tx must answer, not throw")
+      (when (not= ::threw ex')
+        (is (= 0 (bk/resting-count (get-in ex' [:books 1])))
+            "nothing rests anywhere")
+        (is (nil? (get-in ex' [:books 2])) "and no book is conjured")))))
+
+;; ── the twap gate ────────────────────────────────────────────────────────────
+
+(deftest an-unappliable-twap-is-never-stored
+  (doseq [[label tx] [["string side" {:side "1"}]
+                      ["string account" {:account "one"}]
+                      ["zero qty" {:qty 0}]
+                      ["one slice" {:slices 1}]
+                      ["qty below slices" {:qty 3 :slices 4}]]]
+    (testing label
+      (let [ex (funded)
+            ex' (applied ex (merge {:tx :twap :account 1 :market 1
+                                    :side bk/bid :qty 100 :slices 4 :every 1} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:twaps ex'))
+              "nothing is stored: a schedule that cannot fire must never arm"))))))
+
+;; ── the fire-time gate ───────────────────────────────────────────────────────
+
+(deftest the-fire-time-gate-drops-schedules-no-fire-path-can-compute-with
+  ;; Pre-fix state can carry schedules this engine never validated — the door
+  ;; at submission does not see them. When a slice comes due, the RAW record
+  ;; is judged again, BEFORE `twap-slice-qty` divides and `:next-at` is folded,
+  ;; and a record that cannot fire is consumed and dropped whole (the trigger
+  ;; precedent in `fire-triggers`): the wall it would have taken from is
+  ;; untouched and nothing rests.
+  ;; One fixture PER CASE (the book is a mutable slab — a case that fired (or
+  ;; half-fired) would hand its mutation to the next case).
+  (doseq [[label record] [["string :remaining"
+                           {:remaining "20" :slices-left 2 :every 1 :next-at 1}]
+                          ["string :next-at"
+                           {:remaining 20 :slices-left 2 :every 1 :next-at "1"}]
+                          ["string :every"
+                           {:remaining 20 :slices-left 2 :every "1" :next-at 1}]
+                          ["fractional :slices-left"
+                           {:remaining 20 :slices-left 2.5 :every 1 :next-at 1}]
+                          ["out-of-domain :remaining"
+                           {:remaining (inc fx/i53-max) :slices-left 2
+                            :every 1 :next-at 1}]]]
+    (testing label
+      (let [ex (assoc-in (with-wall) [:twaps 77]
+                         (merge {:id 77 :account 5 :market 1 :side bk/bid
+                                 :started-at 0} record))
+            ex' (applied-block ex {:height 1 :ts 10 :txs []})]
+        (is (not= ::threw ex') "firing must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:twaps ex'))
+              "the schedule is consumed and dropped whole")
+          (is (= 0 (:size (cl/position (:clearing ex') 5 1)))
+              "it fired into a no-op: the position is untouched")
+          (is (= 200 (bk/level-qty (get-in ex' [:books 1]) bk/ask 1010))
+              "and the wall it would have taken from is untouched"))))))
+
+(deftest the-fire-time-gate-keeps-a-schedule-that-can-fire
+  ;; The gate must not over-refuse: a mid-life record with :slices-left 1
+  ;; fires its remainder (the last-slice rule) and finishes.
+  (let [ex (assoc-in (with-wall) [:twaps 77]
+                     {:id 77 :account 5 :market 1 :side bk/bid
+                      :remaining 10 :slices-left 1 :every 1 :next-at 1
+                      :started-at 0})
+        ex' (applied-block ex {:height 1 :ts 10 :txs []})]
+    (is (not= ::threw ex') "firing must answer, not throw")
+    (when (not= ::threw ex')
+      (is (= 10 (:size (cl/position (:clearing ex') 5 1)))
+          "the remainder was not fired")
+      (is (= 190 (bk/level-qty (get-in ex' [:books 1]) bk/ask 1010))
+          "the wall is down by exactly the remainder")
+      (is (empty? (:twaps ex')) "and a finished schedule must not stay"))))
+
+;; ── the gates must never refuse what validate passed ─────────────────────────
+
+(deftest a-valid-ladder-still-places-every-rung
+  (let [ex (applied (funded) {:tx :scale :account 1 :market 1 :side bk/bid
+                              :level 1000 :qty 5 :count* 3 :step 10})]
+    (is (not= ::threw ex))
+    (when (not= ::threw ex)
+      (is (= [5 5 5] (mapv #(bk/level-qty (get-in ex [:books 1]) bk/bid %)
+                           [1000 990 980]))
+          "the rungs are not where the ladder said")
+      (is (= 3 (bk/resting-count (get-in ex [:books 1])))))))
+
+(deftest a-valid-schedule-still-fills-exactly-over-four-blocks
+  (let [ex (applied (with-wall) {:tx :twap :account 5 :market 1 :side bk/bid
+                                 :qty 100 :slices 4 :every 1})
+        step (fn [e h] (applied-block e {:height h :ts (* h 10) :txs []}))
+        run (-> ex (step 1) (step 2) (step 3) (step 4))]
+    (is (not= ::threw ex))
+    (is (not= ::threw run))
+    (when (and (not= ::threw ex) (not= ::threw run))
+      (is (= 100 (:size (cl/position (:clearing run) 5 1)))
+          "the schedule did not fill the whole quantity")
+      (is (= 100 (bk/level-qty (get-in run [:books 1]) bk/ask 1010))
+          "and the wall is down by exactly that")
+      (is (empty? (:twaps run)) "a finished TWAP must not stay on the books"))))
+
+;; ── the shared shape functions speak the closed taxonomy ─────────────────────
+
+(deftest the-schedule-shape-doors-answer-with-the-same-reasons-as-validate
+  (let [ex (funded)
+        s {:tx :scale :account 1 :market 1 :side bk/bid :level 1000 :qty 5
+           :count* 3 :step 10}
+        w {:tx :twap :account 1 :market 1 :side bk/bid :qty 100 :slices 4
+           :every 1}
+        door (fn [t] (if (= :scale (:tx t))
+                       #(api/scale-tx-shape % t)
+                       #(api/twap-tx-shape % t)))]
+    (doseq [[label t expect] [["scale: string account" (assoc s :account "one") :bad-account]
+                              ["scale: unknown market" (assoc s :market 99) :unknown-market]
+                              ["scale: out-of-domain side" (assoc s :side 5) :bad-side]
+                              ["scale: zero qty" (assoc s :qty 0) :bad-quantity]
+                              ["scale: string qty" (assoc s :qty "5") :bad-quantity]
+                              ["scale: negative level" (assoc s :level -1) :bad-price-level]
+                              ["scale: one-rung ladder" (assoc s :count* 1) :missing-field]
+                              ["scale: zero step" (assoc s :step 0) :missing-field]
+                              ["scale: rung flags outside ioc|post-only|reduce-only"
+                               (assoc s :flags 99) :bad-flags]
+                              ["scale: a rung whose level x qty leaves the domain"
+                               (assoc s :qty (inc (quot fx/i53-max 1000))) :bad-amount]
+                              ["scale: valid" s nil]
+                              ["twap: string account" (assoc w :account "one") :bad-account]
+                              ["twap: unknown market" (assoc w :market 99) :unknown-market]
+                              ["twap: out-of-domain side" (assoc w :side 5) :bad-side]
+                              ["twap: zero qty" (assoc w :qty 0) :bad-quantity]
+                              ["twap: one slice" (assoc w :slices 1) :missing-field]
+                              ["twap: string slices" (assoc w :slices "2") :missing-field]
+                              ["twap: zero every" (assoc w :every 0) :missing-field]
+                              ["twap: qty below slices" (assoc w :qty 3) :bad-quantity]
+                              ["twap: slices whose level x qty leaves the domain"
+                               (assoc w :qty (inc (quot fx/i53-max (dec n)))) :bad-amount]
+                              ["twap: valid" w nil]]]
+      (testing label
+        (is (= expect ((door t) ex))
+            "the engine door's reason")
+        (is (= expect (api/validate ex t))
+            "and the validate door answers the same word")))))

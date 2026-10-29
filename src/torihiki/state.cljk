@@ -871,6 +871,22 @@
     remaining
     (max 1 (quot remaining slices-left))))
 
+(defn- twap-fireable?
+  "The fire-time gate on a STORED schedule. The fire path does arithmetic on
+  four raw fields — `twap-slice-qty` divides `:remaining` by `:slices-left`,
+  `:next-at` is compared against the height and folded with `:every` — so
+  each must be an integer inside the i53 domain, and a schedule with nothing
+  left to fire is dead. Checked on the RAW record, before any of that
+  arithmetic: a pre-fix schedule with a string or fractional field used to
+  throw inside `apply-block` (a halted chain), and one with an out-of-domain
+  `:remaining` rode the falsify-8 rounding path with no throw at all."
+  [t]
+  (and (integer? (:remaining t)) (fx/in-domain? (:remaining t))
+       (pos? (:remaining t))
+       (integer? (:slices-left t)) (fx/in-domain? (:slices-left t))
+       (integer? (:every t)) (fx/in-domain? (:every t))
+       (integer? (:next-at t)) (fx/in-domain? (:next-at t))))
+
 (defn- fire-twaps
   "Fire every TWAP on `market` whose next slice is due at this height.
 
@@ -885,7 +901,17 @@
   would be a different instrument — the trader asked to be filled over time,
   not to quote."
   [ex market]
-  (let [due (->> (:twaps ex {})
+  (let [;; The fire-time gate. Pre-fix state can carry schedules this engine
+        ;; never validated — the door at submission does not see them. A
+        ;; record that cannot fire is consumed and dropped whole (the trigger
+        ;; precedent in `fire-triggers`): the wall it would have taken from
+        ;; is untouched and nothing rests. Dropped for every market at once —
+        ;; the whole `:twaps` map is read here anyway, and a record that
+        ;; cannot fire cannot fire for any market.
+        {dead true live false} (group-by (fn [[_ t]] (not (twap-fireable? t)))
+                                         (:twaps ex {}))
+        ex (reduce (fn [e [id _]] (update e :twaps dissoc id)) ex dead)
+        due (->> live
                  (filter (fn [[_ t]] (and (= market (:market t))
                                           (<= (:next-at t) (:height ex 0))
                                           (pos? (:remaining t)))))
@@ -896,7 +922,7 @@
              book (get-in ex' [:books market])
              ;; Aggressive to the end of the ladder, IOC: take what is there
              ;; at this instant and drop the rest.
-             level (if (= (:side t) bk/bid) (dec (:n-levels book)) 0)
+             level (if (= (:side t) bk/bid) (dec (or (:n-levels book) 0)) 0)
              ex' (apply-tx ex' {:tx :order :account (:account t) :market market
                                 :side (:side t) :level level :qty qty
                                 :flags bk/flag-ioc})
@@ -1108,7 +1134,7 @@
   (update ex :clearing cl/set-referrer account referrer))
 
 (defmethod apply-tx :scale
-  [ex {:keys [account market side level qty count* step flags]}]
+  [ex {:keys [account market side level qty count* step flags] :as t}]
   ;; A ladder of resting orders in one transaction.
   ;;
   ;; A maker quoting ten levels otherwise sends ten transactions, each with its
@@ -1120,24 +1146,36 @@
   ;; sign is not the caller's to choose, because a ladder that walked the wrong
   ;; way would cross the book and take instead of quote — the opposite of what
   ;; a scale order is for, arriving through the same door.
-  (let [dir (if (= side bk/bid) -1 1)
-        book (get-in ex [:books market])
-        n-levels (:n-levels book)]
-    (reduce
-     (fn [ex' i]
-       (let [lvl (+ level (* dir i step))]
-         (if (or (neg? lvl) (>= lvl n-levels))
-           ;; Off the ladder. Skipped rather than refused: a scale that ran
-           ;; past the end of the book would otherwise take the orders that
-           ;; did fit with it.
-           ex'
-           (apply-tx ex' {:tx :order :account account :market market
-                          :side side :level lvl :qty qty :flags (or flags 0)}))))
-     ex
-     (range count*))))
+  ;;
+  ;; The gate runs before `(range count*)` computes with anything: a string
+  ;; `count*` ranged, a string `step` added (a throw on one runtime, a silent
+  ;; rung on the other), and a market with no book answered `(>= lvl nil)`
+  ;; with a halt. A ladder that cannot be placed is dropped WHOLE — no throw,
+  ;; no partial ladder (see `torihiki.api/scale-tx-shape`; refusals are
+  ;; no-ops with reasons from `torihiki.api/reasons`).
+  (if (api/scale-tx-shape ex t)
+    ex
+    (let [dir (if (= side bk/bid) -1 1)
+          book (get-in ex [:books market])
+          ;; 0, not nil: `api/n-levels` defaults the same way. A market with
+          ;; no book runs every rung off the ladder — the skip semantics the
+          ;; comment below describes — rather than throwing on `(>= lvl nil)`.
+          n-levels (or (:n-levels book) 0)]
+      (reduce
+       (fn [ex' i]
+         (let [lvl (+ level (* dir i step))]
+           (if (or (neg? lvl) (>= lvl n-levels))
+             ;; Off the ladder. Skipped rather than refused: a scale that ran
+             ;; past the end of the book would otherwise take the orders that
+             ;; did fit with it.
+             ex'
+             (apply-tx ex' {:tx :order :account account :market market
+                            :side side :level lvl :qty qty :flags (or flags 0)}))))
+       ex
+       (range count*)))))
 
 (defmethod apply-tx :twap
-  [ex {:keys [account market side qty slices every]}]
+  [ex {:keys [account market side qty slices every] :as t}]
   ;; An order worked over time instead of all at once — the thing a size that
   ;; would move the book against you needs.
   ;;
@@ -1146,9 +1184,16 @@
   ;; the chain on every replica.
   ;; Range as well as shape: `:every` is stored in the schedule and folded
   ;; into `:next-at`, so an out-of-i53 number reaching state here holds two
-  ;; different values on the two runtimes (the falsify-8 class). Refused at
-  ;; `torihiki.api/validate` with its reason; this no-op is the safety net.
-  (if-not (every? #(and (integer? %) (fx/in-domain? %)) [qty slices every])
+  ;; different values on the two runtimes (the falsify-8 class).
+  ;;
+  ;; The gate is the shared schedule door (see `torihiki.api/twap-tx-shape`)
+  ;; — the same judgment `validate`'s `:twap` clause makes, so the engine
+  ;; stores exactly what validate passed and refuses the rest: a string
+  ;; `:side` or `:account` used to be STORED (the fire path compared and
+  ;; dispatched it raw), and a zero qty, one slice or qty below slices was
+  ;; stored although validate refused it. A schedule that cannot fire is
+  ;; dropped WHOLE — no throw, no half-schedule.
+  (if (api/twap-tx-shape ex t)
     ex
     (let [id (inc (:twap-seq ex 0))]
     (-> ex
