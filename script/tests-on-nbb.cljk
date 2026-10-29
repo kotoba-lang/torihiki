@@ -66,6 +66,7 @@
             [torihiki.snapshot-test]
             [torihiki.spot-reservation-test]
             [torihiki.state-test]
+            [torihiki.store-totality-test]
             [torihiki.trigger-test]
             [torihiki.validators-test]))
 
@@ -100,7 +101,15 @@
 ;; gate) — 27 was the suite the apply-path totality gates left, and 28 is
 ;; that suite plus the schedule totality pins. The constant stays hard so a
 ;; classpath that drops more namespaces still exits 2.
-(def ^:private expected-namespaces 28)
+;; The floor is 29, not 28: `torihiki.store-totality-test` joined the suite
+;; with the store-path shape gates (the `torihiki.api/store-tx-shape` door
+;; and its `torihiki.state` engine gates over the rest of the dispatches —
+;; deposit/withdraw/evm-deploy/anchor/sub-account/referrer/agent/oracle/
+;; funding/cancel-all/cancel-trigger) — 28 was the suite the schedule
+;; totality gates left, and 29 is that suite plus the store totality pins.
+;; The constant stays hard so a classpath that drops more namespaces still
+;; exits 2.
+(def ^:private expected-namespaces 29)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -151,5 +160,6 @@
               'torihiki.snapshot-test
               'torihiki.spot-reservation-test
               'torihiki.state-test
+              'torihiki.store-totality-test
               'torihiki.trigger-test
               'torihiki.validators-test)

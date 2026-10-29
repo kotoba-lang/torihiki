@@ -191,11 +191,16 @@
 (defmethod apply-tx :default [ex _tx] ex)
 
 (defmethod apply-tx :deposit
-  [ex {:keys [account amount credit]}]
+  [ex {:keys [account amount credit] :as t}]
   ;; `credit` when the bridge is paying somebody, `account` when an account is
   ;; paying itself. `api/validate` has already refused the combinations that
   ;; would make this a mint.
-  (update ex :clearing cl/deposit (or credit account) amount))
+  ;;
+  ;; The store door runs first: the payee becomes an :accounts KEY, and a
+  ;; garbage key is bytes no two runtimes agree on (the falsify-8/14 class).
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/deposit (or credit account) amount)))
 
 (def ^:const attest-quorum
   "How many distinct bonded validators must say they saw a deposit before it
@@ -352,7 +357,7 @@
     (str "0x" (apply str (concat (repeat (- 40 (count h)) \0) h)))))
 
 (defmethod apply-tx :evm-deploy
-  [ex {:keys [account code salt]}]
+  [ex {:keys [account code salt] :as t}]
   ;; Contract code, published into the CHAIN rather than into a node.
   ;;
   ;; `torihiki.evm.interp` runs against a world of accounts, and the first way
@@ -369,40 +374,50 @@
   ;; allowed to overwrite. An address whose code can change under a caller is
   ;; an address nobody can audit, and CREATE2's whole promise is that the
   ;; answer is a function of its inputs.
-  (let [salt (or salt (apply str (repeat 64 \0)))]
-    (if (or (not (string? code)) (empty? code) (odd? (count code))
-            (not (re-matches #"[0-9a-fA-F]+" code))
-            (not (re-matches #"[0-9a-f]{64}" salt)))
-      ex
-      (let [addr (kc/create2-address (account-as-address account) salt code)]
-        (if (get-in ex [:evm addr])
-          ex
-          (assoc-in ex [:evm addr] {:code code :by account}))))))
+  ;; The store door runs first: `account-as-address` derives from `account`,
+  ;; and a garbage signer used to throw inside apply-block (the falsify-6/7
+  ;; class — one malformed transaction halts every validator at the spot).
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [salt (or salt (apply str (repeat 64 \0)))]
+      (if (or (not (string? code)) (empty? code) (odd? (count code))
+              (not (re-matches #"[0-9a-fA-F]+" code))
+              (not (re-matches #"[0-9a-f]{64}" salt)))
+        ex
+        (let [addr (kc/create2-address (account-as-address account) salt code)]
+          (if (get-in ex [:evm addr])
+            ex
+            (assoc-in ex [:evm addr] {:code code :by account})))))))
 
 (defmethod apply-tx :withdraw
-  [ex {:keys [account amount dest]}]
-  (let [clearing (:clearing ex)
-        clearing' (cl/withdraw clearing account amount (om/free-collateral ex account))]
-    ;; `cl/withdraw` returns the state it was GIVEN when free collateral does
-    ;; not cover the amount — that is its documented way of making a refused
-    ;; withdrawal a no-op block entry rather than a halted chain. `identical?`
-    ;; reads that answer without asking the same affordability question twice
-    ;; in two places that would then have to agree forever.
-    (if (identical? clearing clearing')
-      ex
-      (let [id (inc (:withdraw-seq ex 0))]
-        (-> ex
-            (assoc :clearing clearing')
-            (assoc :withdraw-seq id)
-            (assoc-in [:withdrawals id]
-                      (cond-> {:account account :amount amount
-                               :height (:height ex 0)}
-                        ;; Where the bridge contract is to pay it, lower-cased
-                        ;; so two spellings of one address are one claim. Part
-                        ;; of the claim, and so of the root and of what the
-                        ;; validators sign: a destination chosen later is a
-                        ;; destination somebody else can choose.
-                        (string? dest) (assoc :dest (str/lower dest)))))))))
+  [ex {:keys [account amount dest] :as t}]
+  ;; The store door runs first: a NEGATIVE amount passes the free-collateral
+  ;; gate (`free >= -3`) and pays the withdrawer — the mint — and a garbage
+  ;; account throws in the gate itself. Amount 1..i53-max, signer slab-storable.
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [clearing (:clearing ex)
+          clearing' (cl/withdraw clearing account amount (om/free-collateral ex account))]
+      ;; `cl/withdraw` returns the state it was GIVEN when free collateral does
+      ;; not cover the amount — that is its documented way of making a refused
+      ;; withdrawal a no-op block entry rather than a halted chain. `identical?`
+      ;; reads that answer without asking the same affordability question twice
+      ;; in two places that would then have to agree forever.
+      (if (identical? clearing clearing')
+        ex
+        (let [id (inc (:withdraw-seq ex 0))]
+          (-> ex
+              (assoc :clearing clearing')
+              (assoc :withdraw-seq id)
+              (assoc-in [:withdrawals id]
+                        (cond-> {:account account :amount amount
+                                 :height (:height ex 0)}
+                          ;; Where the bridge contract is to pay it, lower-cased
+                          ;; so two spellings of one address are one claim. Part
+                          ;; of the claim, and so of the root and of what the
+                          ;; validators sign: a destination chosen later is a
+                          ;; destination somebody else can choose.
+                          (string? dest) (assoc :dest (str/lower dest))))))))))
 
 (defmethod apply-tx :withdraw-settle
   [ex {:keys [account claim]}]
@@ -1027,20 +1042,25 @@
     (pr/rotate-cancel ex account)))
 
 (defmethod apply-tx :create-sub-account
-  [ex {:keys [account sub]}]
+  [ex {:keys [account sub] :as t}]
   ;; A second margin pool under the same person. See `cl/create-sub-account`.
   ;;
   ;; The sub-account's key binding becomes the OWNER's: the owner signs for it
   ;; exactly as they sign for themselves, so nothing new authenticates here —
   ;; the binding is what `torihiki.auth` already checks.
-  (if-not (and (integer? sub) (fx/in-domain? sub))
+  ;;
+  ;; The store door runs first: the owner becomes the VALUE under :sub-of and
+  ;; the KEY of :account-keys — garbage there is garbage in the root.
+  (if (api/store-tx-shape ex t)
     ex
-    (let [owner-key (get-in ex [:account-keys account])
-          ex' (update ex :clearing cl/create-sub-account account sub
-                      (some? (get-in ex [:account-keys sub])))]
-      (if (and owner-key (get-in ex' [:clearing :sub-of sub]))
-        (assoc-in ex' [:account-keys sub] owner-key)
-        ex'))))
+    (if-not (and (integer? sub) (fx/in-domain? sub))
+      ex
+      (let [owner-key (get-in ex [:account-keys account])
+            ex' (update ex :clearing cl/create-sub-account account sub
+                        (some? (get-in ex [:account-keys sub])))]
+        (if (and owner-key (get-in ex' [:clearing :sub-of sub]))
+          (assoc-in ex' [:account-keys sub] owner-key)
+          ex')))))
 
 (defmethod apply-tx :transfer
   [ex {:keys [account to amount]}]
@@ -1050,15 +1070,16 @@
           (om/free-collateral ex account)))
 
 (defmethod apply-tx :anchor
-  [ex {:keys [account cid]}]
+  [ex {:keys [account cid] :as t}]
   ;; Append-only anchor log: a content-addressed checkpoint (a fleet-ci receipt
   ;; CID) posted at this ts. It moves no money and mutates no market — it only
   ;; records that `cid` was committed at this point in the log, which is what
   ;; makes a receipt a non-repudiable time series (CI-3). Shape is gated in
-  ;; torihiki.api/validate-shape (:bad-cid bounds the field).
-  (if (and (integer? account) (fx/in-domain? account))
-    (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)})
-    ex))
+  ;; torihiki.api/validate-shape (:bad-cid bounds the field) — and at the
+  ;; store door, because the signer and the cid LAND in the log and the root.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)})))
 
 (defmethod apply-tx :set-leverage
   [ex {:keys [account market leverage]}]
@@ -1126,12 +1147,17 @@
           (om/free-collateral ex vault)))
 
 (defmethod apply-tx :set-referrer
-  [ex {:keys [account referrer]}]
+  [ex {:keys [account referrer] :as t}]
   ;; Bound once, by the account itself. `cl/set-referrer` refuses a rebind and
   ;; a self-referral; both refusals are about the same thing — a referral that
   ;; can be moved is a stream that can be taken, and one that can point at
   ;; yourself is a rebate.
-  (update ex :clearing cl/set-referrer account referrer))
+  ;;
+  ;; The store door runs first: the account becomes a :referrers KEY and the
+  ;; referrer its VALUE.
+  (if (api/store-tx-shape ex t)
+    ex
+    (update ex :clearing cl/set-referrer account referrer)))
 
 (defmethod apply-tx :scale
   [ex {:keys [account market side level qty count* step flags] :as t}]
@@ -1216,8 +1242,13 @@
     ex))
 
 (defmethod apply-tx :cancel-trigger
-  [ex {:keys [market id]}]
-  (update-in ex [:triggers market] trg/cancel id))
+  [ex {:keys [market id] :as t}]
+  ;; The store door runs first: `update-in` CREATES the :triggers key for a
+  ;; market that has none — a garbage market key in the root (and `trg/cancel`
+  ;; is total on the id, which is why only the market is judged here).
+  (if (api/store-tx-shape ex t)
+    ex
+    (update-in ex [:triggers market] trg/cancel id)))
 
 (defn- fire-triggers
   "Fire every trigger the current mark has armed, then reprice and look again.
@@ -1328,7 +1359,7 @@
         (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo)))))))
 
 (defmethod apply-tx :authorize-agent
-  [ex {:keys [account agent expires]}]
+  [ex {:keys [account agent expires] :as t}]
   ;; A delegated key. `torihiki.auth/agent-forbidden` is what makes it worth
   ;; having: this key can trade and cannot move money out, so a trading
   ;; program can hold it and a thief cannot use it to empty the account.
@@ -1340,19 +1371,25 @@
   ;; wall time would make the moment a key dies depend on which validator you
   ;; asked. nil never expires, which is the honest spelling of what a key with
   ;; no expiry is — rather than a large number that looks like a policy.
-  (if (or (not (string? agent)) (= agent (get-in ex [:account-keys account])))
-    ;; Authorising the owner key as an agent would DEMOTE it: `check` looks for
-    ;; an agent record before it decides what a signer may do.
+  ;;
+  ;; The store door runs first: the account becomes an :agents KEY.
+  (if (api/store-tx-shape ex t)
     ex
-    (assoc-in ex [:agents account agent] {:expires expires})))
+    (if (or (not (string? agent)) (= agent (get-in ex [:account-keys account])))
+      ;; Authorising the owner key as an agent would DEMOTE it: `check` looks
+      ;; for an agent record before it decides what a signer may do.
+      ex
+      (assoc-in ex [:agents account agent] {:expires expires}))))
 
 (defmethod apply-tx :revoke-agent
-  [ex {:keys [account agent]}]
+  [ex {:keys [account agent] :as t}]
   ;; Revocation is immediate and needs no reason. A key you are unsure about
   ;; is a key you revoke; making that expensive is how people leave them live.
-  (if (get-in ex [:agents account agent])
-    (update-in ex [:agents account] dissoc agent)
-    ex))
+  (if (api/store-tx-shape ex t)
+    ex
+    (if (get-in ex [:agents account agent])
+      (update-in ex [:agents account] dissoc agent)
+      ex)))
 
 (defmethod apply-tx :list-market
   [ex {:keys [account market spec book-opts]}]
@@ -1394,19 +1431,24 @@
           (assoc-in [:funding market] fnd/empty-accumulator)))))
 
 (defmethod apply-tx :cancel-all
-  [ex {:keys [market account]}]
+  [ex {:keys [market account] :as t}]
   ;; The risk control every venue has and this did not: one transaction that
   ;; takes a maker out of the market. Without it, pulling N quotes costs N
   ;; transactions, each with its own nonce, and the last one lands after the
   ;; move the maker was trying to get out of the way of.
   ;; From version 4 a spot book's reservations come back with the orders;
   ;; below it they stayed committed behind nothing.
-  (let [released (when (and (>= (gov/active-version ex) spot-version) (spot? ex market))
-                   (spot-resting-backing ex market account))]
-    (bk/cancel-all! (get-in ex [:books market]) account)
-    (-> (reduce (fn [e [asset amount]] (update e :clearing cl/release-spot account asset amount))
-                ex (sort-by key released))
-        (update-oo om/clear account market))))
+  ;;
+  ;; The store door runs first: `bk/cancel-all!` reads the book (a market
+  ;; with no book used to throw inside apply-block) and compares owners.
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [released (when (and (>= (gov/active-version ex) spot-version) (spot? ex market))
+                     (spot-resting-backing ex market account))]
+      (bk/cancel-all! (get-in ex [:books market]) account)
+      (-> (reduce (fn [e [asset amount]] (update e :clearing cl/release-spot account asset amount))
+                  ex (sort-by key released))
+          (update-oo om/clear account market)))))
 
 (defmethod apply-tx :amend
   [ex {:keys [market oid account level qty] :as t}]
@@ -1490,19 +1532,29 @@
 ;; with publishers must go through :oracle-submit, or the aggregate would be
 ;; decorative.
 (defmethod apply-tx :oracle
-  [ex {:keys [market price]}]
-  (-> ex
-      (assoc-in [:oracle market] price)
-      (assoc-in [:oracle-stale market] false)
-      (reprice! market)
-      (fire-triggers market)))
+  [ex {:keys [market price] :as t}]
+  ;; The store door runs first: `reprice!` reads the book and `fire-triggers`
+  ;; reads the mark — a market with no book threw inside apply-block. The
+  ;; price is judged as the :oracle VALUE it becomes.
+  (if (api/store-tx-shape ex t)
+    ex
+    (-> ex
+        (assoc-in [:oracle market] price)
+        (assoc-in [:oracle-stale market] false)
+        (reprice! market)
+        (fire-triggers market))))
 
 ;; One publisher's observation. The aggregate is recomputed from every fresh
 ;; authorised submission; a single publisher never sets the price.
 (defmethod apply-tx :oracle-submit
-  [ex {:keys [account market price]}]
-  (let [ex (assoc-in ex [:oracle-submissions market account]
-                     {:price price :ts (:ts ex)})
+  [ex {:keys [account market price] :as t}]
+  ;; The store door runs first: the pair becomes the KEY of
+  ;; :oracle-submissions and the price its VALUE — and a market with no book
+  ;; made the aggregate read a nil book (the falsify-6/7 class).
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [ex (assoc-in ex [:oracle-submissions market account]
+                       {:price price :ts (:ts ex)})
         {:keys [price stale?]}
         (if (vals/enabled? ex)
           ;; The validator set is the publisher set (roadmap D4): its
@@ -1553,24 +1605,32 @@
               (assoc-in [:oracle market] price)
               (assoc-in [:oracle-stale market] false)))
         (reprice! market)
-        (fire-triggers market))))
+        (fire-triggers market)))))
 
 (defmethod apply-tx :funding-sample
-  [ex {:keys [market]}]
-  (let [book (get-in ex [:books market])
-        oracle (get-in ex [:oracle market] 0)
-        impact (get-in ex [:funding-params :impact-notional])]
-    (update-in ex [:funding market] fnd/sample (fnd/premium book oracle impact))))
+  [ex {:keys [market] :as t}]
+  ;; The store door runs first: `fnd/premium` reads the book — a market with
+  ;; no book threw inside apply-block (the falsify-6/7 class).
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [book (get-in ex [:books market])
+          oracle (get-in ex [:oracle market] 0)
+          impact (get-in ex [:funding-params :impact-notional])]
+      (update-in ex [:funding market] fnd/sample (fnd/premium book oracle impact)))))
 
 (defmethod apply-tx :funding-settle
-  [ex {:keys [market]}]
-  (let [acc (get-in ex [:funding market] fnd/empty-accumulator)
-        rate (fnd/hourly-rate acc (:funding-params ex))
-        oracle (get-in ex [:oracle market] 0)]
-    (-> ex
-        (update :clearing fnd/apply-funding market oracle rate)
-        (assoc-in [:funding market] fnd/empty-accumulator)
-        (assoc-in [:last-funding-rate market] rate))))
+  [ex {:keys [market] :as t}]
+  ;; The store door runs first: the market becomes the KEY of :funding and
+  ;; :last-funding-rate — a garbage key in the root (the falsify-8/14 class).
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [acc (get-in ex [:funding market] fnd/empty-accumulator)
+          rate (fnd/hourly-rate acc (:funding-params ex))
+          oracle (get-in ex [:oracle market] 0)]
+      (-> ex
+          (update :clearing fnd/apply-funding market oracle rate)
+          (assoc-in [:funding market] fnd/empty-accumulator)
+          (assoc-in [:last-funding-rate market] rate)))))
 
 (defn- recheck-oracle
   "Re-judge `market`'s oracle at the end of the block, on a chain whose

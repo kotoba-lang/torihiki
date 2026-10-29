@@ -1,0 +1,347 @@
+(ns torihiki.store-totality-test
+  "The store path is TOTAL: a transaction `torihiki.api/validate` refuses must
+  never reach a KEY in state, and no transaction may throw inside
+  `apply-block`.
+
+  The apply-path shape gates (PR #78) made :order/:amend/:cancel/:trigger
+  total and the schedule gates (PR #79) made :scale/:twap total. These pins
+  are the REST of the dispatches, where the same disagreement between
+  `validate` and the engine was measured (2026-10-29 probes at b5c2cd9):
+  a transaction `validate` refused could still STORE its garbage into the map
+  keys the encoders fold into the state root — `:clearing :accounts`,
+  `:referrers`, `:sub-of`, `:agents`, `:triggers`, `:funding`,
+  `:last-funding-rate`, `:oracle-submissions`, `:anchors` (the falsify-8/14
+  class: garbage bytes no two runtimes agree on) — and four more could THROW
+  inside `apply-block`: :oracle, :funding-sample and :cancel-all on a market
+  with no book, and :evm-deploy with no account (the falsify-6/7 class: one
+  malformed transaction halts every validator at the same place).
+
+  Refusals are pinned by VALUE at the engine (nothing lands, nothing moves,
+  the mint pin: a refused withdrawal leaves collateral untouched) and by
+  REASON at `api/validate` — the words the engine doors mirror. A pin that
+  only asserts \"no throw\" is half a pin — so every no-throw pin here is
+  paired with the value it must leave alone, and a throw FAILS the pin rather
+  than passing it. One fixture PER CASE: the book is a mutable slab."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private n 65536)   ; the fixture book's level count: valid levels 0..65535
+
+(def ^:private ood (inc fx/i53-max))
+
+(def ^:private agent44 (apply str (repeat 44 "A")))
+
+(defn- funded-unpriced []
+  (-> (st/new-exchange {:market mkt :book-opts {:n-levels n :cap 1024 :ev-cap 1024}})
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 2 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 5 :amount 100000000})))
+
+(defn- funded []
+  (st/apply-tx (funded-unpriced) {:tx :oracle :market 1 :price 1000}))
+
+(defn- with-bookless-market
+  "Market 2 exists but has NO book — `validate` passes it (it only checks the
+  market exists) and the engine used to dereference the nil book and throw."
+  [ex]
+  (assoc-in ex [:markets 2] (cl/market {:id 2 :max-leverage 40 :tick 1 :lot 1})))
+
+(defn- with-wall
+  "A funded exchange with account 2's ask wall of 5 resting at level 1010."
+  []
+  (st/apply-tx (funded) {:tx :order :account 2 :market 1 :side bk/ask
+                         :level 1010 :qty 5}))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+;; ── garbage that lands as state KEYS ────────────────────────────────────────
+
+(deftest a-deposit-never-creates-a-garbage-account-key
+  (doseq [[label tx] [["string account" {:account "5"}]
+                      ["fractional account" {:account 2.5}]
+                      ["out-of-domain account" {:account ood}]
+                      ["nil account" {:account nil}]
+                      ["string credit" {:account 1 :amount 5 :credit "5"}]
+                      ["fractional credit" {:account 1 :amount 5 :credit 2.5}]
+                      ["out-of-domain credit" {:account 1 :amount 5 :credit ood}]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex (merge {:tx :deposit :account 1 :amount 5} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+              "the garbage used to land as an :accounts KEY")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+              "and the real balances are untouched"))))))
+
+(deftest a-garbage-key-never-reaches-the-clearing-or-agent-maps
+  (doseq [[label tx] [["set-referrer: string account"
+                       {:tx :set-referrer :account "5" :referrer 2}]
+                      ["set-referrer: nil account"
+                       {:tx :set-referrer :account nil :referrer 2}]
+                      ["set-referrer: string referrer"
+                       {:tx :set-referrer :account 1 :referrer "5"}]
+                      ["set-referrer: fractional referrer"
+                       {:tx :set-referrer :account 1 :referrer 2.5}]
+                      ["set-referrer: out-of-domain referrer"
+                       {:tx :set-referrer :account 1 :referrer ood}]
+                      ["create-sub-account: string account"
+                       {:tx :create-sub-account :account "5" :sub 3}]
+                      ["create-sub-account: nil account"
+                       {:tx :create-sub-account :account nil :sub 3}]
+                      ["authorize-agent: string account"
+                       {:tx :authorize-agent :account "5" :agent agent44}]
+                      ["authorize-agent: nil account"
+                       {:tx :authorize-agent :account nil :agent agent44}]
+                      ["revoke-agent: string account"
+                       {:tx :revoke-agent :account "5" :agent agent44}]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex tx)]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (get-in ex' [:clearing :referrers]))
+              "no garbage key or value in :referrers")
+          (is (empty? (get-in ex' [:clearing :sub-of]))
+              "no garbage owner in :sub-of")
+          (is (empty? (:agents ex'))
+              "no garbage account in :agents"))))))
+
+(deftest a-market-door-never-keys-state-with-a-garbage-market
+  (doseq [[label tx] [["funding-settle: string market"
+                       {:tx :funding-settle :market "5"}]
+                      ["funding-settle: fractional market"
+                       {:tx :funding-settle :market 2.5}]
+                      ["funding-settle: unknown market"
+                       {:tx :funding-settle :market 99}]
+                      ["funding-settle: out-of-domain market"
+                       {:tx :funding-settle :market ood}]
+                      ["funding-settle: nil market"
+                       {:tx :funding-settle :market nil}]
+                      ["cancel-trigger: string market"
+                       {:tx :cancel-trigger :market "5" :id 0}]
+                      ["cancel-trigger: unknown market"
+                       {:tx :cancel-trigger :market 99 :id 0}]
+                      ["cancel-trigger: nil market"
+                       {:tx :cancel-trigger :market nil :id 0}]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex tx)]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:last-funding-rate ex'))
+              "no garbage key in :last-funding-rate")
+          ;; :funding is seeded with every market's empty accumulator by
+          ;; new-exchange (the fixture note in the oracle pin applies
+          ;; verbatim): the pin is the KEY SET — before the door the garbage
+          ;; market landed beside the seed ({1 …, \"5\" …}), and a refusal
+          ;; must leave the seed alone and add nothing.
+          (is (= #{1} (set (keys (:funding ex')))) "no garbage key in :funding")
+          (is (empty? (:triggers ex')) "no garbage key in :triggers"))))))
+
+(deftest an-oracle-never-stores-a-garbage-price-or-key
+  (doseq [[label tx] [["oracle: string price" {:tx :oracle :market 1 :price "5"}]
+                      ["oracle: fractional price" {:tx :oracle :market 1 :price 2.5}]
+                      ["oracle: zero price" {:tx :oracle :market 1 :price 0}]
+                      ["oracle: negative price" {:tx :oracle :market 1 :price -3}]
+                      ["oracle: out-of-domain price" {:tx :oracle :market 1 :price ood}]
+                      ["oracle: nil price" {:tx :oracle :market 1 :price nil}]
+                      ["oracle-submit: string account"
+                       {:tx :oracle-submit :market 1 :account "5" :price 1000}]
+                      ["oracle-submit: nil account"
+                       {:tx :oracle-submit :market 1 :account nil :price 1000}]
+                      ["oracle-submit: string market"
+                       {:tx :oracle-submit :market "5" :account 1 :price 1000}]
+                      ["oracle-submit: unknown market"
+                       {:tx :oracle-submit :market 99 :account 1 :price 1000}]
+                      ["oracle-submit: string price"
+                       {:tx :oracle-submit :market 1 :account 1 :price "5"}]
+                      ["oracle-submit: fractional price"
+                       {:tx :oracle-submit :market 1 :account 1 :price 2.5}]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex tx)]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:oracle ex')) "no garbage price in :oracle")
+          (is (empty? (:marks ex')) "no coerced price in :marks")
+          (is (empty? (:oracle-submissions ex'))
+              "no garbage key or price in :oracle-submissions")
+          (is (empty? (:oracle-stale ex')) "no garbage key in :oracle-stale"))))))
+
+;; ── garbage that used to THROW inside apply-block ───────────────────────────
+
+(deftest a-market-with-no-book-throws-nothing
+  (doseq [[label tx] [["oracle: string market" {:tx :oracle :market "5" :price 1000}]
+                      ["oracle: unknown market" {:tx :oracle :market 99 :price 1000}]
+                      ["oracle: nil market" {:tx :oracle :market nil :price 1000}]
+                      ["oracle: market with no book" {:tx :oracle :market 2 :price 1000}]
+                      ["funding-sample: string market" {:tx :funding-sample :market "5"}]
+                      ["funding-sample: unknown market" {:tx :funding-sample :market 99}]
+                      ["funding-sample: market with no book" {:tx :funding-sample :market 2}]
+                      ["cancel-all: string market" {:tx :cancel-all :market "5" :account 1}]
+                      ["cancel-all: unknown market" {:tx :cancel-all :market 99 :account 1}]
+                      ["cancel-all: market with no book" {:tx :cancel-all :market 2 :account 1}]]]
+    (testing label
+      (let [ex (with-bookless-market (with-wall))
+            ex' (applied ex tx)]
+        (is (not= ::threw ex') "a nil book dereference used to halt apply-block")
+        (when (not= ::threw ex')
+          (is (= 1 (bk/resting-count (get-in ex' [:books 1])))
+              "the wall it would have cancelled is untouched")
+          (is (= #{1} (set (keys (:oracle ex'))))
+              "no price lands on the refused market")
+          (is (= #{1} (set (keys (:funding ex'))))
+              "no funding sample lands — only the seeded accumulator"))))))
+
+(deftest an-evm-deploy-with-a-garbage-account-throws-nothing
+  (doseq [[label account] [["nil account" nil]
+                           ["string account" "5"]
+                           ["fractional account" 2.5]
+                           ["out-of-domain account" ood]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :evm-deploy :account account :code "6000"})]
+        (is (not= ::threw ex') "the address derivation used to throw")
+        (when (not= ::threw ex')
+          (is (empty? (:evm ex')) "no code is deployed for a garbage signer"))))))
+
+;; ── the mint pin ────────────────────────────────────────────────────────────
+
+(deftest a-refused-withdrawal-cannot-mint
+  ;; amount -3 used to STORE a claim of -3 and PASS the free-collateral gate
+  ;; (free >= -3): a negative withdrawal pays the withdrawer. VALUE pins: no
+  ;; claim, no claim id spent, collateral untouched.
+  (doseq [[label tx] [["negative amount" {:amount -3}]
+                      ["string amount" {:amount "5"}]
+                      ["fractional amount" {:amount 2.5}]
+                      ["zero amount" {:amount 0}]
+                      ["out-of-domain amount" {:amount ood}]
+                      ["nil amount" {:amount nil}]
+                      ["string account" {:account "5" :amount 5}]
+                      ["nil account" {:account nil :amount 5}]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex (merge {:tx :withdraw :account 1 :amount 5} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:withdrawals ex')) "no claim may be raised")
+          (is (= 0 (:withdraw-seq ex')) "and no claim id is spent")
+          (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+              "the mint pin: collateral is unchanged after a refused withdraw"))))))
+
+(deftest an-anchor-never-records-a-garbage-cid
+  (doseq [[label cid] [["fractional cid" 2.5]
+                       ["number cid" 5]
+                       ["empty cid" ""]
+                       ["over-long cid" (apply str (repeat 129 "x"))]
+                       ["nil cid" nil]]]
+    (testing label
+      (let [ex (funded-unpriced)
+            ex' (applied ex {:tx :anchor :account 1 :cid cid})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:anchors ex'))
+              "no anchor may record a cid `validate` refuses"))))))
+
+;; ── the doors must never refuse what validate passed ────────────────────────
+
+(deftest a-valid-store-tx-still-lands
+  (testing "deposit credits"
+    (let [ex' (applied (funded-unpriced) {:tx :deposit :account 1 :amount 5})]
+      (is (= 100000005 (get-in ex' [:clearing :accounts 1 :collateral])))))
+  (testing "withdraw raises its claim and pays"
+    (let [ex' (applied (funded-unpriced) {:tx :withdraw :account 1 :amount 5})]
+      (is (= 5 (get-in ex' [:withdrawals 1 :amount])))
+      (is (= 99999995 (get-in ex' [:clearing :accounts 1 :collateral])))))
+  (testing "anchor records its cid"
+    (let [ex' (applied (funded-unpriced) {:tx :anchor :account 1 :cid "bafytest"})]
+      (is (= "bafytest" (get-in ex' [:anchors 0 :cid])))))
+  (testing "set-referrer binds"
+    (let [ex' (applied (funded-unpriced) {:tx :set-referrer :account 2 :referrer 1})]
+      (is (= 1 (get-in ex' [:clearing :referrers 2])))))
+  (testing "create-sub-account binds an untouched id"
+    (let [ex' (applied (funded-unpriced) {:tx :create-sub-account :account 1 :sub 3})]
+      (is (= 1 (get-in ex' [:clearing :sub-of 3])))))
+  (testing "authorize-agent stores, revoke-agent clears"
+    (let [ex (applied (funded-unpriced)
+                      {:tx :authorize-agent :account 1 :agent agent44})
+          ex' (applied ex {:tx :revoke-agent :account 1 :agent agent44})]
+      (is (contains? (get-in ex [:agents 1]) agent44)
+          "the authorisation is stored")
+      (is (empty? (get-in ex' [:agents 1])) "and revocation clears it")))
+  (testing "evm-deploy publishes code"
+    (let [ex' (applied (funded-unpriced) {:tx :evm-deploy :account 1 :code "6000"})]
+      (is (seq (:evm ex')) "the code is deployed"))))
+
+(deftest a-valid-market-tx-still-lands
+  (testing "oracle sets the price"
+    (let [ex' (applied (funded-unpriced) {:tx :oracle :market 1 :price 1000})]
+      (is (= 1000 (get-in ex' [:oracle 1])))))
+  (testing "oracle-submit records the submission"
+    (let [ex (assoc (funded-unpriced) :oracle-publishers #{1})
+          ex' (applied ex {:tx :oracle-submit :market 1 :account 1 :price 1000})]
+      (is (= 1000 (get-in ex' [:oracle-submissions 1 1 :price])))))
+  (testing "funding-sample and funding-settle run on a real market"
+    (let [ex (applied (funded-unpriced) {:tx :funding-sample :market 1})
+          ex' (applied ex {:tx :funding-settle :market 1})]
+      (is (some? (get-in ex [:funding 1])) "the sample lands")
+      (is (contains? (:last-funding-rate ex') 1) "and the rate is settled")))
+  (testing "cancel-all pulls the maker out"
+    (let [ex' (applied (with-wall) {:tx :cancel-all :account 2 :market 1})]
+      (is (= 0 (bk/resting-count (get-in ex' [:books 1]))))))
+  (testing "cancel-trigger removes its trigger"
+    (let [ex (assoc-in (funded-unpriced) [:triggers 1]
+                       [{:id 0 :account 5 :market 1}])
+          ex' (applied ex {:tx :cancel-trigger :market 1 :id 0})]
+      (is (empty? (get-in ex' [:triggers 1]))))))
+
+;; ── the shared vocabulary speaks the closed taxonomy ────────────────────────
+
+(deftest validate-still-answers-with-the-same-words
+  ;; Regression pins: the reason keywords the engine doors mirror are exactly
+  ;; the words `validate` answers with. `validate` is unchanged by this
+  ;; package; if it moves, the mirrors move with it.
+  (let [ex (funded)]
+    (doseq [[label t expect]
+            [["deposit: string account" {:tx :deposit :account "5" :amount 5} :bad-account]
+             ["deposit: fractional credit" {:tx :deposit :account 1 :amount 5 :credit 2.5} :bad-account]
+             ["deposit: negative amount" {:tx :deposit :account 1 :amount -3} :bad-amount]
+             ["withdraw: nil account" {:tx :withdraw :account nil :amount 5} :bad-account]
+             ["withdraw: zero amount" {:tx :withdraw :account 1 :amount 0} :bad-amount]
+             ["withdraw: negative amount" {:tx :withdraw :account 1 :amount -3} :bad-amount]
+             ["evm-deploy: nil account" {:tx :evm-deploy :account nil :code "6000"} :bad-account]
+             ["anchor: fractional cid" {:tx :anchor :account 1 :cid 2.5} :bad-cid]
+             ["anchor: empty cid" {:tx :anchor :account 1 :cid ""} :bad-cid]
+             ["create-sub-account: string account"
+              {:tx :create-sub-account :account "5" :sub 3} :bad-account]
+             ["set-referrer: string referrer"
+              {:tx :set-referrer :account 1 :referrer "5"} :bad-account]
+             ["oracle: unknown market" {:tx :oracle :market 99 :price 1000} :unknown-market]
+             ["oracle: string price" {:tx :oracle :market 1 :price "5"} :bad-price-level]
+             ["oracle-submit: nil account"
+              {:tx :oracle-submit :market 1 :account nil :price 1000} :bad-account]
+             ["oracle-submit: zero price"
+              {:tx :oracle-submit :market 1 :account 1 :price 0} :bad-price-level]
+             ["funding-sample: unknown market" {:tx :funding-sample :market 99} :unknown-market]
+             ["funding-settle: unknown market" {:tx :funding-settle :market 99} :unknown-market]
+             ["cancel-all: nil account" {:tx :cancel-all :market 1 :account nil} :bad-account]
+             ["cancel-all: unknown market" {:tx :cancel-all :market 99 :account 1} :unknown-market]
+             ["cancel-trigger: unknown market" {:tx :cancel-trigger :market 99 :id 0} :unknown-market]
+             ["authorize-agent: fractional account"
+              {:tx :authorize-agent :account 2.5 :agent agent44} :bad-account]]]
+      (testing label
+        (is (= expect (api/validate ex t))
+            "`validate` answers with the word the engine door mirrors")))))
