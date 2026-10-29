@@ -31,6 +31,8 @@ Testing torihiki.log-test
 
 Testing torihiki.mark-test
 
+Testing torihiki.market-totality-test
+
 Testing torihiki.money-totality-test
 
 Testing torihiki.oracle-set-test
@@ -61,5 +63,5 @@ Testing torihiki.trigger-test
 
 Testing torihiki.validators-test
 
-Ran 551 tests containing 4292 assertions.
+Ran 558 tests containing 4395 assertions.
 0 failures, 0 errors.
