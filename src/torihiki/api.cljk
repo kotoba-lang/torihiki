@@ -565,6 +565,111 @@
 
     nil))
 
+;; ── the market shape gates ──────────────────────────────────────────────────
+;;
+;; What `torihiki.state/apply-tx` asks before it stores a market, merges a
+;; spec, or dissocs a schedule. These are `validate`'s `:list-market` /
+;; `:amend-market` / `:cancel-twap` clauses extracted verbatim — the same
+;; judgments in the same order, answering with the same keyword from
+;; `reasons` — one shape rule, two doors. Where the disagreement between the
+;; doors was MEASURED (2026-10-30 probes at 5087afc): a raw `:list-market`
+;; keyed `:markets` with a garbage MARKET ID (\"5\", 2.5, -1, 0, 2^53, nil —
+;; the id is folded into the state root by `encode-market-spec`) and STORED a
+;; garbage spec (`:taker-fee-rate \"5\"` / 1000000001 / 2^53,
+;; `:maintenance-margin-rate -1`, `:weird 2^53`) RAW into `enc-ints`;
+;; `:amend-market` MERGED the same garbage into the live market record; and
+;; `:cancel-twap` with a nil account MINTED the `:twaps` key itself (`(= nil
+;; nil)` matched and `(update ex :twaps dissoc id)` assocs `:twaps nil`).
+;; A refusal at the engine is a NO-OP: the transaction is dropped whole and
+;; the exchange is returned unchanged. Nothing here throws.
+
+(defn market-tx-shape
+  "nil when this market-admin transaction may be applied, otherwise its
+  `reasons` keyword.
+
+  The market id is judged as the KEY it becomes — slab-storable, like
+  `account-ok?` (one deliberate widening: the old `validate` clause asked
+  only `(and (integer? market) (pos? market))`, so an out-of-domain id
+  PASSED and arrived through validated traffic as a garbage key — an
+  in-domain bound is the same door `account-ok?` keeps, one map to the
+  right, answered with the word the malformed id answers already). The spec
+  is judged as the arithmetic and the ROOT BYTES it enters: `spec-ok?` (every
+  integer slab-storable), `rates-ok?` (every rate a fraction of rate-scale —
+  a rate past the scale takes `amount x rate / rate-scale` out of the domain,
+  where `mul-rate` throws mid-fill), and the tier/flat shapes
+  `encode-market-spec` folds RAW. `:tick` and `:lot` are judged even though
+  `:amend-market` drops them: junk in a transaction is refused at the door,
+  not silently discarded. The book options are judged as the allocation
+  `new-book` would THROW on. Used by `torihiki.state/apply-tx` at the top of
+  each market dispatch and by `validate` — the two doors cannot drift."
+  [ex {:keys [tx account market spec id] :as t}]
+  (case tx
+    :cancel-twap
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? id)) :missing-field
+      :else nil)
+
+    :amend-market
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (contains? (:markets ex) market)) :unknown-market
+      (not (map? spec)) :missing-field
+      ;; every integer a spec carries must be slab-storable — it is a tick,
+      ;; lot or rate the engine will multiply later (see `spec-ok?`)
+      (not (spec-ok? spec)) :missing-field
+      ;; and every rate must be a fraction of rate-scale (see `rates-ok?`)
+      (not (rates-ok? spec)) :rate-too-high
+      ;; a schedule that replaces the old one must be complete like a new one
+      ;; (see `cl/margin-tiers-ok?` + `tier-leverage-ok?` for the tier
+      ;; `:max-leverage` the pinned core's copy leaves out; `:list-market`
+      ;; judges the same shape), and the flat fields beside it must be shaped
+      ;; like the encoder and the comparators read them (see `flat-spec-ok?`)
+      (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
+                (tier-leverage-ok? (:margin-tiers spec))
+                (cl/fee-tiers-ok? (:fee-tiers spec))
+                (flat-spec-ok? spec))) :missing-field
+      :else nil)
+
+    :list-market
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; The id becomes the KEY the market is stored under and is folded
+      ;; into the state root by `encode-market-spec` — slab-storable.
+      (not (int-in? market 1 fx/i53-max)) :unknown-market
+      ;; Already listed is refused here rather than in the engine so a client
+      ;; sees why, and so the engine's no-op stays a safety net rather than
+      ;; the only check.
+      (contains? (:markets ex) market) :unknown-market
+      (not (map? spec)) :missing-field
+      (not (spec-ok? spec)) :missing-field
+      ;; every rate must be a fraction of rate-scale (see `rates-ok?`) — a
+      ;; spec is not refused for what it SAYS only because it stores cleanly
+      (not (rates-ok? spec)) :rate-too-high
+      ;; A tier is read WHOLE — `tier-for` derefs `:max-notional`, `rates-for`
+      ;; the two rates, `fee-rates-for` `:min-volume` — so completeness is
+      ;; judged here, at the door, rather than discovered as a throw on the
+      ;; first sweep through the market (the falsify-6/7 class). The shape
+      ;; `cl/market` documents (`{:max-notional n :max-leverage l}`, rates
+      ;; derived) is a GENESIS shape: at listing the rates are stated, not
+      ;; derived — a derivation here would silently pick a floor division the
+      ;; operator never saw. (see `cl/margin-tiers-ok?` + `tier-leverage-ok?`)
+      ;; The flat fields are
+      ;; shaped the same way: `encode-market-spec` folds them raw into the
+      ;; state root and two readers compare them. (see `flat-spec-ok?`)
+      (not (and (cl/margin-tiers-ok? (:margin-tiers spec))
+                (tier-leverage-ok? (:margin-tiers spec))
+                (cl/fee-tiers-ok? (:fee-tiers spec))
+                (flat-spec-ok? spec))) :missing-field
+      (not (int-in? (:tick spec) 1 fx/i53-max)) :missing-field
+      (not (int-in? (:lot spec) 1 fx/i53-max)) :missing-field
+      ;; `new-book` enforces its option constraints by THROWING, so the shape
+      ;; is judged here, at the last door before apply-block
+      (not (bk/book-opts-ok? (:book-opts t))) :missing-field
+      :else nil)
+
+    nil))
+
 (def ^:const max-builder-fee-rate
   "The most a builder may charge, as a rate against `fx/rate-scale`. Ten basis
   points.
@@ -977,66 +1082,18 @@
     (twap-tx-shape ex t)
 
     :cancel-twap
-    (cond
-      (not (account-ok? account)) :bad-account
-      (not (integer? (:id t))) :missing-field
-      :else nil)
+    (market-tx-shape ex t)
 
     :amend-market
-    (cond
-      (not (account-ok? account)) :bad-account
-      (not (contains? (:markets ex) market)) :unknown-market
-      (not (map? (:spec t))) :missing-field
-      ;; every integer a spec carries must be slab-storable — it is a tick,
-      ;; lot or rate the engine will multiply later (see `spec-ok?`)
-      (not (spec-ok? (:spec t))) :missing-field
-      ;; and every rate must be a fraction of rate-scale (see `rates-ok?`)
-      (not (rates-ok? (:spec t))) :rate-too-high
-      ;; a schedule that replaces the old one must be complete like a new one
-      ;; (see `cl/margin-tiers-ok?` + `tier-leverage-ok?` for the tier
-      ;; `:max-leverage` the pinned core's copy leaves out; `:list-market`
-      ;; judges the same shape), and the flat fields beside it must be shaped
-      ;; like the encoder and the comparators read them (see `flat-spec-ok?`)
-      (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
-                (tier-leverage-ok? (:margin-tiers (:spec t)))
-                (cl/fee-tiers-ok? (:fee-tiers (:spec t)))
-                (flat-spec-ok? (:spec t)))) :missing-field
-      :else nil)
+    (market-tx-shape ex t)
 
     :list-market
-    (cond
-      (not (account-ok? account)) :bad-account
-      (not (and (integer? market) (pos? market))) :unknown-market
-      ;; Already listed is refused here rather than in the engine so a client
-      ;; sees why, and so the engine's no-op stays a safety net rather than
-      ;; the only check.
-      (contains? (:markets ex) market) :unknown-market
-      (not (map? (:spec t))) :missing-field
-      (not (spec-ok? (:spec t))) :missing-field
-      ;; every rate must be a fraction of rate-scale (see `rates-ok?`) — a
-      ;; spec is not refused for what it SAYS only because it stores cleanly
-      (not (rates-ok? (:spec t))) :rate-too-high
-      ;; A tier is read WHOLE — `tier-for` derefs `:max-notional`, `rates-for`
-      ;; the two rates, `fee-rates-for` `:min-volume` — so completeness is
-      ;; judged here, at the door, rather than discovered as a throw on the
-      ;; first sweep through the market (the falsify-6/7 class). The shape
-      ;; `cl/market` documents (`{:max-notional n :max-leverage l}`, rates
-      ;; derived) is a GENESIS shape: at listing the rates are stated, not
-      ;; derived — a derivation here would silently pick a floor division the
-      ;; operator never saw. (see `cl/margin-tiers-ok?` + `tier-leverage-ok?`)
-      ;; The flat fields are
-      ;; shaped the same way: `encode-market-spec` folds them raw into the
-      ;; state root and two readers compare them. (see `flat-spec-ok?`)
-      (not (and (cl/margin-tiers-ok? (:margin-tiers (:spec t)))
-                (tier-leverage-ok? (:margin-tiers (:spec t)))
-                (cl/fee-tiers-ok? (:fee-tiers (:spec t)))
-                (flat-spec-ok? (:spec t)))) :missing-field
-      (not (int-in? (:tick (:spec t)) 1 fx/i53-max)) :missing-field
-      (not (int-in? (:lot (:spec t)) 1 fx/i53-max)) :missing-field
-      ;; `new-book` enforces its option constraints by THROWING, so the shape
-      ;; is judged here, at the last door before apply-block
-      (not (bk/book-opts-ok? (:book-opts t))) :missing-field
-      :else nil)
+    ;; The market door — extracted verbatim into `market-tx-shape` (which the
+    ;; engine's `apply-tx` gates call too), so the two doors cannot drift. Its
+    ;; docstring carries the rationale the clauses used to: the id as the key
+    ;; it becomes, the spec as the root bytes it enters, the book options as
+    ;; the allocation `new-book` would throw on.
+    (market-tx-shape ex t)
 
     ;; It had no case here, so through `apply-block` — the only path a
     ;; deployed chain has — every exit attestation was refused `:unknown-tx`

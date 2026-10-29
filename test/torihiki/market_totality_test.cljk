@@ -1,0 +1,254 @@
+(ns torihiki.market-totality-test
+  "The market-admin door is TOTAL: a `:list-market`, `:amend-market` or
+  `:cancel-twap` the engine cannot shape is dropped whole — never a garbage
+  key in the maps `encode-market-spec` folds into the state root, never a
+  garbage rate in the market record, never a `:twaps` key minted by a cancel
+  that names nothing.
+
+  The shape gates (PRs #78-#81) covered the order/schedule/store/money
+  dispatches. These pins are the market-admin dispatches, where the same
+  disagreement between `validate` and the engine was MEASURED (2026-10-30
+  probes at 5087afc, kbb/SCI leg):
+
+  - `:list-market` keyed `:markets` (and `:books`, `:funding`) with a GARBAGE
+    MARKET ID — \"5\", 2.5, -1, 0, 2^53, nil all landed as keys — and the id
+    itself is folded into the root (`encode-market-spec` encodes `m`).
+  - `:list-market` STORED a garbage spec: a fee rate of \"5\", a fee rate of
+    1000000001 (over the 100% ceiling), a fee rate of 2^53,
+    `:maintenance-margin-rate -1` (a negative requirement is free leverage —
+    solvency-breaking), `:weird 2^53` — every one of them RAW into
+    `enc-ints`' \"one i53 as 8 bytes\".
+  - `:amend-market` MERGED the same garbage into the LIVE market record.
+  - `:cancel-twap` with a nil account MINTED the `:twaps` key itself
+    (`(update ex :twaps dissoc id)` runs on `(= nil nil)` and assocs
+    `:twaps nil` into state) — the store-totality class through a fourth
+    door.
+  - and `validate` itself PASSED an out-of-domain market id (2^53 answered
+    nil where \"5\" answered :unknown-market) — the garbage key arrived
+    through the VALIDATED path, not only raw.
+
+  Refusals are pinned by VALUE at the engine (nothing lands, nothing merges,
+  no key is minted) and by REASON at both `api/market-tx-shape` (the engine
+  door) and `api/validate` (the words the door mirrors). A pin that only
+  asserts \"no throw\" is half a pin — so every no-throw pin here is paired
+  with the value it must leave alone, and a throw FAILS the pin rather than
+  passing it. One fixture PER CASE: the book is a mutable slab."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private ood (inc fx/i53-max))
+
+(defn- base []
+  (st/new-exchange {:market mkt
+                    :book-opts {:n-levels 1024 :cap 1024 :ev-cap 1024}
+                    :bridge-authority 1}))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(def ^:private market-id-garbages
+  "Garbage for a market id — the KEY `:list-market` stores under, and the id
+  `encode-market-spec` folds into the root. `validate` refuses all of these
+  (the out-of-domain one only since this package — it used to PASS)."
+  [["string" "5"] ["fractional" 2.5] ["negative" -1] ["zero" 0]
+   ["out-of-domain" ood] ["nil" nil]])
+
+(def ^:private spec-garbages
+  "Garbage for a market spec: what `spec-ok?` and `rates-ok?` refuse — and
+  what the engine used to store RAW. Pairs are [label spec reason]: a
+  `:weird` key is `spec-ok?`'s answer (:missing-field), a rate key is
+  `rates-ok?`'s (:rate-too-high)."
+  [["fee rate string" {:taker-fee-rate "5"} :rate-too-high]
+   ["fee rate over ceiling" {:taker-fee-rate (inc fx/rate-scale)} :rate-too-high]
+   ["fee rate out-of-domain" {:taker-fee-rate ood} :missing-field]
+   ["negative margin rate" {:maintenance-margin-rate -1} :rate-too-high]
+   ["nested out-of-domain integer" {:weird ood} :missing-field]])
+
+(def ^:private twap-cancels
+  "Garbage for `:cancel-twap`. A NEGATIVE id is integer-shaped and names no
+  schedule — `validate` passes it and the cancel is a no-op both doors; it is
+  a guard, not garbage."
+  [["string id" {:tx :cancel-twap :account 1 :id "5"} :missing-field]
+   ["fractional id" {:tx :cancel-twap :account 1 :id 2.5} :missing-field]
+   ["nil id" {:tx :cancel-twap :account 1 :id nil} :missing-field]
+   ["nil account" {:tx :cancel-twap :account nil :id 5} :bad-account]
+   ["string account" {:tx :cancel-twap :account "1" :id 5} :bad-account]
+   ["nil account, nil id" {:tx :cancel-twap :account nil :id nil} :bad-account]])
+
+;; ── VALUE at the engine: nothing lands, nothing merges, nothing mints ──────
+
+(deftest list-market-never-keys-markets-with-garbage
+  (doseq [[label m] market-id-garbages]
+    (testing (str "garbage market id: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :list-market :account 1 :market m :spec {:tick 1 :lot 1}})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (= #{1} (set (keys (:markets ex'))))
+            "no garbage :markets key (the id is folded into the root)")
+        (is (= #{1} (set (keys (:books ex')))) "no garbage :books key")
+        (is (= #{1} (set (keys (:funding ex')))) "no garbage :funding key"))))
+  (testing (str "the garbage also arrives through VALIDATED traffic — "
+                "validate's own market-id door used to pass an out-of-domain id")
+    (is (= :unknown-market
+           (api/validate (base) {:tx :list-market :account 1 :market ood
+                                 :spec {:tick 1 :lot 1}})))))
+
+(deftest list-market-never-stores-a-garbage-spec
+  (doseq [[label spec _reason] spec-garbages]
+    (testing (str "garbage spec: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :list-market :account 1 :market 2
+                             :spec (merge {:tick 1 :lot 1} spec)})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? (:markets ex') 2))
+            "no market — and no rate folded RAW into enc-ints"))))
+  (testing "and a garbage rate in a TIER is the same garbage"
+    (let [ex (base)
+          ex' (applied ex {:tx :list-market :account 1 :market 2
+                           :spec {:tick 1 :lot 1
+                                  :fee-tiers [{:min-volume 0
+                                               :maker-fee-rate (inc fx/rate-scale)}]}})]
+      (is (not= ::threw ex'))
+      (is (not (contains? (:markets ex') 2))))))
+
+(deftest amend-market-never-merges-garbage
+  (doseq [[label spec _reason] spec-garbages]
+    (testing (str "garbage spec: " label)
+      (let [ex (base)
+            before (get-in ex [:markets 1])
+            ex' (applied ex {:tx :amend-market :account 1 :market 1 :spec spec})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (= before (get-in ex' [:markets 1]))
+            "the live market record is untouched — never a coerced rate"))))
+  (testing "and a garbage rate in a TIER"
+    (let [ex (base)
+          before (get-in ex [:markets 1])
+          ex' (applied ex {:tx :amend-market :account 1 :market 1
+                           :spec {:fee-tiers [{:min-volume 0
+                                               :taker-fee-rate "5"}]}})]
+      (is (not= ::threw ex'))
+      (is (= before (get-in ex' [:markets 1]))))))
+
+(deftest cancel-twap-never-mints-the-twaps-key
+  ;; The measured hole: `(= account (:account (get-in ex [:twaps id])))`
+  ;; matches on `(= nil nil)` and `(update ex :twaps dissoc id)` then assocs
+  ;; `:twaps nil` into state — a garbage cancel that CREATES a key.
+  (doseq [[label tx] [["nil account" {:tx :cancel-twap :account nil :id 5}]
+                      ["nil account, nil id" {:tx :cancel-twap :account nil :id nil}]]]
+    (testing (str "garbage cancel: " label)
+      (let [ex (base)
+            ex' (applied ex tx)]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :twaps))
+            "a cancel that names nothing must not mint the :twaps key")))))
+
+;; ── REASON at both doors ───────────────────────────────────────────────────
+
+(deftest market-tx-shape-reasons
+  (doseq [[label m] market-id-garbages]
+    (testing (str "garbage market id: " label)
+      (is (= :unknown-market
+             (api/market-tx-shape (base) {:tx :list-market :account 1 :market m
+                                          :spec {:tick 1 :lot 1}}))
+          (str label " refused with the word validate answers"))))
+  (doseq [[label spec reason] spec-garbages]
+    (testing (str "garbage spec: " label)
+      (is (= reason
+             (api/market-tx-shape (base) {:tx :list-market :account 1 :market 2
+                                          :spec (merge {:tick 1 :lot 1} spec)})))
+      (is (= reason
+             (api/market-tx-shape (base) {:tx :amend-market :account 1 :market 1
+                                          :spec spec})))))
+  (testing "a garbage rate in a TIER is a rate answer"
+    (is (= :rate-too-high
+           (api/market-tx-shape (base) {:tx :list-market :account 1 :market 2
+                                        :spec {:tick 1 :lot 1
+                                               :fee-tiers [{:min-volume 0
+                                                            :maker-fee-rate (inc fx/rate-scale)}]}}))))
+  (doseq [[label tx reason] twap-cancels]
+    (testing (str "garbage cancel: " label)
+      (is (= reason (api/market-tx-shape (base) tx))
+          (str label " refused with the word validate answers"))))
+  (testing (str "the negative id names nothing but is not refused — the "
+                "mirror never refuses what validate passed")
+    (is (nil? (api/market-tx-shape (base) {:tx :cancel-twap :account 1 :id -3}))))
+  (testing "and neither door refuses VALID traffic"
+    (is (nil? (api/market-tx-shape (base) {:tx :list-market :account 1 :market 2
+                                           :spec {:tick 1 :lot 1}})))
+    (is (nil? (api/market-tx-shape (base) {:tx :amend-market :account 1 :market 1
+                                           :spec {:taker-fee-rate 100}})))
+    (is (nil? (api/market-tx-shape (base) {:tx :cancel-twap :account 1 :id 7})))
+    ;; non-numbers are judged where they are used, not here — spec-ok? says so
+    (is (nil? (api/market-tx-shape (base) {:tx :list-market :account 1 :market 2
+                                           :spec {:tick 1 :lot 1 :weird "x"}})))))
+
+(deftest validate-words-the-door-mirrors
+  ;; The regression half: the words were already there, and the engine door
+  ;; now answers the same ones. These were GREEN before the fix and must stay
+  ;; green — the door mirrors, it does not invent.
+  (is (= :unknown-market
+         (api/validate (base) {:tx :list-market :account 1 :market "5"
+                               :spec {:tick 1 :lot 1}})))
+  (is (= :unknown-market
+         (api/validate (base) {:tx :list-market :account 1 :market 2.5
+                               :spec {:tick 1 :lot 1}})))
+  (is (= :unknown-market
+         (api/validate (base) {:tx :list-market :account 1 :market 0
+                               :spec {:tick 1 :lot 1}})))
+  (is (= :rate-too-high
+         (api/validate (base) {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :taker-fee-rate (inc fx/rate-scale)}})))
+  (is (= :rate-too-high
+         (api/validate (base) {:tx :amend-market :account 1 :market 1
+                               :spec {:maintenance-margin-rate -1}})))
+  (is (= :missing-field
+         (api/validate (base) {:tx :list-market :account 1 :market 2
+                               :spec {:tick 1 :lot 1 :weird ood}})))
+  (is (= :bad-account
+         (api/validate (base) {:tx :cancel-twap :account nil :id 5})))
+  (is (= :missing-field
+         (api/validate (base) {:tx :cancel-twap :account 1 :id "5"})))
+  (is (nil? (api/validate (base) {:tx :cancel-twap :account 1 :id -3}))
+      "a negative id names nothing and is not refused"))
+
+;; ── over-refusal guards: valid market traffic still lands ──────────────────
+
+(deftest valid-market-traffic-still-lands
+  (testing "a valid :list-market lists — market, book, funding seed"
+    (let [ex (base)
+          ex' (applied ex {:tx :list-market :account 1 :market 2 :spec {:tick 1 :lot 1}})]
+      (is (not= ::threw ex'))
+      (is (= #{1 2} (set (keys (:markets ex')))))
+      (is (= 2 (get-in ex' [:markets 2 :id])))
+      (is (some? (get-in ex' [:books 2])))
+      (is (contains? (:funding ex') 2))))
+  (testing "a valid :amend-market merges"
+    (let [ex (base)
+          ex' (applied ex {:tx :amend-market :account 1 :market 1
+                           :spec {:taker-fee-rate 100}})]
+      (is (not= ::threw ex'))
+      (is (= 100 (get-in ex' [:markets 1 :taker-fee-rate])))))
+  (testing "the owner cancels their schedule; nobody else does"
+    (let [ex (assoc (base) :twaps {7 {:account 1 :remaining 5}})
+          ex' (applied ex {:tx :cancel-twap :account 1 :id 7})]
+      (is (not= ::threw ex'))
+      (is (= {} (:twaps ex'))))
+    (let [ex (assoc (base) :twaps {7 {:account 1 :remaining 5}})
+          ex' (applied ex {:tx :cancel-twap :account 2 :id 7})]
+      (is (not= ::threw ex'))
+      (is (= {7 {:account 1 :remaining 5}} (:twaps ex')))))
+  (testing "a negative id names nothing — the state is untouched"
+    (let [ex (assoc (base) :twaps {7 {:account 1 :remaining 5}})
+          ex' (applied ex {:tx :cancel-twap :account 1 :id -3})]
+      (is (not= ::threw ex'))
+      (is (= {7 {:account 1 :remaining 5}} (:twaps ex'))))))
