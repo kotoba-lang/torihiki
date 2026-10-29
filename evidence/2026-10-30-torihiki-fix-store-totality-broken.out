@@ -1,0 +1,638 @@
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+string account
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 "5"}))
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+fractional account
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 2.5}))
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+out-of-domain account
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 9007199254740992}))
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+nil account
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 nil}))
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+string credit
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 "5"}))
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+fractional credit
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 2.5}))
+
+FAIL in (a-deposit-never-creates-a-garbage-account-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:84)
+out-of-domain credit
+the garbage used to land as an :accounts KEY
+expected: (= #{1 2 5} (set (keys (:accounts (:clearing ex')))))
+  actual: (not (= #{1 2 5} #{1 2 5 9007199254740992}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:115)
+set-referrer: string account
+no garbage key or value in :referrers
+expected: (empty? (get-in ex' [:clearing :referrers]))
+  actual: (not (empty? {"5" 2}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:115)
+set-referrer: nil account
+no garbage key or value in :referrers
+expected: (empty? (get-in ex' [:clearing :referrers]))
+  actual: (not (empty? {nil 2}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:115)
+set-referrer: string referrer
+no garbage key or value in :referrers
+expected: (empty? (get-in ex' [:clearing :referrers]))
+  actual: (not (empty? {1 "5"}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:115)
+set-referrer: fractional referrer
+no garbage key or value in :referrers
+expected: (empty? (get-in ex' [:clearing :referrers]))
+  actual: (not (empty? {1 2.5}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:115)
+set-referrer: out-of-domain referrer
+no garbage key or value in :referrers
+expected: (empty? (get-in ex' [:clearing :referrers]))
+  actual: (not (empty? {1 9007199254740992}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:117)
+create-sub-account: string account
+no garbage owner in :sub-of
+expected: (empty? (get-in ex' [:clearing :sub-of]))
+  actual: (not (empty? {3 "5"}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:117)
+create-sub-account: nil account
+no garbage owner in :sub-of
+expected: (empty? (get-in ex' [:clearing :sub-of]))
+  actual: (not (empty? {3 nil}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:119)
+authorize-agent: string account
+no garbage account in :agents
+expected: (empty? (:agents ex'))
+  actual: (not (empty? {"5" {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires nil}}}))
+
+FAIL in (a-garbage-key-never-reaches-the-clearing-or-agent-maps) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:119)
+authorize-agent: nil account
+no garbage account in :agents
+expected: (empty? (:agents ex'))
+  actual: (not (empty? {nil {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires nil}}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:144)
+funding-settle: string market
+no garbage key in :last-funding-rate
+expected: (empty? (:last-funding-rate ex'))
+  actual: (not (empty? {"5" 12500}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+funding-settle: string market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}, "5" {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:144)
+funding-settle: fractional market
+no garbage key in :last-funding-rate
+expected: (empty? (:last-funding-rate ex'))
+  actual: (not (empty? {2.5 12500}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+funding-settle: fractional market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}, 2.5 {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:144)
+funding-settle: unknown market
+no garbage key in :last-funding-rate
+expected: (empty? (:last-funding-rate ex'))
+  actual: (not (empty? {99 12500}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+funding-settle: unknown market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}, 99 {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:144)
+funding-settle: out-of-domain market
+no garbage key in :last-funding-rate
+expected: (empty? (:last-funding-rate ex'))
+  actual: (not (empty? {9007199254740992 12500}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+funding-settle: out-of-domain market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}, 9007199254740992 {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:144)
+funding-settle: nil market
+no garbage key in :last-funding-rate
+expected: (empty? (:last-funding-rate ex'))
+  actual: (not (empty? {nil 12500}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+funding-settle: nil market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}, nil {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+cancel-trigger: string market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:147)
+cancel-trigger: string market
+no garbage key in :triggers
+expected: (empty? (:triggers ex'))
+  actual: (not (empty? {"5" []}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+cancel-trigger: unknown market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:147)
+cancel-trigger: unknown market
+no garbage key in :triggers
+expected: (empty? (:triggers ex'))
+  actual: (not (empty? {99 []}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:146)
+cancel-trigger: nil market
+no garbage key in :funding
+expected: (empty? (:funding ex'))
+  actual: (not (empty? {1 {:sum 0, :n 0}}))
+
+FAIL in (a-market-door-never-keys-state-with-a-garbage-market) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:147)
+cancel-trigger: nil market
+no garbage key in :triggers
+expected: (empty? (:triggers ex'))
+  actual: (not (empty? {nil []}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:173)
+oracle: string price
+no garbage price in :oracle
+expected: (empty? (:oracle ex'))
+  actual: (not (empty? {1 "5"}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle: string price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 "5"}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle: string price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 false}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:173)
+oracle: fractional price
+no garbage price in :oracle
+expected: (empty? (:oracle ex'))
+  actual: (not (empty? {1 2.5}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle: fractional price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 2.5}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle: fractional price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 false}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:173)
+oracle: zero price
+no garbage price in :oracle
+expected: (empty? (:oracle ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle: zero price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle: zero price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 false}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:173)
+oracle: negative price
+no garbage price in :oracle
+expected: (empty? (:oracle ex'))
+  actual: (not (empty? {1 -3}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle: negative price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle: negative price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 false}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:173)
+oracle: out-of-domain price
+no garbage price in :oracle
+expected: (empty? (:oracle ex'))
+  actual: (not (empty? {1 9007199254740992}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle: out-of-domain price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 9007199254740992}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle: out-of-domain price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 false}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:173)
+oracle: nil price
+no garbage price in :oracle
+expected: (empty? (:oracle ex'))
+  actual: (not (empty? {1 nil}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle: nil price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle: nil price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 false}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle-submit: string account
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:175)
+oracle-submit: string account
+no garbage key or price in :oracle-submissions
+expected: (empty? (:oracle-submissions ex'))
+  actual: (not (empty? {1 {"5" {:price 1000, :ts 0}}}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle-submit: string account
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 true}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle-submit: nil account
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:175)
+oracle-submit: nil account
+no garbage key or price in :oracle-submissions
+expected: (empty? (:oracle-submissions ex'))
+  actual: (not (empty? {1 {nil {:price 1000, :ts 0}}}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle-submit: nil account
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 true}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle-submit: string market
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {"5" 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:175)
+oracle-submit: string market
+no garbage key or price in :oracle-submissions
+expected: (empty? (:oracle-submissions ex'))
+  actual: (not (empty? {"5" {1 {:price 1000, :ts 0}}}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle-submit: string market
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {"5" true}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle-submit: unknown market
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {99 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:175)
+oracle-submit: unknown market
+no garbage key or price in :oracle-submissions
+expected: (empty? (:oracle-submissions ex'))
+  actual: (not (empty? {99 {1 {:price 1000, :ts 0}}}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle-submit: unknown market
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {99 true}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle-submit: string price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:175)
+oracle-submit: string price
+no garbage key or price in :oracle-submissions
+expected: (empty? (:oracle-submissions ex'))
+  actual: (not (empty? {1 {1 {:price "5", :ts 0}}}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle-submit: string price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 true}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:174)
+oracle-submit: fractional price
+no coerced price in :marks
+expected: (empty? (:marks ex'))
+  actual: (not (empty? {1 0}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:175)
+oracle-submit: fractional price
+no garbage key or price in :oracle-submissions
+expected: (empty? (:oracle-submissions ex'))
+  actual: (not (empty? {1 {1 {:price 2.5, :ts 0}}}))
+
+FAIL in (an-oracle-never-stores-a-garbage-price-or-key) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:177)
+oracle-submit: fractional price
+no garbage key in :oracle-stale
+expected: (empty? (:oracle-stale ex'))
+  actual: (not (empty? {1 true}))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+oracle: string market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+oracle: unknown market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+oracle: nil market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+oracle: market with no book
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+funding-sample: string market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+funding-sample: unknown market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+funding-sample: market with no book
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+cancel-all: string market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+cancel-all: unknown market
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (a-market-with-no-book-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:195)
+cancel-all: market with no book
+a nil book dereference used to halt apply-block
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (an-evm-deploy-with-a-garbage-account-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:211)
+nil account
+the address derivation used to throw
+expected: (not= :torihiki.store-totality-test/threw ex')
+  actual: (not (not= :torihiki.store-totality-test/threw :torihiki.store-totality-test/threw))
+
+FAIL in (an-evm-deploy-with-a-garbage-account-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:213)
+string account
+no code is deployed for a garbage signer
+expected: (empty? (:evm ex'))
+  actual: (not (empty? {"0xec1ebb134b05585cfacdb1797774ec06e591ff9e" {:code "6000", :by "5"}}))
+
+FAIL in (an-evm-deploy-with-a-garbage-account-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:213)
+fractional account
+no code is deployed for a garbage signer
+expected: (empty? (:evm ex'))
+  actual: (not (empty? {"0x1d14d32a189d6806770bcec5d6e7de4eeda44a6c" {:code "6000", :by 2.5}}))
+
+FAIL in (an-evm-deploy-with-a-garbage-account-throws-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:213)
+out-of-domain account
+no code is deployed for a garbage signer
+expected: (empty? (:evm ex'))
+  actual: (not (empty? {"0x6c02e3e8c2f4982272283b124da8accdc946fffb" {:code "6000", :by 9007199254740992}}))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:234)
+negative amount
+no claim may be raised
+expected: (empty? (:withdrawals ex'))
+  actual: (not (empty? {1 {:account 1, :amount -3, :height 0}}))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:235)
+negative amount
+and no claim id is spent
+expected: (= 0 (:withdraw-seq ex'))
+  actual: (not (= 0 1))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:236)
+negative amount
+the mint pin: collateral is unchanged after a refused withdraw
+expected: (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+  actual: (not (= 100000000 100000003))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:234)
+string amount
+no claim may be raised
+expected: (empty? (:withdrawals ex'))
+  actual: (not (empty? {1 {:account 1, :amount "5", :height 0}}))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:235)
+string amount
+and no claim id is spent
+expected: (= 0 (:withdraw-seq ex'))
+  actual: (not (= 0 1))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:236)
+string amount
+the mint pin: collateral is unchanged after a refused withdraw
+expected: (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+  actual: (not (= 100000000 99999995))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:234)
+fractional amount
+no claim may be raised
+expected: (empty? (:withdrawals ex'))
+  actual: (not (empty? {1 {:account 1, :amount 2.5, :height 0}}))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:235)
+fractional amount
+and no claim id is spent
+expected: (= 0 (:withdraw-seq ex'))
+  actual: (not (= 0 1))
+
+FAIL in (a-refused-withdrawal-cannot-mint) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:236)
+fractional amount
+the mint pin: collateral is unchanged after a refused withdraw
+expected: (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+  actual: (not (= 100000000 99999997.5))
+
+FAIL in (an-anchor-never-records-a-garbage-cid) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:250)
+fractional cid
+no anchor may record a cid `validate` refuses
+expected: (empty? (:anchors ex'))
+  actual: (not (empty? [{:cid 2.5, :account 1, :ts 0}]))
+
+FAIL in (an-anchor-never-records-a-garbage-cid) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:250)
+number cid
+no anchor may record a cid `validate` refuses
+expected: (empty? (:anchors ex'))
+  actual: (not (empty? [{:cid 5, :account 1, :ts 0}]))
+
+FAIL in (an-anchor-never-records-a-garbage-cid) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:250)
+empty cid
+no anchor may record a cid `validate` refuses
+expected: (empty? (:anchors ex'))
+  actual: (not (empty? [{:cid "", :account 1, :ts 0}]))
+
+FAIL in (an-anchor-never-records-a-garbage-cid) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:250)
+over-long cid
+no anchor may record a cid `validate` refuses
+expected: (empty? (:anchors ex'))
+  actual: (not (empty? [{:cid "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", :account 1, :ts 0}]))
+
+FAIL in (an-anchor-never-records-a-garbage-cid) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-81972.cljk:250)
+nil cid
+no anchor may record a cid `validate` refuses
+expected: (empty? (:anchors ex'))
+  actual: (not (empty? [{:cid nil, :account 1, :ts 0}]))
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 543 tests containing 4080 assertions.
+96 failures, 0 errors.
+kbb test: 543 test(s), 3984 pass, 96 fail, 0 error

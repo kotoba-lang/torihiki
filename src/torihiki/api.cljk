@@ -61,9 +61,13 @@
     :bad-cid
     :malformed-principal})
 
-(defn- int-in? [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
+(defn int-in?
+  "A slab-storable integer in `[lo, hi]`. Public because the engine's store
+  doors (`torihiki.state/apply-tx`) judge the same fields with the same
+  words — one shape rule, two doors."
+  [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
 
-(defn- account-ok?
+(defn account-ok?
   "An account id must be a slab-storable i53 integer. The book keeps owners in
   an i53 slab (`torihiki.slab`), so an id outside the domain cannot be stored
   and the rejection must happen HERE, as `:bad-account`, rather than deeper in
@@ -198,7 +202,9 @@
          (count-ok? (:open-interest-cap spec) 0)
          (count-ok? (:asset spec) 0))))
 
-(defn- market-exists? [ex m] (contains? (:markets ex) m))
+(defn market-exists?
+  "Public for the same reason as `int-in?`: the engine's store doors ask it."
+  [ex m] (contains? (:markets ex) m))
 
 (defn- publishers [ex] (vals/publishers ex))
 
@@ -404,6 +410,114 @@
       (let [l (dec (n-levels ex market))]
         (when (and (pos? l) (> (:qty t) (quot fx/i53-max l)))
           :bad-amount)))))
+
+;; ── the store shape gates ───────────────────────────────────────────────────
+;;
+;; What `torihiki.state/apply-tx` asks before it computes with a STORE
+;; transaction's fields — the REST of the dispatches (PRs #78/#79 made
+;; :order/:amend/:cancel/:trigger/:scale/:twap total). These are the ones
+;; where the same disagreement between `validate` and the engine was
+;; measured: a transaction `validate` refused could still STORE its garbage
+;; into the map keys the encoders fold into the state root (`:clearing
+;; :accounts`, `:referrers`, `:sub-of`, `:agents`, `:triggers`, `:funding`,
+;; `:last-funding-rate`, `:oracle-submissions`, `:anchors`), and four more
+;; could THROW inside `apply-block` (:oracle, :funding-sample and
+;; :cancel-all on a market with no book, :evm-deploy with no account).
+;; These are the SAME judgments `validate` makes, in the same order,
+;; answering with the same keyword from `reasons` — one shape rule, two
+;; doors — with ONE deliberate difference: where the engine DEREFERENCES the
+;; book (:oracle, :oracle-submit, :funding-sample, :cancel-all), a market
+;; with no book is refused here even though `validate` passes it (it only
+;; asks that the market exist). "Never a throw" outranks "never over-refuse"
+;; at this door: `validate` answers the client, the engine keeps every
+;; validator applying the same block. A refusal at the engine is a NO-OP:
+;; the transaction is dropped whole and the exchange is returned unchanged.
+;; Nothing here throws.
+
+(defn store-tx-shape
+  "nil when this transaction may store, otherwise its `reasons` keyword.
+
+  Used by `torihiki.state/apply-tx` at the top of each store dispatch,
+  before ANY destructured field is computed with — `account-as-address`
+  derives an address, `fnd/premium` reads the book, `cl/withdraw` gates on
+  free collateral and mints on a negative amount. The accounts and ids are
+  judged as the keys they become (slab-storable, like `account-ok?`); the
+  amounts as the arithmetic they enter."
+  [ex {:keys [tx account market] :as t}]
+  (case tx
+    :deposit
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; `credit` when the bridge is paying somebody: it becomes the
+      ;; :accounts KEY the credit lands under.
+      (and (some? (:credit t)) (not (account-ok? (:credit t)))) :bad-account
+      :else nil)
+
+    :withdraw
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; A withdrawal is gated on free collateral as a no-op — but a NEGATIVE
+      ;; amount passes that gate (`free >= -3`) and pays the withdrawer: the
+      ;; mint. Amount is 1..i53-max here, at the door.
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
+      :else nil)
+
+    :evm-deploy
+    (when-not (account-ok? account) :bad-account)
+
+    :anchor
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (and (string? (:cid t)) (<= 1 (count (:cid t)) 128))) :bad-cid
+      :else nil)
+
+    :create-sub-account
+    (when-not (account-ok? account) :bad-account)
+
+    :set-referrer
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (account-ok? (:referrer t))) :bad-account
+      :else nil)
+
+    (:authorize-agent :revoke-agent)
+    (when-not (account-ok? account) :bad-account)
+
+    :cancel-trigger
+    (when-not (market-exists? ex market) :unknown-market)
+
+    :funding-settle
+    (when-not (market-exists? ex market) :unknown-market)
+
+    :funding-sample
+    (cond
+      (not (market-exists? ex market)) :unknown-market
+      (nil? (get-in ex [:books market])) :unknown-market
+      :else nil)
+
+    :cancel-all
+    (cond
+      (not (market-exists? ex market)) :unknown-market
+      (nil? (get-in ex [:books market])) :unknown-market
+      (not (account-ok? account)) :bad-account
+      :else nil)
+
+    :oracle
+    (cond
+      (not (market-exists? ex market)) :unknown-market
+      (nil? (get-in ex [:books market])) :unknown-market
+      (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
+      :else nil)
+
+    :oracle-submit
+    (cond
+      (not (market-exists? ex market)) :unknown-market
+      (nil? (get-in ex [:books market])) :unknown-market
+      (not (account-ok? account)) :bad-account
+      (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
+      :else nil)
+
+    nil))
 
 (def ^:const max-builder-fee-rate
   "The most a builder may charge, as a rate against `fx/rate-scale`. Ten basis
