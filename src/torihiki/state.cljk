@@ -265,7 +265,7 @@
 (declare deposit-attest-by-set withdraw-attest-by-set)
 
 (defmethod apply-tx :deposit-attest
-  [ex {:keys [account txid credit amount asset]}]
+  [ex {:keys [account txid credit amount asset] :as t}]
   ;; A validator says it saw money arrive on the other chain.
   ;;
   ;; The escrow is THORChain: a user sends the asset to the network's vault
@@ -296,13 +296,21 @@
   ;; already credited takes no further attestations and pays nothing more,
   ;; which is what stops the same deposit from being replayed by an extra
   ;; validator arriving late.
+  ;;
+  ;; The store door runs first: the first attestation RECORDS the shape RAW
+  ;; into `:inbound`, and at quorum `credit` becomes the `:accounts` KEY
+  ;; `cl/deposit` credits — garbage there is garbage in the root (the
+  ;; falsify-8/14 class). A refusal is a NO-OP on either validator path; the
+  ;; belt checks below stay under the door.
+  (if (api/store-tx-shape ex t)
+    ex
   (if (vals/enabled? ex)
     (deposit-attest-by-set ex {:account account :txid txid :credit credit
                                :amount amount :asset asset})
-  (let [t (get-in ex [:inbound txid])
+  (let [prior (get-in ex [:inbound txid])
         bonded? (attester? ex account)
         shape {:credit credit :amount amount :asset asset}
-        agrees? (or (nil? t) (= shape (select-keys t [:credit :amount :asset])))]
+        agrees? (or (nil? prior) (= shape (select-keys prior [:credit :amount :asset])))]
     (cond
       (not (and (string? txid) (seq txid) (integer? amount) (pos? amount)
                 (integer? credit) (string? asset) (seq asset)))
@@ -312,18 +320,18 @@
       ;; from an account nobody bonded is a stranger's word.
       (not bonded?) ex
 
-      (:credited? t) ex
+      (:credited? prior) ex
 
       (not agrees?) ex
 
       :else
-      (let [attests (conj (:attests t #{}) account)
+      (let [attests (conj (:attests prior #{}) account)
             t' (merge shape {:attests attests})]
         (if (not (attested? ex attests))
           (assoc-in ex [:inbound txid] t')
           (-> ex
               (assoc-in [:inbound txid] (assoc t' :credited? true))
-              (update :clearing cl/deposit credit amount))))))))
+              (update :clearing cl/deposit credit amount)))))))))
 
 (defn- deposit-attest-by-set
   "`:deposit-attest` on a chain with a validator set: counted by `tally`. In
@@ -420,7 +428,7 @@
                           (string? dest) (assoc :dest (str/lower dest))))))))))
 
 (defmethod apply-tx :withdraw-settle
-  [ex {:keys [account claim]}]
+  [ex {:keys [account claim] :as t}]
   ;; The bridge saying the money left. Only the bridge can say it, because it
   ;; is the only party that can know — the payment happened off this chain,
   ;; and this transaction is the receipt coming back.
@@ -430,11 +438,18 @@
   ;; piling up unsettled is what that looks like when it is stated instead of
   ;; hidden. Money quietly disappearing was the old way of saying the same
   ;; thing.
-  (let [bridge (:bridge-authority ex)]
-    (if (and bridge (not (vals/bridge-mode? ex)) (= account bridge)
-             (get-in ex [:withdrawals claim]))
-      (update ex :withdrawals dissoc claim)
-      ex)))
+  ;;
+  ;; The store door runs first: the raw `claim` is the `:withdrawals` KEY
+  ;; looked up and `dissoc`ed, and `account` is compared to the bridge — a
+  ;; garbage id at either is bytes no two runtimes agree on (or a throw in
+  ;; the comparison). A refusal is a NO-OP.
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [bridge (:bridge-authority ex)]
+      (if (and bridge (not (vals/bridge-mode? ex)) (= account bridge)
+               (get-in ex [:withdrawals claim]))
+        (update ex :withdrawals dissoc claim)
+        ex))))
 
 (defmethod apply-tx :withdraw-attest
   [ex {:keys [account claim txid dest] :as t}]
@@ -456,6 +471,13 @@
   ;; and the payment is recorded under `:paid` so a reader can follow the money
   ;; off the chain. `:withdraw-settle` stays for chains that run with a bridge
   ;; and no validator set to ask.
+  ;;
+  ;; The store door runs first: the raw `claim` names the `:withdrawals`
+  ;; entry looked up and the `:paid` KEY minted under, and a garbage reported
+  ;; `:amount` used to mint `:paid` anyway (the plain path ignored the
+  ;; field). A refusal is a NO-OP; the belt checks below stay under the door.
+  (if (api/store-tx-shape ex t)
+    ex
   (if (vals/enabled? ex)
     (withdraw-attest-by-set ex t)
   (let [w (get-in ex [:withdrawals claim])
@@ -479,7 +501,7 @@
           (assoc-in ex [:paid claim] p')
           (-> ex
               (assoc-in [:paid claim] (assoc p' :settled? true))
-              (update :withdrawals dissoc claim))))))))
+              (update :withdrawals dissoc claim)))))))))
 
 (defn- withdraw-attest-by-set
   "`:withdraw-attest` on a chain with a validator set, counted by `tally`.
@@ -508,7 +530,7 @@
           ex)))))
 
 (defmethod apply-tx :withdraw-cancel
-  [ex {:keys [account claim]}]
+  [ex {:keys [account claim] :as t}]
   ;; A payout that could not be made, handed back. Gated on OWNERSHIP rather
   ;; than on the bridge, for the reason `api` already gives about withdrawal
   ;; itself: taking back your own collateral needs no authority beyond the
@@ -522,34 +544,48 @@
   ;; the contract and once here. The way back on that chain is
   ;; `:withdraw-invalidate-attest`, which needs the contract to have cancelled
   ;; the request first.
-  (let [c (get-in ex [:withdrawals claim])]
-    (if (and c (= account (:account c)) (not (vals/bridge-mode? ex)))
-      (-> ex
-          (update :withdrawals dissoc claim)
-          (update :clearing cl/deposit (:account c) (:amount c)))
-      ex)))
+  ;;
+  ;; The store door runs first: the raw `claim` is the `:withdrawals` KEY
+  ;; looked up, and `account` is compared to the claim's owner and credited
+  ;; back on cancel — a garbage id at either is bytes no two runtimes agree
+  ;; on (or a throw in `(:account c)` comparison). A refusal is a NO-OP.
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [c (get-in ex [:withdrawals claim])]
+      (if (and c (= account (:account c)) (not (vals/bridge-mode? ex)))
+        (-> ex
+            (update :withdrawals dissoc claim)
+            (update :clearing cl/deposit (:account c) (:amount c)))
+        ex))))
 
 (defmethod apply-tx :withdraw-invalidate-attest
-  [ex {:keys [account claim txid]}]
+  [ex {:keys [account claim txid] :as t}]
   ;; The bridge contract cancelled a claim (`WithdrawalInvalidated`) — a
   ;; pending request, or one never requested, whose id it burned — so it will
   ;; never pay: the claim's collateral goes back to its owner once the set
   ;; agrees it saw that event. Counted by `tally`, shape apart, like the
   ;; deposit and the exit.
-  (let [c (get-in ex [:withdrawals claim])]
-    (cond
-      (not (vals/bridge-mode? ex)) ex
-      (not (and (string? txid) (seq txid))) ex
-      (nil? c) ex
-      (not (attester? ex account)) ex
-      :else
-      (let [[ex winners] (tally ex :invalidate claim account {:txid txid})]
-        (if winners
-          (-> ex
-              (assoc-in [:invalidated claim] {:txid txid :attests winners :refunded? true})
-              (update :withdrawals dissoc claim)
-              (update :clearing cl/deposit (:account c) (:amount c)))
-          ex)))))
+  ;;
+  ;; The store door runs first: the raw `claim` is the `:withdrawals` KEY
+  ;; looked up and refunded, and `txid` is stored RAW into `:invalidated` —
+  ;; garbage there is garbage in the root. A refusal is a NO-OP; the belt
+  ;; checks below stay under the door.
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [c (get-in ex [:withdrawals claim])]
+      (cond
+        (not (vals/bridge-mode? ex)) ex
+        (not (and (string? txid) (seq txid))) ex
+        (nil? c) ex
+        (not (attester? ex account)) ex
+        :else
+        (let [[ex winners] (tally ex :invalidate claim account {:txid txid})]
+          (if winners
+            (-> ex
+                (assoc-in [:invalidated claim] {:txid txid :attests winners :refunded? true})
+                (update :withdrawals dissoc claim)
+                (update :clearing cl/deposit (:account c) (:amount c)))
+            ex))))))
 
 (defn- reprice!
   "Recompute the derived mark for `market` from the book and the oracle.
@@ -1113,7 +1149,7 @@
             (pos? (fx/abs* (:size (cl/position (:clearing ex) account market)))))))
 
 (defmethod apply-tx :attest-reserves
-  [ex {:keys [account amount height*]}]
+  [ex {:keys [account amount height*] :as t}]
   ;; The asset side of proof of reserves, said on the chain.
   ;;
   ;; `commit/reserves` is the liability side and the chain can compute it
@@ -1129,23 +1165,30 @@
   ;; Only the bridge, because it is the only party that can see the escrow.
   ;; With no bridge configured nobody can attest — an unbacked chain has no
   ;; escrow to attest about, and a chain that let anybody claim reserves would
-  ;; be worse than one that admits it has none.
-  (let [bridge (:bridge-authority ex)]
-    (if (or (nil? bridge) (not= account bridge) (not (integer? amount)) (neg? amount)
-            (not (fx/in-domain? amount))
-            (and (integer? height*) (not (fx/in-domain? height*))))
-      ex
-      (assoc ex :reserve-attestation
-             {:amount amount
-              ;; The height the attestation was MADE at, so a reader can see
-              ;; how stale it is. An attestation with no age is a claim that
-              ;; never expires, and reserves move.
-              :at (:height ex 0)
-              ;; What the attestor says it was looking at. Optional and
-              ;; unverified — a block height on another chain, a statement
-              ;; date — recorded because an attestation nobody can locate in
-              ;; time cannot be checked against anything.
-              :as-of height*}))))
+  ;; worse than one that admits it has none.
+  ;;
+  ;; The store door runs first: the amount and the `:as-of` are stored RAW
+  ;; into `:reserve-attestation`, and a garbage signer used to be compared to
+  ;; the bridge. A refusal is a NO-OP; the belt checks below stay under the
+  ;; door.
+  (if (api/store-tx-shape ex t)
+    ex
+    (let [bridge (:bridge-authority ex)]
+      (if (or (nil? bridge) (not= account bridge) (not (integer? amount)) (neg? amount)
+              (not (fx/in-domain? amount))
+              (and (integer? height*) (not (fx/in-domain? height*))))
+        ex
+        (assoc ex :reserve-attestation
+               {:amount amount
+                ;; The height the attestation was MADE at, so a reader can see
+                ;; how stale it is. An attestation with no age is a claim that
+                ;; never expires, and reserves move.
+                :at (:height ex 0)
+                ;; What the attestor says it was looking at. Optional and
+                ;; unverified — a block height on another chain, a statement
+                ;; date — recorded because an attestation nobody can locate in
+                ;; time cannot be checked against anything.
+                :as-of height*})))))
 
 (defmethod apply-tx :vault-deposit
   [ex {:keys [account vault amount] :as t}]
