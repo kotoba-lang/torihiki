@@ -1,0 +1,263 @@
+(ns torihiki.agent-trigger-totality-test
+  "The agent and trigger-cancel doors are TOTAL: an `:authorize-agent`,
+  `:revoke-agent` or `:cancel-trigger` the engine cannot shape is dropped
+  whole — never a garbage key in `:agents`, never a raw `:expires` folded
+  into the state root beside an authorisation, never a garbage `:id` that
+  creates the `:triggers` key.
+
+  The shape gates (PRs #78-#83) covered the order/schedule/store/money/
+  market/attest dispatches. These pins are the two store-door clauses whose
+  VALIDATE words were still not mirrored at the engine (`api/store-tx-shape`
+  answered with only the account/market half of what `validate` judges):
+
+  - `(:authorize-agent :revoke-agent)`: `validate` judges the AGENT — it must
+    be a 44-character base64 Ed25519 public key (`:missing-field` otherwise) —
+    and, for `:authorize-agent`, the `:expires` block height must be an
+    integer in 1..i53-max when said (`:missing-field` otherwise). The engine
+    stored whatever string it was handed as the `:agents` KEY and whatever
+    `:expires` it was handed as the record VALUE. The value is not inert:
+    `torihiki.auth/agent-of` COMPARES `:expires` against the block height on
+    every agent-signed trade, so a stored `\"never\"` is a throw waiting
+    inside `apply-block` — the falsify-6/7 class — and a stored out-of-domain
+    height is the falsify-8 divergence class, held differently by the two
+    runtimes inside the state root.
+  - `:cancel-trigger`: `validate` judges the `:id` (`:missing-field` when it
+    is not an integer). `trg/cancel` is total on the id, but
+    `update-in [:triggers market]` CREATES the key — a garbage id used to
+    write `:triggers {market []}` into the root for a transaction `validate`
+    refuses.
+
+  Refusals are pinned by VALUE at the engine (nothing lands, the real
+  authorisation survives untouched) and by REASON at BOTH `api/store-tx-shape`
+  (the engine door) and `api/validate` (the words the door mirrors). A pin
+  that only asserts \"no throw\" is half a pin — so every no-throw pin here
+  is paired with the value it must leave alone, and a throw FAILS the pin
+  rather than passing it. One fixture PER CASE."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.auth :as auth]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private ood (inc fx/i53-max))
+
+(def ^:private agent44 (apply str (repeat 44 "A")))
+
+(def ^:private agent45 (apply str (repeat 45 "A")))
+
+(defn- base
+  "Market 1 exists with a book. No account is funded — these transactions
+  judge shape and keys, not balances."
+  []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}}))
+
+(defn- with-agent
+  "`agent44` authorised for account 1, expiring at block height 7 — a REAL
+  record the garbage transactions must leave alone (and used to overwrite)."
+  []
+  (st/apply-tx (base) {:tx :authorize-agent :account 1 :agent agent44 :expires 7}))
+
+(defn- with-triggers
+  "Market 1 carries two live triggers, ids 0 and 1."
+  []
+  (assoc-in (base) [:triggers 1]
+            [{:id 0 :account 5 :market 1 :trigger-price 900 :direction :below
+              :order {:side 1 :level 0 :qty 5}}
+             {:id 1 :account 5 :market 1 :trigger-price 800 :direction :below
+              :order {:side 1 :level 0 :qty 5}}]))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(defn- read-agent
+  "What the AUTH layer will read on the next agent-signed trade —
+  `agent-of` compares `:expires` against the height here. Returns the record,
+  nil, or `::threw` (the latent `apply-block` halt a stored garbage height
+  leaves behind)."
+  [ex]
+  (try (auth/agent-of ex 1 agent44)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+;; ── an authorisation the engine cannot shape ────────────────────────────────
+
+(deftest an-authorisation-the-engine-cannot-shape-never-reaches-agents
+  (doseq [[label tx] [["short agent" {:agent "abc"}]
+                      ["45-char agent" {:agent agent45}]
+                      ["empty agent" {:agent ""}]
+                      ["string expires" {:agent agent44 :expires "never"}]
+                      ["numeric-string expires" {:agent agent44 :expires "5"}]
+                      ["fractional expires" {:agent agent44 :expires 2.5}]
+                      ["zero expires" {:agent agent44 :expires 0}]
+                      ["negative expires" {:agent agent44 :expires -5}]
+                      ["out-of-domain expires" {:agent agent44 :expires ood}]]]
+    (testing label
+      (let [ex (with-agent)
+            ex' (applied ex (merge {:tx :authorize-agent :account 1} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+              "the garbage used to land as an :agents KEY — or overwrite the real record"))))))
+
+(deftest an-authorisation-never-lands-a-throw-for-the-auth-layer
+  ;; The stored `:expires` is COMPARED on every agent-signed trade
+  ;; (`auth/agent-of`): a garbage value is a throw waiting inside
+  ;; `apply-block`, or an out-of-domain height the two runtimes hold
+  ;; differently. After a refused authorisation the auth layer must still
+  ;; read the REAL record — no throw, no garbage value.
+  (doseq [[label expires] [["string" "never"]
+                           ["numeric-string" "5"]
+                           ["fractional" 2.5]
+                           ["zero" 0]
+                           ["negative" -5]
+                           ["out-of-domain" ood]]]
+    (testing label
+      (let [ex (with-agent)
+            ex' (applied ex {:tx :authorize-agent :account 1 :agent agent44
+                             :expires expires})
+            r (when (not= ::threw ex') (read-agent ex'))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (is (= {:expires 7} r)
+            "the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)")))))
+
+(deftest a-revoke-is-judged-by-the-same-agent-shape
+  ;; A garbage revoke names NO key — it must be refused by shape, not
+  ;; quietly no-op because the lookup missed. The real authorisation must
+  ;; survive either way.
+  (doseq [[label tx] [["short agent" {:agent "abc"}]
+                      ["45-char agent" {:agent agent45}]
+                      ["non-string agent" {:agent 5}]
+                      ["nil agent" {:agent nil}]]]
+    (testing label
+      (let [ex (with-agent)
+            ex' (applied ex (merge {:tx :revoke-agent :account 1} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+              "the real authorisation is untouched"))))))
+
+;; ── a cancel whose id is not an integer ─────────────────────────────────────
+
+(deftest a-cancel-whose-id-is-not-an-integer-never-touches-triggers
+  (doseq [[label id] [["string id" "5"]
+                      ["fractional id" 2.5]
+                      ["nil id" nil]
+                      ["keyword id" :all]
+                      ["map id" {:id 0}]]]
+    (testing label
+      (let [ex (base)
+            ex' (applied ex {:tx :cancel-trigger :market 1 :id id})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (nil? (get-in ex' [:triggers 1]))
+              "the garbage id used to CREATE the :triggers key (as an empty list)"))))))
+
+(deftest a-garbage-id-cancel-leaves-live-triggers-alone
+  (doseq [[label id] [["string id" "5"]
+                      ["fractional id" 2.5]
+                      ["nil id" nil]]]
+    (testing label
+      (let [ex (with-triggers)
+            ex' (applied ex {:tx :cancel-trigger :market 1 :id id})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= [0 1] (map :id (get-in ex' [:triggers 1])))
+              "every live trigger survives a cancel that names none of them"))))))
+
+;; ── the two doors answer with the same word ─────────────────────────────────
+
+(deftest the-two-doors-answer-with-the-same-word
+  ;; The reason keywords the engine door answers with are exactly the words
+  ;; `validate` answers with, in the same order — one shape rule, two doors.
+  ;; `validate` is unchanged by this package; if it moves, the mirror moves
+  ;; with it.
+  (let [ex (base)]
+    (doseq [[label t expect]
+            [["authorize-agent: short agent"
+              {:tx :authorize-agent :account 1 :agent "abc"} :missing-field]
+             ["authorize-agent: 45-char agent"
+              {:tx :authorize-agent :account 1 :agent agent45} :missing-field]
+             ["authorize-agent: non-string agent"
+              {:tx :authorize-agent :account 1 :agent 5} :missing-field]
+             ["authorize-agent: string expires"
+              {:tx :authorize-agent :account 1 :agent agent44 :expires "never"}
+              :missing-field]
+             ["authorize-agent: fractional expires"
+              {:tx :authorize-agent :account 1 :agent agent44 :expires 2.5}
+              :missing-field]
+             ["authorize-agent: zero expires"
+              {:tx :authorize-agent :account 1 :agent agent44 :expires 0}
+              :missing-field]
+             ["authorize-agent: out-of-domain expires"
+              {:tx :authorize-agent :account 1 :agent agent44 :expires ood}
+              :missing-field]
+             ["authorize-agent: account first, then agent"
+              {:tx :authorize-agent :account 2.5 :agent "abc"} :bad-account]
+             ["authorize-agent: agent first, then expires"
+              {:tx :authorize-agent :account 1 :agent "abc" :expires 2.5}
+              :missing-field]
+             ["revoke-agent: non-string agent"
+              {:tx :revoke-agent :account 1 :agent 5} :missing-field]
+             ["revoke-agent: short agent"
+              {:tx :revoke-agent :account 1 :agent "abc"} :missing-field]
+             ["cancel-trigger: string id"
+              {:tx :cancel-trigger :market 1 :id "5"} :missing-field]
+             ["cancel-trigger: fractional id"
+              {:tx :cancel-trigger :market 1 :id 2.5} :missing-field]
+             ["cancel-trigger: nil id"
+              {:tx :cancel-trigger :market 1 :id nil} :missing-field]
+             ["cancel-trigger: market first, then id"
+              {:tx :cancel-trigger :market 99 :id "5"} :unknown-market]
+             ["cancel-trigger: unknown market, valid id"
+              {:tx :cancel-trigger :market 99 :id 0} :unknown-market]
+             ["authorize-agent: valid, no expires"
+              {:tx :authorize-agent :account 1 :agent agent44} nil]
+             ["authorize-agent: valid, expires 7"
+              {:tx :authorize-agent :account 1 :agent agent44 :expires 7} nil]
+             ["authorize-agent: expires at the i53 ceiling"
+              {:tx :authorize-agent :account 1 :agent agent44 :expires fx/i53-max}
+              nil]
+             ["revoke-agent: valid"
+              {:tx :revoke-agent :account 1 :agent agent44} nil]
+             ["cancel-trigger: id 0"
+              {:tx :cancel-trigger :market 1 :id 0} nil]
+             ["cancel-trigger: out-of-domain id is still an integer"
+              {:tx :cancel-trigger :market 1 :id ood} nil]]]
+      (testing label
+        (is (= expect (api/validate ex t))
+            "`validate` answers with the word the engine door mirrors")
+        (is (= expect (api/store-tx-shape ex t))
+            "the engine door answers with the same word, in the same order")))))
+
+;; ── the shapely transactions still land ─────────────────────────────────────
+
+(deftest a-shapely-authorisation-and-cancel-still-land
+  (testing "an authorisation without an expiry stores nil (never expires)"
+    (let [ex' (applied (base) {:tx :authorize-agent :account 1 :agent agent44})]
+      (is (= {agent44 {:expires nil}} (get-in ex' [:agents 1])))))
+  (testing "an authorisation with a block-height expiry stores it"
+    (let [ex' (applied (base)
+                       {:tx :authorize-agent :account 1 :agent agent44 :expires 7})]
+      (is (= {agent44 {:expires 7}} (get-in ex' [:agents 1])))))
+  (testing "the i53 ceiling is a legal expiry"
+    (let [ex' (applied (base)
+                       {:tx :authorize-agent :account 1 :agent agent44
+                        :expires fx/i53-max})]
+      (is (= {agent44 {:expires fx/i53-max}} (get-in ex' [:agents 1])))))
+  (testing "a revocation clears the authorisation"
+    (let [ex (with-agent)
+          ex' (applied ex {:tx :revoke-agent :account 1 :agent agent44})]
+      (is (empty? (get-in ex' [:agents 1])))))
+  (testing "a cancel naming a live id removes exactly that trigger"
+    (let [ex (with-triggers)
+          ex' (applied ex {:tx :cancel-trigger :market 1 :id 0})]
+      (is (= [1] (map :id (get-in ex' [:triggers 1]))))))
+  (testing "the auth layer reads a stored authorisation back"
+    (is (= {:expires 7} (read-agent (with-agent))))))

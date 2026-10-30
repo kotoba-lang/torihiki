@@ -1,0 +1,269 @@
+
+Testing torihiki.agent-trigger-totality-test
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+short agent
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}, "abc" {:expires nil}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+45-char agent
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires nil}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+empty agent
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}, "" {:expires nil}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+string expires
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires "never"}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+numeric-string expires
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires "5"}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+fractional expires
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 2.5}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+zero expires
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 0}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+negative expires
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires -5}}))
+
+FAIL in (an-authorisation-the-engine-cannot-shape-never-reaches-agents) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:106)
+out-of-domain expires
+the garbage used to land as an :agents KEY — or overwrite the real record
+expected: (= {agent44 {:expires 7}} (get-in ex' [:agents 1]))
+  actual: (not (= {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 7}} {"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" {:expires 9007199254740992}}))
+
+FAIL in (an-authorisation-never-lands-a-throw-for-the-auth-layer) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:127)
+string
+the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)
+expected: (= {:expires 7} r)
+  actual: (not (= {:expires 7} nil))
+
+FAIL in (an-authorisation-never-lands-a-throw-for-the-auth-layer) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:127)
+numeric-string
+the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)
+expected: (= {:expires 7} r)
+  actual: (not (= {:expires 7} {:expires "5"}))
+
+FAIL in (an-authorisation-never-lands-a-throw-for-the-auth-layer) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:127)
+fractional
+the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)
+expected: (= {:expires 7} r)
+  actual: (not (= {:expires 7} {:expires 2.5}))
+
+FAIL in (an-authorisation-never-lands-a-throw-for-the-auth-layer) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:127)
+zero
+the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)
+expected: (= {:expires 7} r)
+  actual: (not (= {:expires 7} nil))
+
+FAIL in (an-authorisation-never-lands-a-throw-for-the-auth-layer) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:127)
+negative
+the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)
+expected: (= {:expires 7} r)
+  actual: (not (= {:expires 7} nil))
+
+FAIL in (an-authorisation-never-lands-a-throw-for-the-auth-layer) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:127)
+out-of-domain
+the auth layer reads the real record — the garbage used to overwrite it (or throw at the comparison)
+expected: (= {:expires 7} r)
+  actual: (not (= {:expires 7} {:expires 9007199254740992}))
+
+FAIL in (a-cancel-whose-id-is-not-an-integer-never-touches-triggers) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:159)
+string id
+the garbage id used to CREATE the :triggers key (as an empty list)
+expected: (nil? (get-in ex' [:triggers 1]))
+  actual: (not (nil? []))
+
+FAIL in (a-cancel-whose-id-is-not-an-integer-never-touches-triggers) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:159)
+fractional id
+the garbage id used to CREATE the :triggers key (as an empty list)
+expected: (nil? (get-in ex' [:triggers 1]))
+  actual: (not (nil? []))
+
+FAIL in (a-cancel-whose-id-is-not-an-integer-never-touches-triggers) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:159)
+nil id
+the garbage id used to CREATE the :triggers key (as an empty list)
+expected: (nil? (get-in ex' [:triggers 1]))
+  actual: (not (nil? []))
+
+FAIL in (a-cancel-whose-id-is-not-an-integer-never-touches-triggers) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:159)
+keyword id
+the garbage id used to CREATE the :triggers key (as an empty list)
+expected: (nil? (get-in ex' [:triggers 1]))
+  actual: (not (nil? []))
+
+FAIL in (a-cancel-whose-id-is-not-an-integer-never-touches-triggers) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:159)
+map id
+the garbage id used to CREATE the :triggers key (as an empty list)
+expected: (nil? (get-in ex' [:triggers 1]))
+  actual: (not (nil? []))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: short agent
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: 45-char agent
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: non-string agent
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: string expires
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: fractional expires
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: zero expires
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: out-of-domain expires
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+authorize-agent: agent first, then expires
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+revoke-agent: non-string agent
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+revoke-agent: short agent
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+cancel-trigger: string id
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+cancel-trigger: fractional id
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-21621.cljk:236)
+cancel-trigger: nil id
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 574 tests containing 4748 assertions.
+33 failures, 0 errors.
+kbb test: 574 test(s), 4715 pass, 33 fail, 0 error
+EXIT=1

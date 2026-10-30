@@ -1,0 +1,9 @@
+
+Ran 574 tests containing 4748 assertions.
+0 failures, 0 errors.
+namespaces 33/33
+
+Ran 574 tests containing 4748 assertions.
+0 failures, 0 errors.
+TESTS-ON-NBB: pass — the runtime that deploys ran the suite
+EXIT=0
