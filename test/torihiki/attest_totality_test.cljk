@@ -1,0 +1,438 @@
+(ns torihiki.attest-totality-test
+  "The attest door is TOTAL: a `:deposit-attest`, `:withdraw-settle`,
+  `:withdraw-attest`, `:withdraw-cancel`, `:withdraw-invalidate-attest` or
+  `:attest-reserves` the engine cannot shape is dropped whole — never a
+  garbage key in `:inbound`/`:paid`/`:invalidated`, never a garbage account
+  in the `:accounts` map `cl/deposit` keys, never a raw out-of-domain amount
+  folded into the state root beside a claim.
+
+  The shape gates (PRs #78-#82) covered the order/schedule/store/money/market
+  dispatches. These pins are the attest family — the last dispatches whose
+  VALIDATE words were never mirrored at the engine (`api/store-tx-shape`
+  answered nil for all six, whatever the transaction carried):
+
+  - `:deposit-attest` stored its shape RAW into `:inbound` on the FIRST
+    attestation — `:credit` and `:amount` are judged there by
+    `(integer? credit)` / `(integer? amount) (pos? amount)` only, so an
+    OUT-OF-DOMAIN credit (2^53+1) or amount lands as a value the two runtimes
+    hold differently (the falsify-8 divergence class), and at quorum the same
+    garbage credit is the `:accounts` KEY `cl/deposit` credits.
+  - `:withdraw-attest` keys `:paid` by the CLAIM the transaction names;
+    `:withdraw-settle`/`:withdraw-cancel`/`:withdraw-invalidate-attest`
+    look the claim up and dissoc it — the words `validate` answers
+    (`:missing-field` on a claim that is not an integer) were nowhere at the
+    engine.
+  - `:attest-reserves` judges its own fields inline but had no shared door,
+    so nothing pinned the words to `validate`'s.
+
+  Refusals are pinned by VALUE at the engine (nothing lands, nothing keys,
+  no amount is stored) and by REASON at both `api/store-tx-shape` (the engine
+  door) and `api/validate` (the words the door mirrors). A pin that only
+  asserts \"no throw\" is half a pin — so every no-throw pin here is paired
+  with the value it must leave alone, and a throw FAILS the pin rather than
+  passing it. One fixture PER CASE."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private ood (inc fx/i53-max))
+
+(defn- base
+  "No validator set — the plain path: a first attestation from a staked
+  account RECORDS its shape under `:inbound`, and three distinct attesters
+  carry it to a credit. The engine door runs before either branch, so one
+  fixture covers both. Attesters 900-902 are staked (`cl/stake-of` reads the
+  bonds); account 7 holds collateral so it can open a claim with `:withdraw`;
+  account 1 is the bridge authority."
+  []
+  (-> (st/new-exchange {:market mkt
+                        :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}
+                        :bridge-authority 1})
+      (assoc-in [:clearing :accounts 900 :collateral] 10)
+      (assoc-in [:clearing :bonds 900] {900 10})
+      (assoc-in [:clearing :accounts 901 :collateral] 10)
+      (assoc-in [:clearing :bonds 901] {901 10})
+      (assoc-in [:clearing :accounts 902 :collateral] 10)
+      (assoc-in [:clearing :bonds 902] {902 10})))
+
+(defn- claimed
+  "The base plus one live claim: account 7 withdraws 1000 of 5000, which
+  raises claim 1 (engine-keyed, `:withdraw-seq`)."
+  []
+  (st/apply-tx (assoc-in (base) [:clearing :accounts 7 :collateral] 5000)
+               {:tx :withdraw :account 7 :amount 1000}))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(defn- applied3
+  "Three distinct attesters apply the same transaction body (the quorum on
+  the plain path), left to right."
+  [ex tx]
+  (reduce (fn [e a] (applied e (assoc tx :account a))) ex [900 901 902]))
+
+(def ^:private acct-garbages
+  "Garbage for an account id — the signer here, and for `:deposit-attest`
+  the `:credit` id that becomes an `:accounts` KEY."
+  [["string" "5" :bad-account] ["fractional" 2.5 :bad-account]
+   ["out-of-domain" ood :bad-account] ["nil" nil :bad-account]])
+
+(def ^:private claim-garbages
+  "Garbage for a claim id — `validate`'s word is `:missing-field` (a claim is
+  engine-keyed and an integer or it names nothing). An out-of-domain INTEGER
+  claim passes both doors and names nothing — a guard, not garbage."
+  [["string" "5" :missing-field] ["fractional" 2.5 :missing-field]
+   ["nil" nil :missing-field]])
+
+(def ^:private amount-garbages
+  "Garbage for an amount. Zero is garbage for a deposit (an attestation of
+  nothing) but VALID for `:attest-reserves` (zero reserves is a claim)."
+  [["string" "5" :bad-amount] ["fractional" 2.5 :bad-amount]
+   ["out-of-domain" ood :bad-amount] ["zero" 0 :bad-amount]
+   ["negative" -5 :bad-amount] ["nil" nil :bad-amount]])
+
+(def ^:private string-garbages
+  "Garbage for a required non-empty string (`:txid`/`:asset`/`:dest`)."
+  [["nil" nil] ["empty" ""] ["number" 5]])
+
+;; ── VALUE at the engine: nothing lands, nothing keys, nothing is stored ────
+
+(deftest deposit-attest-drops-a-garbage-attestation-whole
+  (doseq [[label v] string-garbages]
+    (testing (str "garbage txid: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :deposit-attest :account 900 :txid v
+                             :credit 7 :amount 5000 :asset "USDC"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :inbound))
+            "no garbage :inbound key — the txid is the key it lands under")))
+    (testing (str "garbage asset: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :deposit-attest :account 900 :txid "t1"
+                             :credit 7 :amount 5000 :asset v})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :inbound)) "no :inbound record"))))
+  (doseq [[label v _] acct-garbages]
+    (testing (str "garbage signer: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :deposit-attest :account v :txid "t1"
+                             :credit 7 :amount 5000 :asset "USDC"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :inbound)) "no :inbound record")))
+    (testing (str "garbage credit: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :deposit-attest :account 900 :txid "t1"
+                             :credit v :amount 5000 :asset "USDC"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :inbound))
+            "no :inbound record — the credit is stored RAW in the shape"))))
+  (doseq [[label v _] amount-garbages]
+    (testing (str "garbage amount: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :deposit-attest :account 900 :txid "t1"
+                             :credit 7 :amount v :asset "USDC"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :inbound))
+            "no :inbound record — the amount is stored RAW in the shape")))))
+
+(deftest deposit-attest-never-credits-a-garbage-account
+  (testing "at quorum the credit is the :accounts KEY cl/deposit credits"
+    (doseq [[label v _] acct-garbages]
+      (testing (str "garbage credit at quorum: " label)
+        (let [ex (applied3 (base) {:tx :deposit-attest :txid "t1"
+                                   :credit v :amount 5000 :asset "USDC"})
+              ex' (if (= ex ::threw) ::threw ex)]
+          (is (not= ::threw ex') (str label " must not throw"))
+          (is (not (contains? (:inbound (or ex' {})) "t1"))
+              "no :inbound record")
+          (is (not (contains? (:accounts (:clearing (or ex' {}))) v))
+              "no garbage :accounts key"))))))
+
+(deftest withdraw-attest-drops-a-garbage-attestation-whole
+  (doseq [[label v _] claim-garbages]
+    (testing (str "garbage claim: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-attest :account 900 :claim v
+                             :txid "w1" :dest "0xabc"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the real claim survives")
+        (is (not (contains? ex' :paid)) "no :paid key minted"))))
+  (doseq [[label v] string-garbages]
+    (testing (str "garbage txid: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-attest :account 900 :claim 1
+                             :txid v :dest "0xabc"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (not (contains? ex' :paid)) "no :paid key minted")))
+    (testing (str "garbage dest: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-attest :account 900 :claim 1
+                             :txid "w1" :dest v})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (not (contains? ex' :paid)) "no :paid key minted"))))
+  (doseq [[label v _] (remove (fn [[_ v _]] (nil? v)) amount-garbages)]
+    ;; nil is NOT garbage here: the reported amount is optional (`validate`
+    ;; passes it — "when the event's amount is reported"), so the mirror must
+    ;; not refuse it. Pin correction found BY the BROKEN run.
+    (testing (str "garbage reported amount: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-attest :account 900 :claim 1
+                             :txid "w1" :dest "0xabc" :amount v})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (not (contains? ex' :paid)) "no :paid key minted"))))
+  (testing "an UNSAID amount is not garbage — the attestation proceeds"
+    (let [ex (claimed)
+          ex' (applied ex {:tx :withdraw-attest :account 900 :claim 1
+                           :txid "w1" :dest "0xabc"})]
+      (is (not= ::threw ex'))
+      (is (contains? ex' :paid) "recorded — past the door, below the quorum")
+      (is (some? (get-in ex' [:withdrawals 1])) "not settled by one voice"))))
+
+(deftest withdraw-settle-and-cancel-never-run-on-a-garbage-claim
+  (doseq [[label v _] claim-garbages]
+    (testing (str "garbage claim settle: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-settle :account 1 :claim v})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")))
+    (testing (str "garbage claim cancel: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-cancel :account 7 :claim v})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (= 4000 (get-in ex' [:clearing :accounts 7 :collateral]))
+            "no refund — the collateral was not handed back twice"))))
+  (doseq [[label v _] acct-garbages]
+    (testing (str "garbage signer settle: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-settle :account v :claim 1})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")))
+    (testing (str "garbage signer cancel: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-cancel :account v :claim 1})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (= 4000 (get-in ex' [:clearing :accounts 7 :collateral])))))))
+
+(deftest withdraw-invalidate-attest-drops-a-garbage-attestation-whole
+  (doseq [[label v _] claim-garbages]
+    (testing (str "garbage claim: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-invalidate-attest :account 900
+                             :claim v :txid "i1"})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (not (contains? ex' :invalidated)) "no :invalidated key minted"))))
+  (doseq [[label v] string-garbages]
+    (testing (str "garbage txid: " label)
+      (let [ex (claimed)
+            ex' (applied ex {:tx :withdraw-invalidate-attest :account 900
+                             :claim 1 :txid v})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (some? (get-in ex' [:withdrawals 1])) "the claim survives")
+        (is (not (contains? ex' :invalidated)) "no :invalidated key minted")))))
+
+(deftest attest-reserves-never-stores-a-garbage-attestation
+  (doseq [[label v _] (cons ["out-of-domain height" ood]
+                            (remove (fn [[_ v _]] (= 0 v)) amount-garbages))]
+    ;; zero is NOT garbage for `:attest-reserves` — zero reserves is a claim
+    ;; (`validate` passes it, int-in? 0..i53-max). Pin correction found BY the
+    ;; BROKEN run.
+    (testing (str "garbage amount: " label)
+      (let [ex (base)
+            ex' (if (= label "out-of-domain height")
+                  (applied ex {:tx :attest-reserves :account 1 :amount 5
+                               :height* v})
+                  (applied ex {:tx :attest-reserves :account 1 :amount v}))]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :reserve-attestation))
+            "no garbage :reserve-attestation record"))))
+  (doseq [[label v _] acct-garbages]
+    (testing (str "garbage signer: " label)
+      (let [ex (base)
+            ex' (applied ex {:tx :attest-reserves :account v :amount 5})]
+        (is (not= ::threw ex') (str label " must not throw"))
+        (is (not (contains? ex' :reserve-attestation)))))))
+
+;; ── REASON at both doors ───────────────────────────────────────────────────
+
+(deftest attest-shape-reasons
+  (testing "the engine door answers the word validate answers — it answered
+            nil for every one of these before the door existed"
+    (doseq [[label v reason] acct-garbages]
+      (testing (str "garbage signer/credit: " label)
+        (is (= reason
+               (api/store-tx-shape (base)
+                                   {:tx :deposit-attest :account v :txid "t1"
+                                    :credit 7 :amount 5000 :asset "USDC"})))
+        (is (= reason
+               (api/store-tx-shape (base)
+                                   {:tx :deposit-attest :account 900 :txid "t1"
+                                    :credit v :amount 5000 :asset "USDC"})))
+        (is (= reason
+               (api/store-tx-shape (base)
+                                   {:tx :withdraw-attest :account v :claim 1
+                                    :txid "w1" :dest "0xabc"})))))
+    (doseq [[label v reason] claim-garbages]
+      (testing (str "garbage claim: " label)
+        (doseq [tx [:withdraw-attest :withdraw-settle :withdraw-cancel
+                    :withdraw-invalidate-attest]]
+          (is (= reason
+                 (api/store-tx-shape (base)
+                                     (cond-> {:tx tx :account 900 :claim v}
+                                       (#{:withdraw-attest
+                                          :withdraw-invalidate-attest} tx)
+                                       (assoc :txid "w1")
+                                       (= tx :withdraw-attest)
+                                       (assoc :dest "0xabc"))))
+              (str label " " tx " refused with the word validate answers")))))
+    (doseq [[label v reason] amount-garbages]
+      (testing (str "garbage amount: " label)
+        (is (= reason
+               (api/store-tx-shape (base)
+                                   {:tx :deposit-attest :account 900 :txid "t1"
+                                    :credit 7 :amount v :asset "USDC"})))))
+    (doseq [[label v reason] (remove (fn [[_ v _]] (= 0 v)) amount-garbages)]
+      ;; zero is VALID for :attest-reserves (see the guard below) — the
+      ;; mirror never refuses what validate passed.
+      (testing (str "garbage reserve amount: " label)
+        (is (= reason
+               (api/store-tx-shape (base)
+                                   {:tx :attest-reserves :account 1
+                                    :amount v})))))
+    (doseq [[label v] string-garbages]
+      (testing (str "garbage string: " label)
+        (is (= :missing-field
+               (api/store-tx-shape (base)
+                                   {:tx :deposit-attest :account 900 :txid v
+                                    :credit 7 :amount 5000 :asset "USDC"})))
+        (is (= :missing-field
+               (api/store-tx-shape (base)
+                                   {:tx :deposit-attest :account 900 :txid "t1"
+                                    :credit 7 :amount 5000 :asset v})))
+        (is (= :missing-field
+               (api/store-tx-shape (base)
+                                   {:tx :withdraw-attest :account 900 :claim 1
+                                    :txid v :dest "0xabc"})))
+        (is (= :missing-field
+               (api/store-tx-shape (base)
+                                   {:tx :withdraw-attest :account 900 :claim 1
+                                    :txid "w1" :dest v})))
+        (is (= :missing-field
+               (api/store-tx-shape (base)
+                                   {:tx :withdraw-invalidate-attest
+                                    :account 900 :claim 1 :txid v})))))
+    (is (= :missing-field
+           (api/store-tx-shape (base)
+                               {:tx :attest-reserves :account 1 :amount 5
+                                :height* ood}))
+        "an out-of-domain integer :as-of is stored beside the amount"))
+  (testing "every answer is from the closed set"
+    (doseq [tx [{:tx :deposit-attest :account nil :txid "t1" :credit 7
+                 :amount 5000 :asset "USDC"}
+                {:tx :withdraw-cancel :account 900 :claim "5"}
+                {:tx :attest-reserves :account 1 :amount "5"}]]
+      (is (contains? api/reasons (api/store-tx-shape (base) tx)))))
+  (testing "and neither door refuses VALID traffic"
+    (is (nil? (api/store-tx-shape (base)
+                                  {:tx :deposit-attest :account 900 :txid "t1"
+                                   :credit 7 :amount 5000 :asset "USDC"})))
+    (is (nil? (api/store-tx-shape (claimed)
+                                  {:tx :withdraw-attest :account 900 :claim 1
+                                   :txid "w1" :dest "0xabc"})))
+    (is (nil? (api/store-tx-shape (claimed)
+                                  {:tx :withdraw-settle :account 1 :claim 1})))
+    (is (nil? (api/store-tx-shape (claimed)
+                                  {:tx :withdraw-cancel :account 7 :claim 1})))
+    (is (nil? (api/store-tx-shape (claimed)
+                                  {:tx :withdraw-invalidate-attest
+                                   :account 900 :claim 1 :txid "i1"})))
+    (is (nil? (api/store-tx-shape (base)
+                                  {:tx :attest-reserves :account 1 :amount 5})))
+    ;; zero reserves is a claim, and a non-integer :as-of (a statement date)
+    ;; is judged where it is used — spec-ok? says so
+    (is (nil? (api/store-tx-shape (base)
+                                  {:tx :attest-reserves :account 1 :amount 0
+                                   :height* "2026-10"})))))
+
+(deftest validate-words-the-door-mirrors
+  ;; The regression half: the words were already there, and the engine door
+  ;; now answers the same ones. These were GREEN before the fix and must stay
+  ;; green — the door mirrors, it does not invent.
+  (is (= :bad-account
+         (api/validate (base)
+                       {:tx :deposit-attest :account 900 :txid "t1"
+                        :credit ood :amount 5000 :asset "USDC"})))
+  (is (= :bad-amount
+         (api/validate (base)
+                       {:tx :deposit-attest :account 900 :txid "t1"
+                        :credit 7 :amount ood :asset "USDC"})))
+  (is (= :missing-field
+         (api/validate (base)
+                       {:tx :deposit-attest :account 900 :txid ""
+                        :credit 7 :amount 5000 :asset "USDC"})))
+  (is (= :missing-field
+         (api/validate (base)
+                       {:tx :withdraw-attest :account 900 :claim "5"
+                        :txid "w1" :dest "0xabc"})))
+  (is (= :missing-field
+         (api/validate (base)
+                       {:tx :withdraw-settle :account 900 :claim 2.5})))
+  (is (= :bad-account
+         (api/validate (base)
+                       {:tx :withdraw-cancel :account nil :claim 1})))
+  (is (= :missing-field
+         (api/validate (base)
+                       {:tx :withdraw-invalidate-attest :account 900
+                        :claim 1 :txid nil})))
+  (is (= :bad-amount
+         (api/validate (base)
+                       {:tx :attest-reserves :account 1 :amount -5})))
+  (is (= :missing-field
+         (api/validate (base)
+                       {:tx :attest-reserves :account 1 :amount 5
+                        :height* ood})))
+  ;; an out-of-domain INTEGER claim names nothing but is not refused — the
+  ;; mirror never refuses what validate passed
+  (is (nil? (api/validate (base)
+                          {:tx :withdraw-settle :account 900 :claim ood})))
+  (is (nil? (api/store-tx-shape (base)
+                                {:tx :withdraw-settle :account 900
+                                 :claim ood}))))
+
+;; ── over-refusal guards: valid attestations still land ─────────────────────
+
+(deftest valid-attestations-still-land
+  (testing "a valid :deposit-attest records the shape below quorum and
+            credits at quorum"
+    (let [ex (applied (base) {:tx :deposit-attest :account 900 :txid "t1"
+                              :credit 7 :amount 5000 :asset "USDC"})]
+      (is (some? (get-in ex [:inbound "t1"])) "the shape is recorded")
+      (is (= 0 (get-in ex [:clearing :accounts 7 :collateral] 0))
+          "one attester is not a quorum"))
+    (let [ex (applied3 (base) {:tx :deposit-attest :txid "t1"
+                               :credit 7 :amount 5000 :asset "USDC"})]
+      (is (= 5000 (get-in ex [:clearing :accounts 7 :collateral]))
+          "three attesters credit")))
+  (testing "the bridge settles a real claim and the owner cancels one"
+    (let [ex (applied (claimed) {:tx :withdraw-settle :account 1 :claim 1})]
+      (is (nil? (get-in ex [:withdrawals 1])) "settled"))
+    (let [ex (applied (claimed) {:tx :withdraw-cancel :account 7 :claim 1})]
+      (is (nil? (get-in ex [:withdrawals 1])) "cancelled")
+      (is (= 5000 (get-in ex [:clearing :accounts 7 :collateral])) "refunded")))
+  (testing "a valid :attest-reserves stores the record"
+    (let [ex (applied (base) {:tx :attest-reserves :account 1 :amount 5})]
+      (is (= 5 (get-in ex [:reserve-attestation :amount]))))))

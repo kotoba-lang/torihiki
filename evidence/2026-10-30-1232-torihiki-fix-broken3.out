@@ -1,0 +1,122 @@
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+FAIL in (deposit-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:136)
+garbage credit: out-of-domain
+no :inbound record — the credit is stored RAW in the shape
+expected: (not (contains? ex' :inbound))
+  actual: (not (not true))
+
+FAIL in (deposit-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:144)
+garbage amount: out-of-domain
+no :inbound record — the amount is stored RAW in the shape
+expected: (not (contains? ex' :inbound))
+  actual: (not (not true))
+
+FAIL in (deposit-attest-never-credits-a-garbage-account) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:155)
+at quorum the credit is the :accounts KEY cl/deposit credits garbage credit at quorum: out-of-domain
+no :inbound record
+expected: (not (contains? (:inbound (or ex' {})) "t1"))
+  actual: (not (not true))
+
+FAIL in (deposit-attest-never-credits-a-garbage-account) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:157)
+at quorum the credit is the :accounts KEY cl/deposit credits garbage credit at quorum: out-of-domain
+no garbage :accounts key
+expected: (not (contains? (:accounts (:clearing (or ex' {}))) v))
+  actual: (not (not true))
+
+FAIL in (withdraw-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:194)
+garbage reported amount: string
+no :paid key minted
+expected: (not (contains? ex' :paid))
+  actual: (not (not true))
+
+FAIL in (withdraw-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:194)
+garbage reported amount: fractional
+no :paid key minted
+expected: (not (contains? ex' :paid))
+  actual: (not (not true))
+
+FAIL in (withdraw-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:194)
+garbage reported amount: out-of-domain
+no :paid key minted
+expected: (not (contains? ex' :paid))
+  actual: (not (not true))
+
+FAIL in (withdraw-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:194)
+garbage reported amount: zero
+no :paid key minted
+expected: (not (contains? ex' :paid))
+  actual: (not (not true))
+
+FAIL in (withdraw-attest-drops-a-garbage-attestation-whole) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-94972.cljk:194)
+garbage reported amount: negative
+no :paid key minted
+expected: (not (contains? ex' :paid))
+  actual: (not (not true))
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 567 tests containing 4644 assertions.
+9 failures, 0 errors.
+kbb test: 567 test(s), 4635 pass, 9 fail, 0 error

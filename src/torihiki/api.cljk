@@ -563,6 +563,66 @@
       (not (int-in? (:price t) 1 fx/i53-max)) :bad-price-level
       :else nil)
 
+    ;; ── the attest family ─────────────────────────────────────────────────
+    ;; The claims and attestations around the escrow. These are `validate`'s
+    ;; clauses mirrored word for word — the same judgments, the same keywords
+    ;; from `reasons` — because the engine door answered nil for all six
+    ;; whatever the transaction carried (MEASURED 2026-10-30, kbb/SCI): a raw
+    ;; `:deposit-attest` STORED its shape RAW into `:inbound` on the first
+    ;; attestation — an out-of-domain `:credit` (2^53+1) and `:amount` land
+    ;; there as values the two runtimes hold differently, and at quorum the
+    ;; same garbage credit is the `:accounts` KEY `cl/deposit` credits. A
+    ;; refusal at the engine is a NO-OP: the transaction is dropped whole and
+    ;; the exchange is returned unchanged. Nothing here throws.
+
+    :deposit-attest
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
+      ;; `credit` becomes the `:accounts` key `cl/deposit` credits — judged
+      ;; as the key it becomes, like every account id here.
+      (not (account-ok? (:credit t))) :bad-account
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
+      (not (and (string? (:asset t)) (seq (:asset t)))) :missing-field
+      :else nil)
+
+    :withdraw-attest
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
+      (not (and (string? (:dest t)) (seq (:dest t)))) :missing-field
+      ;; optional — "when the event's amount is reported" — but a SAID amount
+      ;; is said in the domain or it is garbage
+      (and (some? (:amount t)) (not (int-in? (:amount t) 1 fx/i53-max)))
+      :bad-amount
+      :else nil)
+
+    :withdraw-invalidate-attest
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? (:claim t))) :missing-field
+      (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
+      :else nil)
+
+    (:withdraw-settle :withdraw-cancel)
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; who may settle and who may cancel is decided in `torihiki.state`,
+      ;; where the claim itself is in hand — this judges shape only
+      (not (integer? (:claim t))) :missing-field
+      :else nil)
+
+    :attest-reserves
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; zero reserves is a claim
+      (not (int-in? (:amount t) 0 fx/i53-max)) :bad-amount
+      ;; `:as-of` is stored beside the amount. An integer must be storable;
+      ;; anything else (a statement date) passes through untouched.
+      (and (some? (:height* t)) (not (spec-ok? (:height* t)))) :missing-field
+      :else nil)
+
     nil))
 
 ;; ── the market shape gates ──────────────────────────────────────────────────
