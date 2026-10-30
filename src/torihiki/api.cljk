@@ -481,7 +481,25 @@
       :else nil)
 
     (:authorize-agent :revoke-agent)
-    (when-not (account-ok? account) :bad-account)
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; `agent` is the KEY the authorisation lands under in :agents — and a
+      ;; key that cannot verify is an authorisation nobody can use and no
+      ;; shape of revoke can name. `validate` requires a base64 Ed25519
+      ;; public key (44 characters); this door makes the same judgment.
+      (not (string? (:agent t))) :missing-field
+      (not= 44 (count (:agent t))) :missing-field
+      ;; `expires` is a BLOCK HEIGHT the auth layer COMPARES on every
+      ;; agent-signed trade (`torihiki.auth/agent-of`) — a garbage value
+      ;; stored here is a throw waiting inside `apply-block` on one runtime
+      ;; and a silently dead key on the other (the falsify-6/7 asymmetric
+      ;; class), and an out-of-domain height is held differently by the two
+      ;; runtimes inside the state root (falsify-8).
+      (and (= tx :authorize-agent)
+           (some? (:expires t))
+           (not (int-in? (:expires t) 1 fx/i53-max)))
+      :missing-field
+      :else nil)
 
     (:bond :unbond)
     (cond
@@ -530,7 +548,15 @@
       :else nil)
 
     :cancel-trigger
-    (when-not (market-exists? ex market) :unknown-market)
+    (cond
+      (not (market-exists? ex market)) :unknown-market
+      ;; The id a cancel NAMES must be the kind of thing an id is — an
+      ;; integer. `trg/cancel` is total on the id, but the engine's
+      ;; `update-in` CREATES the :triggers key, so a garbage id used to write
+      ;; `:triggers {market []}` into the state root for a transaction
+      ;; `validate` refuses. Integer, not natural: a name is a name.
+      (not (integer? (:id t))) :missing-field
+      :else nil)
 
     :funding-settle
     (when-not (market-exists? ex market) :unknown-market)

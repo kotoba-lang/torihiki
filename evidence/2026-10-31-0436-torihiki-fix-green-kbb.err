@@ -1,0 +1,2 @@
+kbb: 2 dep(s) are not :local/root and are NOT on the classpath (kbb resolves :local/root and :git/sha coordinates, not Maven; a jar cannot load on this engine): org.clojure/tools.namespace, org.clojure/tools.cli
+kbb: test runner substitution: running 33 namespace(s) under ("test") with cljs.test (the JVM runner named by the alias does not exist on this engine)

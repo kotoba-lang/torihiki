@@ -40,6 +40,7 @@
 ;; The JVM suite prints its own; two numbers that disagree are a finding.
 (ns tests-on-nbb
   (:require [cljs.test :as ct]
+            [torihiki.agent-trigger-totality-test]
             [torihiki.api-test]
             [torihiki.apply-totality-test]
             [torihiki.attest-totality-test]
@@ -132,7 +133,14 @@
 ;; engine gates) — 31 was the suite the market totality gates left, and 32 is
 ;; that suite plus the attest totality pins. The constant stays hard so a
 ;; classpath that drops more namespaces still exits 2.
-(def ^:private expected-namespaces 32)
+;; The floor is 33, not 32: `torihiki.agent-trigger-totality-test` joined the
+;; suite with the agent/trigger-cancel shape mirrors (the
+;; `torihiki.api/store-tx-shape` door over :authorize-agent/:revoke-agent
+;; `:agent`/`:expires` and :cancel-trigger `:id`, mirroring `validate`'s
+;; words) — 32 was the suite the attest totality gates left, and 33 is that
+;; suite plus the agent/trigger totality pins. The constant stays hard so a
+;; classpath that drops more namespaces still exits 2.
+(def ^:private expected-namespaces 33)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -157,7 +165,8 @@
       :else
       (println "TESTS-ON-NBB: pass — the runtime that deploys ran the suite"))))
 
-(ct/run-tests 'torihiki.api-test
+(ct/run-tests 'torihiki.agent-trigger-totality-test
+              'torihiki.api-test
               'torihiki.apply-totality-test
               'torihiki.attest-totality-test
               'torihiki.auth-test
