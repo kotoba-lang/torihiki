@@ -1029,64 +1029,98 @@
 ;;
 ;; Each signed by the OPERATOR account; `torihiki.auth` has already checked
 ;; that. Refusals are no-ops for the same reason as everywhere else here.
+;;
+;; Every dispatch below carries the engine door (`api/store-tx-shape`) at its
+;; top: `validate` judges these transactions but the door answered nil for
+;; all of them, so `apply-tx` reached directly STORED what `validate`
+;; refuses. The gate is before ANY destructured field is used — `vals/*`,
+;; `gov/*` and `pr/*` key maps by whatever account or subject they are
+;; handed. A refusal is a NO-OP: the transaction is dropped whole.
 
-(defmethod apply-tx :validator-register [ex t] (vals/register ex t))
-(defmethod apply-tx :validator-rotate-key [ex t] (vals/rotate-key ex t))
-(defmethod apply-tx :validator-retire [ex t] (vals/retire ex t))
+(defmethod apply-tx :validator-register [ex t]
+  (if (api/store-tx-shape ex t) ex (vals/register ex t)))
 
-(defmethod apply-tx :upgrade-propose [ex t] (gov/propose ex t))
-(defmethod apply-tx :upgrade-vote [ex t] (gov/vote ex t))
+(defmethod apply-tx :validator-rotate-key [ex t]
+  (if (api/store-tx-shape ex t) ex (vals/rotate-key ex t)))
+
+(defmethod apply-tx :validator-retire [ex t]
+  (if (api/store-tx-shape ex t) ex (vals/retire ex t)))
+
+(defmethod apply-tx :upgrade-propose [ex t]
+  (if (api/store-tx-shape ex t) ex (gov/propose ex t)))
+
+(defmethod apply-tx :upgrade-vote [ex t]
+  (if (api/store-tx-shape ex t) ex (gov/vote ex t)))
 
 (defmethod apply-tx :equivocation-evidence
   [ex t]
   ;; Anybody may submit it: the proof is the votes, not the submitter. The
   ;; verifier is the node's (`apply-block` opts `:vote-verify-fn`), because the
-  ;; vote format belongs to consensus; with none, nothing is slashed.
-  (if (vals/evidence-valid? ex t (::vote-verify-fn ex))
-    (vals/slash ex t)
-    ex))
+  ;; vote format belongs to consensus; with none, nothing is slashed. The
+  ;; submitter is still a VALUE (`:by` in `:slashed`) and an `:accounts` KEY
+  ;; (the slash reward) — so a submitter the engine cannot shape is refused
+  ;; before the proof is ever looked at.
+  (if (api/store-tx-shape ex t)
+    ex
+    (if (vals/evidence-valid? ex t (::vote-verify-fn ex))
+      (vals/slash ex t)
+      ex)))
 
 (defmethod apply-tx :principal-claim
   ;; The owner half of the handshake. `torihiki.auth` has already established
   ;; that this envelope was signed by the account, so the only questions left
   ;; are the ones `torihiki.principal` answers -- and a refusal is a no-op
   ;; rather than a throw, because a claim that cannot be recorded must not stop
-  ;; a block.
-  [ex {:keys [account principal]}]
-  (if (pr/check-claim ex account principal)
+  ;; a block. The shape gate comes first: `pr/claim` keys `:principal-claims`
+  ;; by the account and `pr/check-claim` COMPARES it.
+  [ex {:keys [account principal] :as t}]
+  (if (api/store-tx-shape ex t)
     ex
-    (pr/claim ex account principal)))
+    (if (pr/check-claim ex account principal)
+      ex
+      (pr/claim ex account principal))))
 
 (defmethod apply-tx :principal-confirm
   ;; The controller half. `:subject` is the account being bound; `:account` is
   ;; the controller signing. Two fields rather than one because the signature
   ;; that authorises this is the controller's, and conflating the signer with
   ;; the subject is how an authority ends up able to act only on itself -- or,
-  ;; worse, how a subject ends up able to act as the authority.
-  [ex {:keys [account subject principal]}]
-  (if (pr/check-confirm ex account subject principal)
+  ;; worse, how a subject ends up able to act as the authority. The shape gate
+  ;; comes first: `pr/confirm` keys `:principals` by the subject and stores it
+  ;; as the `:principal-accounts` VALUE.
+  [ex {:keys [account subject principal] :as t}]
+  (if (api/store-tx-shape ex t)
     ex
-    (pr/confirm ex subject principal)))
+    (if (pr/check-confirm ex account subject principal)
+      ex
+      (pr/confirm ex subject principal))))
 
 (defmethod apply-tx :principal-rotate
   ;; PROPOSING to replace an owner key. Bounded twice: `check-rotate` refuses
   ;; an account that never claimed and confirmed a principal, so this reaches
   ;; only accounts that asked for it with their own signature -- and then the
-  ;; account's own key has `rotation-delay-blocks` to refuse.
-  [ex {:keys [account subject pubkey]}]
-  (if (pr/check-rotate ex account subject pubkey)
+  ;; account's own key has `rotation-delay-blocks` to refuse. The shape gate
+  ;; comes first: `pr/rotate-propose` keys `:rotations` by the subject.
+  [ex {:keys [account subject pubkey] :as t}]
+  (if (api/store-tx-shape ex t)
     ex
-    (pr/rotate-propose ex subject pubkey (:height ex 0))))
+    (if (pr/check-rotate ex account subject pubkey)
+      ex
+      (pr/rotate-propose ex subject pubkey (:height ex 0)))))
 
 (defmethod apply-tx :principal-rotate-cancel
   ;; The veto. `torihiki.auth` has already established that this envelope
   ;; carries the account's current owner key, which is the key the rotation
   ;; would replace -- so `:subject` would be wrong here: the signer IS the
-  ;; party whose refusal counts.
-  [ex {:keys [account]}]
-  (if (pr/check-rotate-cancel ex account account)
+  ;; party whose refusal counts. The shape gate comes first: a veto naming an
+  ;; account the engine cannot shape is dropped whole, never `(long nil)` on
+  ;; the rotation it cannot name.
+  [ex {:keys [account] :as t}]
+  (if (api/store-tx-shape ex t)
     ex
-    (pr/rotate-cancel ex account)))
+    (if (pr/check-rotate-cancel ex account account)
+      ex
+      (pr/rotate-cancel ex account))))
 
 (defmethod apply-tx :create-sub-account
   [ex {:keys [account sub] :as t}]
@@ -1861,14 +1895,17 @@
                                          @old-fills))))))
 
 (defmethod apply-tx :liquidate
-  [ex {:keys [market]}]
+  [ex {:keys [market] :as t}]
   ;; Kept, and now redundant on its own chain: `apply-block` sweeps every
   ;; market at the end of every block, so a `:liquidate` transaction can only
   ;; do what would have happened anyway a moment later. It stays because it is
   ;; the seam the tests drive one market through, and because a keeper that
   ;; wants a position closed WITHIN a block rather than after it still has a
-  ;; way to ask.
-  (sweep-liquidations ex market))
+  ;; way to ask. The shape gate names the market it may sweep: a `:liquidate`
+  ;; the engine cannot shape is dropped whole, exchange unchanged.
+  (if (api/store-tx-shape ex t)
+    ex
+    (sweep-liquidations ex market)))
 
 ;; ── blocks ──────────────────────────────────────────────────────────────────
 
