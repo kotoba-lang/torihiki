@@ -649,6 +649,86 @@
       (and (some? (:height* t)) (not (spec-ok? (:height* t)))) :missing-field
       :else nil)
 
+    ;; ── the consensus, identity and keeper family ─────────────────────────
+    ;; These are `validate`'s clauses mirrored word for word — the same
+    ;; judgments in the same order, the same keywords from `reasons` — because
+    ;; the engine door answered nil for every one of them whatever the
+    ;; transaction carried (the hole PR #84's record named as the remaining
+    ;; queue): a raw `:upgrade-propose` STORED out-of-domain `:version`/
+    ;; `:activation` numbers into `:protocol :proposals` (and subtracted from
+    ;; an `:activation` before it landed — the falsify-8 class inside the
+    ;; state root); a raw `:principal-*` keyed `:principal-claims`/
+    ;; `:principals`/`:principal-accounts`/`:rotations` by whatever account or
+    ;; subject it carried, and `check-claim` COMPARED that account (`(<
+    ;; account addr/floor)`) — a throw on one runtime and a silently stored
+    ;; key on the other (the falsify-6/7 asymmetric class); a raw
+    ;; `:validator-register` stored a garbage `:account` VALUE in the
+    ;; `:validators` record, which at slash time is the account the reward is
+    ;; `cl/deposit`ed to; a raw `:equivocation-evidence` recorded the slash
+    ;; `:by` a garbage submitter and minted its reward to a garbage
+    ;; `:accounts` key; a raw `:liquidate` swept whatever `:market` said.
+    ;; Refusals are NO-OPs: the transaction is dropped whole and the exchange
+    ;; is returned unchanged. Nothing here throws.
+
+    :liquidate
+    (when-not (market-exists? ex market) :unknown-market)
+
+    :upgrade-propose
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; Both land in :protocol :proposals — stored numbers, capped.
+      (not (int-in? (:version t) 1 fx/i53-max)) :missing-field
+      (not (int-in? (:activation t) 1 fx/i53-max)) :missing-field
+      :else nil)
+
+    :upgrade-vote
+    (cond
+      (not (account-ok? account)) :bad-account
+      ;; The id a vote NAMES is an integer key into :proposals — `integer?`,
+      ;; not in-domain: where `validate` admits a value, so does this door.
+      (not (integer? (:proposal t))) :missing-field
+      :else nil)
+
+    (:principal-claim :principal-confirm)
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (pr/well-formed-principal? (:principal t))) :malformed-principal
+      (and (= (:tx t) :principal-confirm)
+           (not (integer? (:subject t)))) :bad-account
+      :else nil)
+
+    :principal-rotate
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (integer? (:subject t))) :bad-account
+      (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
+      :else nil)
+
+    :principal-rotate-cancel
+    (when-not (account-ok? account) :bad-account)
+
+    (:validator-register :validator-rotate-key)
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
+      :else nil)
+
+    :validator-retire
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      :else nil)
+
+    :equivocation-evidence
+    (cond
+      (not (account-ok? account)) :bad-account
+      (not (string? (:witness t))) :missing-field
+      (not (integer? (:evidence-height t))) :missing-field
+      (not (integer? (:view t))) :missing-field
+      (not (every? #(string? (get t %)) [:hash-a :sig-a :hash-b :sig-b])) :missing-field
+      :else nil)
+
     nil))
 
 ;; ── the market shape gates ──────────────────────────────────────────────────

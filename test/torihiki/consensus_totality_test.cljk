@@ -1,0 +1,618 @@
+(ns torihiki.consensus-totality-test
+  "The consensus, identity and keeper doors are TOTAL: a `:validator-*`,
+  `:upgrade-*`, `:principal-*`, `:equivocation-evidence` or `:liquidate`
+  transaction the engine cannot shape is dropped whole — never a garbage
+  `:account` VALUE inside a `:validators` record, never a garbage key in
+  `:principal-claims`/:principals`/:principal-accounts`/:rotations`, never a
+  proposal whose `:version` or `:activation` is an out-of-domain number
+  folded into the state root, never a slash recorded `:by` a garbage account
+  (with the reward MINTED to it through `cl/deposit`).
+
+  These are the dispatches PR #84's record named as the remaining queue:
+  `api/validate` judges them, but `api/store-tx-shape` answered nil for all
+  of them whatever the transaction carried — so `torihiki.state/apply-tx`,
+  reached directly (tests, and any future internal dispatcher), STORED what
+  `validate` refuses:
+
+  - `:upgrade-propose`: `validate` caps `:version` and `:activation` at the
+    i53 ceiling (`:missing-field` otherwise) — both land in `:protocol
+    :proposals` as stored numbers, and an out-of-domain `:activation` is
+    subtracted from in `:expires` before it lands (the falsify-8 divergence
+    class inside the root).
+  - `:principal-claim`/`:principal-confirm`/`:principal-rotate`: `validate`
+    judges the account and the subject; `torihiki.principal` keys
+    `:principal-claims`, `:principals`, `:principal-accounts` and
+    `:rotations` by whatever it is handed. A garbage account is not inert
+    either: `check-claim` COMPARES it (`(< account addr/floor)`) — a string
+    is a throw on one runtime and a silently stored key on the other (the
+    falsify-6/7 asymmetric class).
+  - `:validator-register`: the account becomes the `:account` VALUE of the
+    `:validators` record — and at slash time the KEY `slash-account` debits
+    and `cl/deposit` credits.
+  - `:equivocation-evidence`: the submitter's account is the `:by` VALUE in
+    `:slashed` and the account the slash reward is DEPOSITED to.
+  - `:liquidate`: `validate` judges the market exists (`:unknown-market`
+    otherwise).
+
+  Refusals are pinned by VALUE at the engine (nothing lands) and by REASON
+  at BOTH `api/store-tx-shape` (the engine door) and `api/validate` (the
+  words the door mirrors) — the same judgments, the same order, the same
+  keywords; one shape rule, two doors. The mirror does not SHARPEN: where
+  `validate` admits a value (`integer?` subjects, `integer?` ids), so does
+  the door, and the residual is documented, not pinned. A pin that only
+  asserts \"no throw\" is half a pin — so every no-throw pin here is paired
+  with the value it must leave alone, and a throw FAILS the pin rather than
+  passing it. One fixture PER CASE."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.address :as addr]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private ood (inc fx/i53-max))
+
+(def ctrl 900)
+
+(def alice (addr/derive "alice-key"))
+
+(def pid "did:web:auth.kotoba.cloud:principal:alice")
+
+(defn- base
+  "Market 1 exists with a book."
+  []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}}))
+
+(defn- gov-ex
+  "A chain with a validator set and governance enabled. Accounts 4 and 5
+  operate witnesses alpha and beta — two members, so one vote is not a
+  supermajority and a proposal STAYS in `:proposals` where a pin can see it."
+  []
+  (-> (base)
+      (assoc :validator-params {:min-stake 1 :max-validators 32}
+             :validators {"alpha" {:account 4 :pubkey "pkA" :registered 0}}
+             :epoch {:n 0 :from 0 :set [{:witness "alpha" :pubkey "pkA" :account 4 :stake 0}
+                                        {:witness "beta" :pubkey "pkB" :account 5 :stake 0}]}
+             :slashed {}
+             :protocol {:version 1 :params {:notice 5 :ttl 100} :proposals {} :seq 0})))
+
+(defn- with-proposal
+  "Proposal 1 (version 2, activating at 20) proposed by member 4, no votes
+  counted yet."
+  []
+  (-> (gov-ex)
+      (assoc-in [:protocol :seq] 1)
+      (assoc-in [:protocol :proposals 1]
+                {:version 2 :activation 20 :by 4 :votes #{} :expires 15})))
+
+(defn- prin-ex
+  "A chain with an identity plane: account 900 is the controller authority."
+  []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 64 :cap 1024 :ev-cap 1024}
+                    :controller-authority ctrl}))
+
+(defn- vals-ex
+  "A chain with a validator set: account 4 operates witness alpha, whose
+  consensus key is pkA."
+  []
+  (-> (base)
+      (assoc :validator-params {:min-stake 1 :max-validators 32}
+             :validators {"alpha" {:account 4 :pubkey "pkA" :registered 0}}
+             :epoch {:n 0 :from 0 :set [{:witness "alpha" :pubkey "pkA" :account 4 :stake 0}]}
+             :slashed {})))
+
+(defn- evidence-ex
+  "`vals-ex` with account 4 holding a 1000 bond in collateral and a
+  verifier that vouches for any proof — the slash then has something to
+  take and a reward to pay, so a garbage submitter has somewhere to land."
+  []
+  (-> (vals-ex)
+      (assoc-in [:clearing :accounts 4 :collateral] 1000)
+      (assoc-in [:clearing :bonds] {4 {4 1000}})
+      (assoc :torihiki.state/vote-verify-fn (fn [& _] true))))
+
+(defn- evidence-tx
+  [account]
+  {:tx :equivocation-evidence :account account :witness "alpha"
+   :evidence-height 10 :view 1
+   :hash-a "ha" :sig-a "sa" :hash-b "hb" :sig-b "sb"})
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+;; ── a proposal or vote the engine cannot shape ─────────────────────────────
+
+(deftest a-proposal-the-engine-cannot-shape-never-reaches-proposals
+  ;; `:version` and `:activation` land in `:protocol :proposals` as stored
+  ;; numbers and are ARITHMETIC later (`:expires` subtracts `:notice` from
+  ;; `:activation`; `activate` compares `:at`). Out of the i53 domain they
+  ;; are the falsify-8 class inside the state root.
+  (doseq [[label tx] [["string version" {:version "2" :activation 20}]
+                       ["fractional version" {:version 2.5 :activation 20}]
+                       ["zero version" {:version 0 :activation 20}]
+                       ["negative version" {:version -1 :activation 20}]
+                       ["out-of-domain version" {:version ood :activation 20}]
+                       ["string activation" {:version 2 :activation "20"}]
+                       ["fractional activation" {:version 2 :activation 2.5}]
+                       ["zero activation" {:version 2 :activation 0}]
+                       ["negative activation" {:version 2 :activation -20}]
+                       ["out-of-domain activation" {:version 2 :activation ood}]]]
+    (testing label
+      (let [ex (gov-ex)
+            ex' (applied ex (merge {:tx :upgrade-propose :account 4} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (get-in ex' [:protocol :proposals]))
+              "the garbage used to land in :proposals as stored numbers")
+          (is (nil? (get-in ex' [:protocol :scheduled]))
+              "and one member's auto-vote must not have scheduled it either")
+          (is (zero? (get-in ex' [:protocol :seq]))
+              "the proposal counter must not have moved"))))))
+
+(deftest a-vote-the-engine-cannot-shape-never-reaches-votes
+  ;; A vote `conj`s its account into the proposal's `:votes` set and a
+  ;; garbage `:proposal` looks up nothing — so the votes set is the value
+  ;; these pins hold still.
+  (doseq [[label tx] [["string proposal" {:proposal "5"}]
+                       ["fractional proposal" {:proposal 2.5}]
+                       ["nil proposal" {:proposal nil}]
+                       ["out-of-domain proposal" {:proposal ood}]
+                       ["string account" {:account "garbage-account" :proposal 1}]
+                       ["nil account" {:account nil :proposal 1}]
+                       ["fractional account" {:account 2.5 :proposal 1}]
+                       ["out-of-domain account" {:account ood :proposal 1}]]]
+    (testing label
+      (let [ex (with-proposal)
+            ex' (applied ex (merge {:tx :upgrade-vote :account 4} tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= #{} (get-in ex' [:protocol :proposals 1 :votes]))
+              "no vote the engine cannot shape may join the votes set"))))))
+
+;; ── the identity plane keyed by garbage ────────────────────────────────────
+
+(deftest a-claim-the-engine-cannot-shape-never-keys-claims
+  ;; `pr/claim` keys `:principal-claims` by the ACCOUNT — a garbage account
+  ;; is a garbage key in the root. It is not even a silent store:
+  ;; `check-claim` COMPARES the account (`(< account addr/floor)`), so a
+  ;; string is a throw on the JVM and a stored key on the JS runtime.
+  (doseq [[label account] [["string account" "garbage-account"]
+                           ["nil account" nil]
+                           ["out-of-domain account" ood]]]
+    (testing label
+      (let [ex (prin-ex)
+            ex' (applied ex {:tx :principal-claim :account account :principal pid})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:principal-claims ex'))
+              "the garbage account used to key :principal-claims"))))))
+
+(deftest a-confirm-with-a-garbage-subject-never-binds-a-principal
+  ;; `pr/confirm` writes BOTH directions: `:principals` keyed by the subject
+  ;; and `:principal-accounts` valued with it. The claim under the garbage
+  ;; key is seeded here because reaching it through `:principal-claim` is the
+  ;; previous pin's hole.
+  (doseq [[label subject] [["string subject" "garbage-account"]
+                           ["nil subject" nil]
+                           ["fractional subject" 2.5]]]
+    (testing label
+      (let [ex (assoc-in (prin-ex) [:principal-claims "garbage-account"] pid)
+            ex' (applied ex {:tx :principal-confirm :account ctrl
+                             :subject subject :principal pid})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:principals ex'))
+              "the garbage subject used to key :principals")
+          (is (empty? (:principal-accounts ex'))
+              "and to be stored as the :principal-accounts VALUE"))))))
+
+(deftest a-rotation-with-a-garbage-subject-never-keys-rotations
+  (doseq [[label subject] [["string subject" "garbage-account"]
+                           ["nil subject" nil]
+                           ["fractional subject" 2.5]]]
+    (testing label
+      (let [ex (assoc-in (prin-ex) [:principals "garbage-account"] pid)
+            ex' (applied ex {:tx :principal-rotate :account ctrl
+                             :subject subject :pubkey "new-key"})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:rotations ex'))
+              "the garbage subject used to key :rotations"))))))
+
+(deftest a-veto-by-a-garbage-account-never-touches-a-real-rotation
+  ;; The veto names no subject — the signer is the party refusing — so its
+  ;; one field is the account, and a garbage one must leave the rotation it
+  ;; cannot name alone.
+  (let [ex (assoc-in (prin-ex) [:rotations 7] {:pubkey "new-key" :effective 0})]
+    (doseq [[label account] [["string account" "garbage-account"]
+                             ["nil account" nil]
+                             ["out-of-domain account" ood]]]
+      (testing label
+        (let [ex' (applied ex {:tx :principal-rotate-cancel :account account})]
+          (is (not= ::threw ex') "apply-tx must answer, not throw")
+          (when (not= ::threw ex')
+            (is (= {:pubkey "new-key" :effective 0} (get-in ex' [:rotations 7]))
+                "the live rotation survives a veto that names no party")))))))
+
+;; ── a validator record whose operator is garbage ───────────────────────────
+
+(deftest a-registration-by-a-garbage-account-never-stores-an-operator
+  ;; The account becomes the `:account` VALUE of the `:validators` record —
+  ;; and at slash time the KEY `slash-account` debits and `cl/deposit`
+  ;; credits. Judged as the key it becomes, like every account id here.
+  (doseq [[label account] [["string account" "garbage-account"]
+                           ["nil account" nil]
+                           ["out-of-domain account" ood]]]
+    (testing label
+      (let [ex (vals-ex)
+            ex' (applied ex {:tx :validator-register :account account
+                             :witness "beta" :pubkey "pkB"})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (nil? (get-in ex' [:validators "beta"]))
+              "the garbage account used to be stored as the record's :account"))))))
+
+(deftest a-garbage-rotation-or-retirement-changes-no-record
+  ;; `vals/rotate-key` and `vals/retire` only act when the account matches
+  ;; the record's operator — a garbage one matches nothing, and the pins
+  ;; hold the record still either way.
+  (let [ex (vals-ex)]
+    (doseq [[label account] [["string account" "garbage-account"]
+                             ["nil account" nil]
+                             ["out-of-domain account" ood]]]
+      (testing (str "rotate-key, " label)
+        (let [ex' (applied ex {:tx :validator-rotate-key :account account
+                               :witness "alpha" :pubkey "pkB"})]
+          (is (not= ::threw ex') "apply-tx must answer, not throw")
+          (when (not= ::threw ex')
+            (is (nil? (get-in ex' [:validators "alpha" :pending-pubkey]))
+                "no pending key for an operator that is not there"))))
+      (testing (str "retire, " label)
+        (let [ex' (applied ex {:tx :validator-retire :account account
+                               :witness "alpha"})]
+          (is (not= ::threw ex') "apply-tx must answer, not throw")
+          (when (not= ::threw ex')
+            (is (nil? (get-in ex' [:validators "alpha" :retiring?]))
+                "no retirement for an operator that is not there")))))))
+
+;; ── a slash reported by garbage ────────────────────────────────────────────
+
+(deftest evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing
+  ;; The submitter's account is the `:by` VALUE in `:slashed` — and the
+  ;; account the slash REWARD is `cl/deposit`ed to: a garbage submitter is
+  ;; a garbage `:accounts` KEY minted real collateral (never to the offender,
+  ;; so the reward path is reached only by a submitter who is NOT account 4).
+  (doseq [[label account] [["string account" "garbage-account"]
+                           ["nil account" nil]
+                           ["out-of-domain account" ood]]]
+    (testing label
+      (let [ex (evidence-ex)
+            ex' (applied ex (evidence-tx account))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:slashed ex'))
+              "the slash must not be recorded :by a garbage account")
+          (is (nil? (get-in ex' [:clearing :accounts account]))
+              "and the reward must not be minted to it")
+          (is (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+              "the bond the slash would take is untouched"))))))
+
+;; ── a liquidate that names no market ───────────────────────────────────────
+
+(deftest a-liquidate-naming-no-market-never-touches-the-exchange
+  (doseq [[label market] [["unknown market" 99]
+                          ["string market" "1"]
+                          ["nil market" nil]
+                          ["out-of-domain market" ood]]]
+    (testing label
+      (let [ex (evidence-ex)
+            ex' (applied ex {:tx :liquidate :market market})]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (= ex ex') "the exchange must come back untouched"))))))
+
+;; ── the two doors answer with the same word ────────────────────────────────
+
+(deftest the-two-doors-answer-with-the-same-word
+  ;; The reason keywords the engine door answers with are exactly the words
+  ;; `validate` answers with, in the same order — one shape rule, two doors.
+  ;; `validate` is unchanged by this package; if it moves, the mirror moves
+  ;; with it. Where `validate` ADMITS a value (`integer?` subjects and ids,
+  ;; `string?` witnesses), so does the mirror — the door does not sharpen.
+  (let [ex (gov-ex)]
+    (doseq [[label t expect]
+            [["upgrade-propose: string version"
+              {:tx :upgrade-propose :account 4 :version "2" :activation 20}
+              :missing-field]
+             ["upgrade-propose: fractional version"
+              {:tx :upgrade-propose :account 4 :version 2.5 :activation 20}
+              :missing-field]
+             ["upgrade-propose: zero version"
+              {:tx :upgrade-propose :account 4 :version 0 :activation 20}
+              :missing-field]
+             ["upgrade-propose: out-of-domain version"
+              {:tx :upgrade-propose :account 4 :version ood :activation 20}
+              :missing-field]
+             ["upgrade-propose: version first, then activation"
+              {:tx :upgrade-propose :account 4 :version "2" :activation "20"}
+              :missing-field]
+             ["upgrade-propose: string activation"
+              {:tx :upgrade-propose :account 4 :version 2 :activation "20"}
+              :missing-field]
+             ["upgrade-propose: fractional activation"
+              {:tx :upgrade-propose :account 4 :version 2 :activation 2.5}
+              :missing-field]
+             ["upgrade-propose: zero activation"
+              {:tx :upgrade-propose :account 4 :version 2 :activation 0}
+              :missing-field]
+             ["upgrade-propose: out-of-domain activation"
+              {:tx :upgrade-propose :account 4 :version 2 :activation ood}
+              :missing-field]
+             ["upgrade-propose: account first"
+              {:tx :upgrade-propose :account "garbage-account" :version "2"
+               :activation 20}
+              :bad-account]
+             ["upgrade-propose: valid"
+              {:tx :upgrade-propose :account 4 :version 2 :activation 20} nil]
+             ["upgrade-propose: the i53 ceiling is a legal version"
+              {:tx :upgrade-propose :account 4 :version fx/i53-max
+               :activation fx/i53-max}
+              nil]
+             ["upgrade-vote: string proposal"
+              {:tx :upgrade-vote :account 4 :proposal "5"} :missing-field]
+             ["upgrade-vote: fractional proposal"
+              {:tx :upgrade-vote :account 4 :proposal 2.5} :missing-field]
+             ["upgrade-vote: nil proposal"
+              {:tx :upgrade-vote :account 4 :proposal nil} :missing-field]
+             ["upgrade-vote: account first"
+              {:tx :upgrade-vote :account "garbage-account" :proposal "5"}
+              :bad-account]
+             ["upgrade-vote: valid"
+              {:tx :upgrade-vote :account 4 :proposal 1} nil]
+             ["upgrade-vote: out-of-domain id is still an integer"
+              {:tx :upgrade-vote :account 4 :proposal ood} nil]
+             ["principal-claim: string account"
+              {:tx :principal-claim :account "garbage-account" :principal pid}
+              :bad-account]
+             ["principal-claim: account first, then principal"
+              {:tx :principal-claim :account "garbage-account" :principal "alice"}
+              :bad-account]
+             ["principal-claim: principal with no prefix"
+              {:tx :principal-claim :account alice :principal "alice"}
+              :malformed-principal]
+             ["principal-claim: nil principal"
+              {:tx :principal-claim :account alice :principal nil}
+              :malformed-principal]
+             ["principal-claim: valid"
+              {:tx :principal-claim :account alice :principal pid} nil]
+             ["principal-confirm: principal first, then subject"
+              {:tx :principal-confirm :account ctrl :subject "5" :principal "alice"}
+              :malformed-principal]
+             ["principal-confirm: string subject"
+              {:tx :principal-confirm :account ctrl :subject "5" :principal pid}
+              :bad-account]
+             ["principal-confirm: fractional subject"
+              {:tx :principal-confirm :account ctrl :subject 2.5 :principal pid}
+              :bad-account]
+             ["principal-confirm: nil subject"
+              {:tx :principal-confirm :account ctrl :subject nil :principal pid}
+              :bad-account]
+             ["principal-confirm: valid"
+              {:tx :principal-confirm :account ctrl :subject 7 :principal pid}
+              nil]
+             ["principal-confirm: out-of-domain subject is still an integer"
+              {:tx :principal-confirm :account ctrl :subject ood :principal pid}
+              nil]
+             ["principal-rotate: account first"
+              {:tx :principal-rotate :account "garbage-account" :subject 7
+               :pubkey "new-key"}
+              :bad-account]
+             ["principal-rotate: subject first, then pubkey"
+              {:tx :principal-rotate :account ctrl :subject "7" :pubkey 5}
+              :bad-account]
+             ["principal-rotate: string subject"
+              {:tx :principal-rotate :account ctrl :subject "7" :pubkey "new-key"}
+              :bad-account]
+             ["principal-rotate: nil subject"
+              {:tx :principal-rotate :account ctrl :subject nil :pubkey "new-key"}
+              :bad-account]
+             ["principal-rotate: empty pubkey"
+              {:tx :principal-rotate :account ctrl :subject 7 :pubkey ""}
+              :missing-field]
+             ["principal-rotate: non-string pubkey"
+              {:tx :principal-rotate :account ctrl :subject 7 :pubkey 5}
+              :missing-field]
+             ["principal-rotate: valid"
+              {:tx :principal-rotate :account ctrl :subject 7 :pubkey "new-key"}
+              nil]
+             ["principal-rotate-cancel: string account"
+              {:tx :principal-rotate-cancel :account "garbage-account"}
+              :bad-account]
+             ["principal-rotate-cancel: valid"
+              {:tx :principal-rotate-cancel :account 7} nil]
+             ["validator-register: account first"
+              {:tx :validator-register :account "garbage-account" :witness 5
+               :pubkey "pkB"}
+              :bad-account]
+             ["validator-register: witness first, then pubkey"
+              {:tx :validator-register :account 5 :witness 5 :pubkey 5}
+              :missing-field]
+             ["validator-register: non-string witness"
+              {:tx :validator-register :account 5 :witness 5 :pubkey "pkB"}
+              :missing-field]
+             ["validator-register: non-string pubkey"
+              {:tx :validator-register :account 5 :witness "beta" :pubkey 5}
+              :missing-field]
+             ["validator-register: empty pubkey"
+              {:tx :validator-register :account 5 :witness "beta" :pubkey ""}
+              :missing-field]
+             ["validator-register: valid"
+              {:tx :validator-register :account 5 :witness "beta" :pubkey "pkB"}
+              nil]
+             ["validator-rotate-key: string account"
+              {:tx :validator-rotate-key :account "garbage-account"
+               :witness "alpha" :pubkey "pkB"}
+              :bad-account]
+             ["validator-rotate-key: non-string witness"
+              {:tx :validator-rotate-key :account 4 :witness 5 :pubkey "pkB"}
+              :missing-field]
+             ["validator-rotate-key: valid"
+              {:tx :validator-rotate-key :account 4 :witness "alpha" :pubkey "pkB"}
+              nil]
+             ["validator-retire: account first"
+              {:tx :validator-retire :account "garbage-account" :witness 5}
+              :bad-account]
+             ["validator-retire: non-string witness"
+              {:tx :validator-retire :account 5 :witness 5} :missing-field]
+             ["validator-retire: valid"
+              {:tx :validator-retire :account 5 :witness "alpha"} nil]
+             ["equivocation-evidence: account first"
+              {:tx :equivocation-evidence :account "garbage-account" :witness 5
+               :evidence-height "10" :view "1" :hash-a 5 :sig-a 5
+               :hash-b 5 :sig-b 5}
+              :bad-account]
+             ["equivocation-evidence: witness first"
+              {:tx :equivocation-evidence :account 500 :witness 5
+               :evidence-height 10 :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: string evidence-height"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height "10" :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: fractional evidence-height"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 2.5 :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: string view"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view "1" :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: fractional view"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view 2.5 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: non-string hash-a"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view 1 :hash-a 5 :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: nil sig-b"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b nil}
+              :missing-field]
+             ["equivocation-evidence: valid"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              nil]
+             ["equivocation-evidence: out-of-domain height is still an integer"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height ood :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              nil]
+             ["liquidate: unknown market"
+              {:tx :liquidate :market 99} :unknown-market]
+             ["liquidate: string market"
+              {:tx :liquidate :market "1"} :unknown-market]
+             ["liquidate: nil market"
+              {:tx :liquidate :market nil} :unknown-market]
+             ["liquidate: out-of-domain market"
+              {:tx :liquidate :market ood} :unknown-market]
+             ["liquidate: valid"
+              {:tx :liquidate :market 1} nil]]]
+      (testing label
+        (is (= expect (api/validate ex t))
+            "`validate` answers with the word the engine door mirrors")
+        (is (= expect (api/store-tx-shape ex t))
+            "the engine door answers with the same word, in the same order")))))
+
+;; ── the shapely transactions still land ────────────────────────────────────
+
+(deftest the-shapely-transactions-still-land
+  (testing "a proposal by a member lands and stays for the vote to find"
+    (let [ex' (applied (gov-ex) {:tx :upgrade-propose :account 4
+                                 :version 2 :activation 20})]
+      (is (= {:version 2 :activation 20 :by 4 :votes #{4} :expires 15}
+             (get-in ex' [:protocol :proposals 1])))))
+  (testing "a member's vote is counted"
+    ;; The fixture seeds :votes #{} ("no votes counted yet"), so the counted
+    ;; vote is account 5's alone. Both members voting would be the
+    ;; supermajority (3h > 2t with two heads) and the proposal would LEAVE
+    ;; :proposals — this pin reads it staying, one vote short. (Found by the
+    ;; BROKEN run: the draft expected #{4 5}, which no state of this fixture
+    ;; produces.)
+    (let [ex' (applied (with-proposal) {:tx :upgrade-vote :account 5 :proposal 1})]
+      (is (= #{5} (get-in ex' [:protocol :proposals 1 :votes])))))
+  (testing "a claim by its owner is recorded"
+    (let [ex' (applied (prin-ex) {:tx :principal-claim :account alice :principal pid})]
+      (is (= pid (get-in ex' [:principal-claims alice])))))
+  (testing "the controller's confirm binds both directions"
+    (let [ex (assoc-in (prin-ex) [:principal-claims alice] pid)
+          ex' (applied ex {:tx :principal-confirm :account ctrl
+                           :subject alice :principal pid})]
+      (is (= pid (get-in ex' [:principals alice])))
+      (is (= alice (get-in ex' [:principal-accounts pid])))))
+  (testing "a rotation for a bound account is proposed"
+    (let [ex (assoc-in (prin-ex) [:principals alice] pid)
+          ex' (applied ex {:tx :principal-rotate :account ctrl
+                           :subject alice :pubkey "new-key"})]
+      (is (= {:pubkey "new-key" :effective 0} (get-in ex' [:rotations alice])))))
+  (testing "the holder's veto clears the rotation"
+    (let [ex (assoc-in (prin-ex) [:rotations 7] {:pubkey "new-key" :effective 0})
+          ex' (applied ex {:tx :principal-rotate-cancel :account 7})]
+      (is (empty? (:rotations ex')))))
+  (testing "a registration by a real operator stores the record"
+    (let [ex' (applied (vals-ex) {:tx :validator-register :account 5
+                                  :witness "beta" :pubkey "pkB"})]
+      (is (= {:account 5 :pubkey "pkB" :registered 0}
+             (get-in ex' [:validators "beta"])))))
+  (testing "the operator's own key rotation and retirement land"
+    (let [ex (vals-ex)
+          rot (applied ex {:tx :validator-rotate-key :account 4
+                           :witness "alpha" :pubkey "pkB"})
+          ret (applied ex {:tx :validator-retire :account 4 :witness "alpha"})]
+      (is (= "pkB" (get-in rot [:validators "alpha" :pending-pubkey])))
+      (is (true? (get-in ret [:validators "alpha" :retiring?])))))
+  (testing "evidence from a real submitter slashes and rewards"
+    (let [ex' (applied (evidence-ex) (evidence-tx 500))]
+      (is (= {:by 500 :amount 1000 :height 0}
+             (get-in ex' [:slashed ["alpha" 10 1]])))
+      (is (= 50 (get-in ex' [:clearing :accounts 500 :collateral]))
+          "the slash reward is deposited to the submitter")
+      (is (true? (get-in ex' [:validators "alpha" :jailed?])))))
+  (testing "a valid liquidate still sweeps the market it names"
+    ;; Its own exchange, not `base`: the fill is at level 500 and `base`'s
+    ;; 64-level ladder stops at 63 — an off-ladder level is refused by the
+    ;; apply-path shape gates (correctly), which left this fixture with no
+    ;; position to be underwater and the precondition below measured it.
+    ;; (Found by the BROKEN run.) A 512-level book reaches level 500.
+    (let [ex (-> (st/new-exchange {:market mkt :book-opts {:n-levels 512 :cap 1024 :ev-cap 1024}})
+                 (st/apply-tx {:tx :oracle :market 1 :price 500})
+                 (st/apply-tx {:tx :deposit :account 5 :amount 1000})
+                 (st/apply-tx {:tx :deposit :account 6 :amount 100000000})
+                 (st/apply-tx {:tx :order :account 6 :market 1
+                               :side bk/ask :level 500 :qty 100})
+                 (st/apply-tx {:tx :order :account 5 :market 1
+                               :side bk/bid :level 500 :qty 100})
+                 (st/apply-tx {:tx :oracle :market 1 :price 300}))]
+      (is (cl/liquidatable? (:clearing ex) 5 (:marks ex) {1 mkt})
+          "account 5 must be underwater at the collapsed mark, or this proves nothing")
+      (let [after (applied ex {:tx :liquidate :market 1})]
+        (is (not= ::threw after) "apply-tx must answer, not throw")
+        (when (not= ::threw after)
+          (is (not (cl/liquidatable? (:clearing after) 5 (:marks after) {1 mkt}))
+              "the sweep must have closed or reduced the position it found"))))))

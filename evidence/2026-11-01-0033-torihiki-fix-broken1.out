@@ -1,0 +1,509 @@
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+FAIL in (a-proposal-the-engine-cannot-shape-never-reaches-proposals) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:153)
+out-of-domain version
+the garbage used to land in :proposals as stored numbers
+expected: (empty? (get-in ex' [:protocol :proposals]))
+  actual: (not (empty? {1 {:version 9007199254740992, :activation 20, :by 4, :votes #{4}, :expires 15}}))
+
+FAIL in (a-proposal-the-engine-cannot-shape-never-reaches-proposals) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:157)
+out-of-domain version
+the proposal counter must not have moved
+expected: (zero? (get-in ex' [:protocol :seq]))
+  actual: (not (zero? 1))
+
+FAIL in (a-proposal-the-engine-cannot-shape-never-reaches-proposals) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:153)
+out-of-domain activation
+the garbage used to land in :proposals as stored numbers
+expected: (empty? (get-in ex' [:protocol :proposals]))
+  actual: (not (empty? {1 {:version 2, :activation 9007199254740992, :by 4, :votes #{4}, :expires 100}}))
+
+FAIL in (a-proposal-the-engine-cannot-shape-never-reaches-proposals) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:157)
+out-of-domain activation
+the proposal counter must not have moved
+expected: (zero? (get-in ex' [:protocol :seq]))
+  actual: (not (zero? 1))
+
+FAIL in (a-claim-the-engine-cannot-shape-never-keys-claims) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:195)
+string account
+the garbage account used to key :principal-claims
+expected: (empty? (:principal-claims ex'))
+  actual: (not (empty? {"garbage-account" "did:web:auth.kotoba.cloud:principal:alice"}))
+
+FAIL in (a-claim-the-engine-cannot-shape-never-keys-claims) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:195)
+out-of-domain account
+the garbage account used to key :principal-claims
+expected: (empty? (:principal-claims ex'))
+  actual: (not (empty? {9007199254740992 "did:web:auth.kotoba.cloud:principal:alice"}))
+
+FAIL in (a-confirm-with-a-garbage-subject-never-binds-a-principal) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:212)
+string subject
+the garbage subject used to key :principals
+expected: (empty? (:principals ex'))
+  actual: (not (empty? {"garbage-account" "did:web:auth.kotoba.cloud:principal:alice"}))
+
+FAIL in (a-confirm-with-a-garbage-subject-never-binds-a-principal) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:214)
+string subject
+and to be stored as the :principal-accounts VALUE
+expected: (empty? (:principal-accounts ex'))
+  actual: (not (empty? {"did:web:auth.kotoba.cloud:principal:alice" "garbage-account"}))
+
+FAIL in (a-rotation-with-a-garbage-subject-never-keys-rotations) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:227)
+string subject
+the garbage subject used to key :rotations
+expected: (empty? (:rotations ex'))
+  actual: (not (empty? {"garbage-account" {:pubkey "new-key", :effective 0}}))
+
+FAIL in (a-registration-by-a-garbage-account-never-stores-an-operator) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:260)
+string account
+the garbage account used to be stored as the record's :account
+expected: (nil? (get-in ex' [:validators "beta"]))
+  actual: (not (nil? {:account "garbage-account", :pubkey "pkB", :registered 0}))
+
+FAIL in (a-registration-by-a-garbage-account-never-stores-an-operator) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:260)
+nil account
+the garbage account used to be stored as the record's :account
+expected: (nil? (get-in ex' [:validators "beta"]))
+  actual: (not (nil? {:account nil, :pubkey "pkB", :registered 0}))
+
+FAIL in (a-registration-by-a-garbage-account-never-stores-an-operator) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:260)
+out-of-domain account
+the garbage account used to be stored as the record's :account
+expected: (nil? (get-in ex' [:validators "beta"]))
+  actual: (not (nil? {:account 9007199254740992, :pubkey "pkB", :registered 0}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:301)
+string account
+the slash must not be recorded :by a garbage account
+expected: (empty? (:slashed ex'))
+  actual: (not (empty? {["alpha" 10 1] {:by "garbage-account", :amount 1000, :height 0}}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:303)
+string account
+and the reward must not be minted to it
+expected: (nil? (get-in ex' [:clearing :accounts account]))
+  actual: (not (nil? {:collateral 50}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:305)
+string account
+the bond the slash would take is untouched
+expected: (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+  actual: (not (= {4 {4 1000}} {4 {}}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:301)
+nil account
+the slash must not be recorded :by a garbage account
+expected: (empty? (:slashed ex'))
+  actual: (not (empty? {["alpha" 10 1] {:by nil, :amount 1000, :height 0}}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:303)
+nil account
+and the reward must not be minted to it
+expected: (nil? (get-in ex' [:clearing :accounts account]))
+  actual: (not (nil? {:collateral 50}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:305)
+nil account
+the bond the slash would take is untouched
+expected: (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+  actual: (not (= {4 {4 1000}} {4 {}}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:301)
+out-of-domain account
+the slash must not be recorded :by a garbage account
+expected: (empty? (:slashed ex'))
+  actual: (not (empty? {["alpha" 10 1] {:by 9007199254740992, :amount 1000, :height 0}}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:303)
+out-of-domain account
+and the reward must not be minted to it
+expected: (nil? (get-in ex' [:clearing :accounts account]))
+  actual: (not (nil? {:collateral 50}))
+
+FAIL in (evidence-from-a-garbage-account-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:305)
+out-of-domain account
+the bond the slash would take is untouched
+expected: (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+  actual: (not (= {4 {4 1000}} {4 {}}))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: string version
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: fractional version
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: zero version
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: out-of-domain version
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: version first, then activation
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: string activation
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: fractional activation
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: zero activation
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: out-of-domain activation
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-propose: account first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-vote: string proposal
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-vote: fractional proposal
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-vote: nil proposal
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+upgrade-vote: account first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-claim: string account
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-claim: account first, then principal
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-claim: principal with no prefix
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :malformed-principal nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-claim: nil principal
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :malformed-principal nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-confirm: principal first, then subject
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :malformed-principal nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-confirm: string subject
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-confirm: fractional subject
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-confirm: nil subject
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate: account first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate: subject first, then pubkey
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate: string subject
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate: nil subject
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate: empty pubkey
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate: non-string pubkey
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+principal-rotate-cancel: string account
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-register: account first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-register: witness first, then pubkey
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-register: non-string witness
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-register: non-string pubkey
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-register: empty pubkey
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-rotate-key: string account
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-rotate-key: non-string witness
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-retire: account first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+validator-retire: non-string witness
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: account first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: witness first
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: string evidence-height
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: fractional evidence-height
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: string view
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: fractional view
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: non-string hash-a
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+equivocation-evidence: nil sig-b
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+liquidate: unknown market
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+liquidate: string market
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+liquidate: nil market
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:540)
+liquidate: out-of-domain market
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :unknown-market nil))
+
+FAIL in (the-shapely-transactions-still-land) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:553)
+a member's vote is counted
+expected: (= #{4 5} (get-in ex' [:protocol :proposals 1 :votes]))
+  actual: (not (= #{4 5} #{5}))
+
+FAIL in (the-shapely-transactions-still-land) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-28322.cljk:601)
+a valid liquidate still sweeps the market it names
+account 5 must be underwater at the collapsed mark, or this proves nothing
+expected: (cl/liquidatable? (:clearing ex) 5 (:marks ex) {1 mkt})
+  actual: (not (cl/liquidatable? {:accounts {5 {:collateral 1000}, 6 {:collateral 100000000}}, :fees-collected 0, :insurance-fund 0, :backstop-vault -1, :liquidation-clock {}} 5 {1 300} {1 {:id 1, :symbol "MKT-1", :tick 1, :lot 1, :max-leverage 40, :initial-margin-rate 25000000, :maintenance-margin-rate 12500000}}))
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 586 tests containing 5015 assertions.
+73 failures, 0 errors.
+kbb test: 586 test(s), 4942 pass, 73 fail, 0 error

@@ -48,6 +48,7 @@
             [torihiki.book-test]
             [torihiki.bridge-test]
             [torihiki.commit-test]
+            [torihiki.consensus-totality-test]
             [torihiki.evm-interp-test]
             [torihiki.evm-test]
             [torihiki.funding-test]
@@ -140,7 +141,16 @@
 ;; words) — 32 was the suite the attest totality gates left, and 33 is that
 ;; suite plus the agent/trigger totality pins. The constant stays hard so a
 ;; classpath that drops more namespaces still exits 2.
-(def ^:private expected-namespaces 33)
+;; The floor is 34, not 33: `torihiki.consensus-totality-test` joined the
+;; suite with the consensus/identity/keeper shape mirrors (the
+;; `torihiki.api/store-tx-shape` door over :liquidate/:upgrade-propose/
+;; :upgrade-vote/:principal-claim/:principal-confirm/:principal-rotate/
+;; :principal-rotate-cancel/:validator-register/:validator-rotate-key/
+;; :validator-retire/:equivocation-evidence, mirroring `validate`'s words)
+;; — 33 was the suite the agent/trigger totality gates left, and 34 is that
+;; suite plus the consensus totality pins. The constant stays hard so a
+;; classpath that drops more namespaces still exits 2.
+(def ^:private expected-namespaces 34)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -173,6 +183,7 @@
               'torihiki.book-test
               'torihiki.bridge-test
               'torihiki.commit-test
+              'torihiki.consensus-totality-test
               'torihiki.evm-interp-test
               'torihiki.evm-test
               'torihiki.funding-test
