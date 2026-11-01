@@ -1175,7 +1175,19 @@
   ;;
   ;; The store door runs first: `cl/set-leverage` assoc-in's [:leverage
   ;; account market] directly — a garbage account is a garbage key.
-  (if (api/store-tx-shape ex t)
+  ;;
+  ;; Then the MARKET-RECORD guard (the fire-time precedent): the transaction
+  ;; can be perfectly shaped and the market it names still carry a
+  ;; `:max-leverage` this engine cannot compare — pre-fix state (a snapshot
+  ;; restored from before the leverage-doors package, or listed under the old
+  ;; rule) can hold present-nil or a string there, and `cl/set-leverage`'s
+  ;; `(:max-leverage market 1)` is a keyword default that does NOT fire when
+  ;; the key is present: `(> lev nil)` is a NullPointerException inside
+  ;; apply-block on the JVM (the falsify-6/7 halted-chain class) and a silent
+  ;; `true` on nbb. Refused as a NO-OP before the comparator computes;
+  ;; nothing here throws.
+  (if (or (api/store-tx-shape ex t)
+          (not (api/max-leverage-ok? (get-in ex [:markets market]))))
     ex
     (update ex :clearing cl/set-leverage account market
             (get-in ex [:markets market])
