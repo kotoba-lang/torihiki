@@ -684,23 +684,28 @@
     :upgrade-vote
     (cond
       (not (account-ok? account)) :bad-account
-      ;; The id a vote NAMES is an integer key into :proposals — `integer?`,
-      ;; not in-domain: where `validate` admits a value, so does this door.
-      (not (integer? (:proposal t))) :missing-field
+      ;; The id a vote NAMES is a KEY into :proposals (and a winning one is
+      ;; stored into :protocol :scheduled :proposal) — judged as the key it
+      ;; becomes: slab-storable, like `account-ok?`.
+      (not (int-in? (:proposal t) fx/i53-min fx/i53-max)) :missing-field
       :else nil)
 
     (:principal-claim :principal-confirm)
     (cond
       (not (account-ok? account)) :bad-account
       (not (pr/well-formed-principal? (:principal t))) :malformed-principal
+      ;; The subject is an ACCOUNT — it keys :principals and is stored as the
+      ;; :principal-accounts VALUE. Judged as `account-ok?` judges an account.
       (and (= (:tx t) :principal-confirm)
-           (not (integer? (:subject t)))) :bad-account
+           (not (account-ok? (:subject t)))) :bad-account
       :else nil)
 
     :principal-rotate
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:subject t))) :bad-account
+      ;; The subject is an ACCOUNT — `pr/rotate-propose` keys :rotations by
+      ;; it. Judged as `account-ok?` judges an account.
+      (not (account-ok? (:subject t))) :bad-account
       (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
 
@@ -724,8 +729,10 @@
     (cond
       (not (account-ok? account)) :bad-account
       (not (string? (:witness t))) :missing-field
-      (not (integer? (:evidence-height t))) :missing-field
-      (not (integer? (:view t))) :missing-field
+      ;; [witness evidence-height view] is the KEY the slash record is filed
+      ;; under in :slashed — judged as the key it becomes: slab-storable.
+      (not (int-in? (:evidence-height t) fx/i53-min fx/i53-max)) :missing-field
+      (not (int-in? (:view t) fx/i53-min fx/i53-max)) :missing-field
       (not (every? #(string? (get t %)) [:hash-a :sig-a :hash-b :sig-b])) :missing-field
       :else nil)
 
@@ -1276,7 +1283,7 @@
     :upgrade-vote
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:proposal t))) :missing-field
+      (not (int-in? (:proposal t) fx/i53-min fx/i53-max)) :missing-field
       :else nil)
 
     :withdraw-attest
@@ -1314,14 +1321,18 @@
     (cond
       (not (account-ok? account)) :bad-account
       (not (pr/well-formed-principal? (:principal t))) :malformed-principal
+      ;; The subject is an ACCOUNT — it keys :principals and is stored as the
+      ;; :principal-accounts VALUE. Judged as `account-ok?` judges an account.
       (and (= (:tx t) :principal-confirm)
-           (not (integer? (:subject t)))) :bad-account
+           (not (account-ok? (:subject t)))) :bad-account
       :else nil)
 
     :principal-rotate
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:subject t))) :bad-account
+      ;; The subject is an ACCOUNT — `pr/rotate-propose` keys :rotations by
+      ;; it. Judged as `account-ok?` judges an account.
+      (not (account-ok? (:subject t))) :bad-account
       (not (and (string? (:pubkey t)) (seq (:pubkey t)))) :missing-field
       :else nil)
 
@@ -1349,8 +1360,10 @@
     (cond
       (not (account-ok? account)) :bad-account
       (not (string? (:witness t))) :missing-field
-      (not (integer? (:evidence-height t))) :missing-field
-      (not (integer? (:view t))) :missing-field
+      ;; [witness evidence-height view] is the KEY the slash record is filed
+      ;; under in :slashed — judged as the key it becomes: slab-storable.
+      (not (int-in? (:evidence-height t) fx/i53-min fx/i53-max)) :missing-field
+      (not (int-in? (:view t) fx/i53-min fx/i53-max)) :missing-field
       (not (every? #(string? (get t %)) [:hash-a :sig-a :hash-b :sig-b])) :missing-field
       :else nil)
 

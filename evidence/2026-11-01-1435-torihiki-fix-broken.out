@@ -1,0 +1,189 @@
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+FAIL in (a-garbage-key-proposal-and-vote-mutates-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:202)
+a vote naming a garbage key must not join its votes set
+expected: (= #{} (get-in ex' [:protocol :proposals ood :votes]))
+  actual: (not (= #{} #{4}))
+
+FAIL in (a-garbage-key-claim-and-confirm-binds-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:254)
+the out-of-domain subject must not key :principals
+expected: (empty? (:principals ex'))
+  actual: (not (empty? {9007199254740992 "did:web:auth.kotoba.cloud:principal:alice"}))
+
+FAIL in (a-garbage-key-claim-and-confirm-binds-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:256)
+and must not be stored as the :principal-accounts VALUE
+expected: (empty? (:principal-accounts ex'))
+  actual: (not (empty? {"did:web:auth.kotoba.cloud:principal:alice" 9007199254740992}))
+
+FAIL in (a-garbage-key-binding-and-rotate-keys-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:282)
+the out-of-domain subject must not key :rotations
+expected: (empty? (:rotations ex'))
+  actual: (not (empty? {9007199254740992 {:pubkey "new-key", :effective 0}}))
+
+FAIL in (vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:378)
+out-of-domain evidence-height
+the slash must not be filed under a garbage key
+expected: (empty? (:slashed ex'))
+  actual: (not (empty? {["alpha" 9007199254740992 1] {:by 500, :amount 1000, :height 0}}))
+
+FAIL in (vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:380)
+out-of-domain evidence-height
+and the reward must not be minted to the submitter
+expected: (nil? (get-in ex' [:clearing :accounts 500]))
+  actual: (not (nil? {:collateral 50}))
+
+FAIL in (vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:382)
+out-of-domain evidence-height
+the bond the slash would take is untouched
+expected: (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+  actual: (not (= {4 {4 1000}} {4 {}}))
+
+FAIL in (vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:378)
+out-of-domain view
+the slash must not be filed under a garbage key
+expected: (empty? (:slashed ex'))
+  actual: (not (empty? {["alpha" 10 9007199254740992] {:by 500, :amount 1000, :height 0}}))
+
+FAIL in (vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:380)
+out-of-domain view
+and the reward must not be minted to the submitter
+expected: (nil? (get-in ex' [:clearing :accounts 500]))
+  actual: (not (nil? {:collateral 50}))
+
+FAIL in (vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:382)
+out-of-domain view
+the bond the slash would take is untouched
+expected: (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+  actual: (not (= {4 {4 1000}} {4 {}}))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:655)
+upgrade-vote: out-of-domain proposal is refused at the i53 boundary
+`validate` answers with the word the engine door mirrors
+expected: (= expect (api/validate ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:657)
+upgrade-vote: out-of-domain proposal is refused at the i53 boundary
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:655)
+principal-confirm: out-of-domain subject is refused at the i53 boundary
+`validate` answers with the word the engine door mirrors
+expected: (= expect (api/validate ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:657)
+principal-confirm: out-of-domain subject is refused at the i53 boundary
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:655)
+principal-rotate: out-of-domain subject is refused at the i53 boundary
+`validate` answers with the word the engine door mirrors
+expected: (= expect (api/validate ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:657)
+principal-rotate: out-of-domain subject is refused at the i53 boundary
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :bad-account nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:655)
+equivocation-evidence: out-of-domain evidence-height is refused at the i53 boundary
+`validate` answers with the word the engine door mirrors
+expected: (= expect (api/validate ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:657)
+equivocation-evidence: out-of-domain evidence-height is refused at the i53 boundary
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:655)
+equivocation-evidence: out-of-domain view is refused at the i53 boundary
+`validate` answers with the word the engine door mirrors
+expected: (= expect (api/validate ex t))
+  actual: (not (= :missing-field nil))
+
+FAIL in (the-two-doors-answer-with-the-same-word) (/var/folders/h_/bx1m0lv90qxb1sdrx5tqn8b80000gn/T/kbb-test-98004.cljk:657)
+equivocation-evidence: out-of-domain view is refused at the i53 boundary
+the engine door answers with the same word, in the same order
+expected: (= expect (api/store-tx-shape ex t))
+  actual: (not (= :missing-field nil))
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 590 tests containing 5050 assertions.
+20 failures, 0 errors.
+kbb test: 590 test(s), 5030 pass, 20 fail, 0 error
+EXIT=1
