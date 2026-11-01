@@ -54,6 +54,7 @@
             [torihiki.funding-test]
             [torihiki.fuzz-seeded-test]
             [torihiki.governance-test]
+            [torihiki.leverage-doors-test]
             [torihiki.light-test]
             [torihiki.liquidation-makers-test]
             [torihiki.log-test]
@@ -150,7 +151,15 @@
 ;; — 33 was the suite the agent/trigger totality gates left, and 34 is that
 ;; suite plus the consensus totality pins. The constant stays hard so a
 ;; classpath that drops more namespaces still exits 2.
-(def ^:private expected-namespaces 34)
+;; The floor is 35, not 34: `torihiki.leverage-doors-test` joined the suite
+;; with the leverage slot gates (present-nil `:max-leverage` refused at
+;; `flat-spec-ok?`/`tier-leverage-ok?`, `:set-leverage :leverage` i53-bounded
+;; in `store-tx-shape` + `validate`, and the `apply-tx :set-leverage` engine
+;; guard over a pre-fix market whose cap is junk) — 34 was the suite the
+;; i53-boundary package (PR #86) left, and 35 is that suite plus the leverage
+;; door pins. The constant stays hard so a classpath that drops more
+;; namespaces still exits 2.
+(def ^:private expected-namespaces 35)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -189,6 +198,7 @@
               'torihiki.funding-test
               'torihiki.fuzz-seeded-test
               'torihiki.governance-test
+              'torihiki.leverage-doors-test
               'torihiki.light-test
               'torihiki.liquidation-makers-test
               'torihiki.log-test

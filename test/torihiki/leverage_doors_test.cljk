@@ -1,0 +1,189 @@
+(ns torihiki.leverage-doors-test
+  "The leverage slots are TOTAL at both doors: a `:max-leverage` a reader
+  cannot compare, or a `:leverage` the state root cannot mirror, is refused
+  before it is stored — and a market whose cap is already junk makes
+  `:set-leverage` a no-op instead of a halted chain.
+
+  Everything here corresponds to a measured failure (the 2026-11-01 16:2x
+  reconnaissance at fc88b10, direct probes):
+
+  - a spec carrying `:max-leverage nil` (PRESENT, value nil) passed BOTH
+    doors — `flat-spec-ok?`'s `(or (nil? v) ...)` reads absent and present-nil
+    the same — so `:list-market` stored it flat (`state.cljk` assoc-in's the
+    spec) and `:amend-market {:spec {:max-leverage nil}}` ERASED the live cap.
+    The next `:set-leverage` reached `cl/set-leverage`'s `(:max-leverage
+    market 1)` — a keyword default that does NOT fire when the key is present
+    with nil — and evaluated `(> lev nil)`: **JVM: NullPointerException
+    inside apply-block** (the falsify-6/7 halted-chain class, one signed tx
+    pair halting every validator at the same place); nbb: `true`, a silent
+    refusal. Same log, two different outcomes.
+  - the `:set-leverage :leverage` slot was judged `(and (integer? v) (pos?
+    v))` — no i53 bound, and `integer?` is runtime-dependent: `(integer?
+    4.5e17)` is false on the JVM and true on nbb, so the SAME transaction was
+    admitted by one door and answered `:missing-field` by the other. A 2^53+1
+    leverage passed both doors and would land in `[:leverage acct mkt]` — a
+    state-root value no JS runtime can mirror (the falsify-8 class) — kept out
+    only by `cl/set-leverage`'s cap comparison.
+
+  Refusals are pinned by REASON at BOTH doors (`api/market-tx-shape` +
+  `api/validate` for spec shapes; `api/store-tx-shape` + `api/validate` for
+  the leverage slot) and by VALUE at the engine (nothing lands, nothing
+  merges, the live cap is never erased). A pin that only asserts \"no throw\"
+  is half a pin — so every no-throw pin here is paired with the value it must
+  leave alone, and a throw FAILS the pin rather than passing it. One fixture
+  PER CASE: the book is a mutable slab."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+(def ^:private ood (inc fx/i53-max))
+
+;; The integral double past 2^53 the reconnaissance measured the doors
+;; disagreeing on: `(integer? 4.5e17)` is FALSE on the JVM (a Double) and
+;; TRUE on nbb (an integral JS number).
+(def ^:private big-double 4.5e17)
+
+(defn- base []
+  (st/new-exchange {:market mkt
+                    :book-opts {:n-levels 1024 :cap 1024 :ev-cap 1024}
+                    :bridge-authority 1}))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(def ^:private full-tier
+  "A tier `cl/margin-tiers-ok?` admits whole — so the `:max-leverage` under
+  test is the ONLY thing its pin can be refused for."
+  {:max-notional 100
+   :initial-margin-rate 25000
+   :maintenance-margin-rate 12500})
+
+;; ── present-nil :max-leverage: refused at both doors ────────────────────────
+
+(deftest present-nil-max-leverage-is-refused-at-both-doors
+  (let [ex (base)]
+    (testing "REASON: a flat :max-leverage nil is present garbage, not absence"
+      (let [t {:tx :list-market :account 1 :market 2
+               :spec {:tick 1 :lot 1 :max-leverage nil}}]
+        (is (= :missing-field (api/market-tx-shape ex t))
+            "the engine door")
+        (is (= :missing-field (api/validate ex t))
+            "the words the door mirrors"))
+      (let [t {:tx :amend-market :account 1 :market 1
+               :spec {:max-leverage nil}}]
+        (is (= :missing-field (api/market-tx-shape ex t)))
+        (is (= :missing-field (api/validate ex t)))))
+    (testing "REASON: a tier :max-leverage nil is the same garbage one map deeper"
+      (let [t {:tx :list-market :account 1 :market 2
+               :spec {:tick 1 :lot 1
+                      :margin-tiers [(assoc full-tier :max-leverage nil)]}}]
+        (is (= :missing-field (api/market-tx-shape ex t)))
+        (is (= :missing-field (api/validate ex t)))))
+    (testing "VALUE: the list lands nothing and the amend never erases the live cap"
+      (let [ex' (applied ex {:tx :list-market :account 1 :market 2
+                             :spec {:tick 1 :lot 1 :max-leverage nil}})]
+        (is (not= ::threw ex') "must not throw")
+        (is (not (contains? (:markets ex') 2))
+            "no market — and no present-nil folded into the state root"))
+      (let [ex' (applied ex {:tx :amend-market :account 1 :market 1
+                             :spec {:max-leverage nil}})]
+        (is (not= ::threw ex') "must not throw")
+        (is (= 40 (get-in ex' [:markets 1 :max-leverage]))
+            "the live cap — (:max-leverage market 1)'s whole reason to exist")))))
+
+;; ── the flat rule is ABSENT-or-count for every slot, not just :max-leverage ─
+
+(deftest flat-spec-present-nil-is-garbage-everywhere
+  (let [ex (base)]
+    (testing "REASON: a present-nil flat slot is refused :missing-field"
+      (doseq [slot [:tick :lot :open-interest-cap :asset]]
+        (let [t {:tx :amend-market :account 1 :market 1
+                 :spec {slot nil}}]
+          (is (= :missing-field (api/market-tx-shape ex t)) (str slot))
+          (is (= :missing-field (api/validate ex t)) (str slot)))))
+    (testing "VALUE: the over-tightening guard — ABSENT slots still pass"
+      (is (nil? (api/validate ex {:tx :list-market :account 1 :market 2
+                                  :spec {:tick 1 :lot 1}})))
+      (is (nil? (api/validate ex {:tx :amend-market :account 1 :market 1
+                                  :spec {}}))
+          "an empty amend names no slot at all"))))
+
+;; ── the :set-leverage :leverage slot: i53-bounded, one word, two doors ──────
+
+(deftest leverage-slot-is-refused-at-both-doors
+  (let [ex (base)]
+    (testing "REASON: out-of-domain leverage is :missing-field at BOTH doors"
+      ;; 2^53+1: a long on the JVM, rounded to 9007199254740992 on nbb —
+      ;; either way past i53-max, and it used to PASS both doors.
+      (let [t {:tx :set-leverage :account 1 :market 1 :leverage 9007199254740993}]
+        (is (= :missing-field (api/store-tx-shape ex t)))
+        (is (= :missing-field (api/validate ex t))))
+      (let [t {:tx :set-leverage :account 1 :market 1 :leverage big-double}]
+        (is (= :missing-field (api/store-tx-shape ex t))
+            "(integer? 4.5e17) is false on the JVM and true on nbb — the doors
+             used to answer :missing-field and nil respectively")
+        (is (= :missing-field (api/validate ex t)))))
+    (testing "VALUE: garbage leverage never reaches [:leverage acct mkt]"
+      (doseq [[label lev] [["ood long" 9007199254740993]
+                           ["big double" big-double]
+                           ["string" "20"]
+                           ["fraction" 2.5]
+                           ["zero" 0]
+                           ["negative" -5]]]
+        (let [ex' (applied ex {:tx :set-leverage :account 1 :market 1
+                               :leverage lev})]
+          (is (not= ::threw ex') (str label " must not throw"))
+          (is (nil? (get-in ex' [:clearing :leverage 1 1]))
+              (str label " — nothing recorded")))))
+    (testing "VALUE: the boundary guards — 1 and fx/i53-max pass BOTH doors"
+      (is (nil? (api/store-tx-shape ex {:tx :set-leverage :account 1 :market 1
+                                        :leverage 1})))
+      (is (nil? (api/validate ex {:tx :set-leverage :account 1 :market 1
+                                  :leverage 1})))
+      (is (nil? (api/store-tx-shape ex {:tx :set-leverage :account 1 :market 1
+                                        :leverage fx/i53-max})))
+      (is (nil? (api/validate ex {:tx :set-leverage :account 1 :market 1
+                                  :leverage fx/i53-max}))))))
+
+;; ── a market whose cap is already junk: no-op, never a halted chain ────────
+
+(deftest set-leverage-on-a-junk-cap-market-is-a-no-op
+  ;; Pre-fix state can carry a market the doors would now refuse — a snapshot
+  ;; restored from before this package, or a chain that listed under the old
+  ;; rule. The engine guard is the fire-time precedent: refuse as a NO-OP
+  ;; before `cl/set-leverage` computes `(> lev (:max-leverage market 1))`.
+  (testing "VALUE: a present-nil cap makes :set-leverage state-identical"
+    (let [ex (assoc-in (base) [:markets 1 :max-leverage] nil)
+          ex' (applied ex {:tx :set-leverage :account 1 :market 1 :leverage 5})]
+      (is (not= ::threw ex')
+          "pre-fix this evaluated (> 5 nil) — NullPointerException inside
+           apply-block on the JVM, true on nbb")
+      (is (= ex ex') "state-identical no-op")))
+  (testing "VALUE: a string cap is the same junk — a ClassCastException on
+            the JVM, a coercion on nbb"
+    (let [ex (assoc-in (base) [:markets 1 :max-leverage] "40")
+          ex' (applied ex {:tx :set-leverage :account 1 :market 1 :leverage 5})]
+      (is (not= ::threw ex') "must not throw")
+      (is (= ex ex') "state-identical no-op")))
+  (testing "VALUE: the control — a healthy market records the leverage"
+    (let [ex (base)
+          ex' (applied ex {:tx :set-leverage :account 1 :market 1 :leverage 5})]
+      (is (not= ::threw ex') "must not throw")
+      (is (= 5 (get-in ex' [:clearing :leverage 1 1]))
+          "the pin machinery proves itself: the same transaction, one field
+           of healthy state to the right")))
+  (testing "VALUE: an absent cap is healthy — the keyword default 1 is a count"
+    (let [ex (update-in (base) [:markets 1] dissoc :max-leverage)
+          ex' (applied ex {:tx :set-leverage :account 1 :market 1 :leverage 1})]
+      (is (not= ::threw ex') "must not throw")
+      (is (= 1 (get-in ex' [:clearing :leverage 1 1]))
+          "the over-tightening guard: absent is not junk"))))

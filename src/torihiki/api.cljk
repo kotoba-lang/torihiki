@@ -129,12 +129,34 @@
     (or (vector? v) (set? v)) (every? rates-ok? v)
     :else true))
 
+(defn max-leverage-ok?
+  "Whether a map's `:max-leverage` is readable by the two comparators that
+  read it: ABSENT (the readers default) or a COUNT 1..i53-max. Public because
+  the engine's `apply-tx :set-leverage` guard judges a STORED market record
+  with it — one shape rule, two doors.
+
+  The key being PRESENT with nil is garbage, not absence: a keyword default
+  (`(:max-leverage market 1)`) does not fire when the key is there with nil,
+  and `cl/set-leverage`'s `(> lev (:max-leverage market 1))` then evaluates
+  `(> lev nil)` — NullPointerException inside apply-block on the JVM (the
+  falsify-6/7 halted-chain class), a silent `true` on nbb. Same log, two
+  outcomes. The 2026-11-01 16:2x reconnaissance measured exactly this:
+  `:list-market {:spec {:max-leverage nil}}` passed both doors and stored the
+  cap flat; `:amend-market {:spec {:max-leverage nil}}` ERASED a live cap;
+  the next `:set-leverage` reached the comparator. Total on any input: a
+  non-map answers false here rather than throwing from `contains?`."
+  [m]
+  (and (map? m)
+       (or (not (contains? m :max-leverage))
+           (int-in? (:max-leverage m) 1 fx/i53-max))))
+
 (defn tier-leverage-ok?
   "A tier's `:max-leverage` is OPTIONAL (the rates are the contract) but when
   present it is a COUNT: 1..i53-max. `encode-market-spec` folds it RAW into
   the state root like `:max-notional`, so a fraction or a string there is
   bytes no two runtimes agree on or a throw in `enc-int`'s `(neg? v)` — the
-  same door `:max-notional` keeps, one field to the right.
+  same door `:max-notional` keeps, one field to the right. Present-nil is the
+  same garbage one slot over (see `max-leverage-ok?`).
 
   This clause is the piece of `cl/margin-tiers-ok?` (PR #72/#73) the kotoba
   monorepo extraction (PR #74) took with it: the core copy at the pinned sha
@@ -144,11 +166,7 @@
   [tiers]
   (or (nil? tiers)
       (and (sequential? tiers)
-           (every? (fn [t]
-                     (or (nil? (:max-leverage t))
-                         (and (integer? (:max-leverage t))
-                              (<= 1 (:max-leverage t) fx/i53-max))))
-                   tiers))))
+           (every? max-leverage-ok? tiers))))
 
 (defn flat-spec-ok?
   "Whether the spec's FLAT fields are shaped like the two places that read
@@ -195,12 +213,18 @@
   (`spec-ok?`, `rates-ok?`), and `torihiki.state`'s no-op nets already
   require this namespace."
   [spec]
-  (let [count-ok? (fn [v lo] (or (nil? v) (int-in? v lo fx/i53-max)))]
-    (and (count-ok? (:tick spec) 1)
-         (count-ok? (:lot spec) 1)
-         (count-ok? (:max-leverage spec) 1)
-         (count-ok? (:open-interest-cap spec) 0)
-         (count-ok? (:asset spec) 0))))
+  ;; ABSENT-or-count per slot — the key being PRESENT with nil is garbage,
+  ;; not absence (the `(or (nil? v) ...)` reading admitted both; see
+  ;; `max-leverage-ok?` for what a present-nil reaches downstream).
+  (and (map? spec)
+       (let [slot-ok? (fn [k lo]
+                        (or (not (contains? spec k))
+                            (int-in? (get spec k) lo fx/i53-max)))]
+         (and (slot-ok? :tick 1)
+              (slot-ok? :lot 1)
+              (slot-ok? :max-leverage 1)
+              (slot-ok? :open-interest-cap 0)
+              (slot-ok? :asset 0)))))
 
 (defn market-exists?
   "Public for the same reason as `int-in?`: the engine's store doors ask it."
@@ -541,10 +565,14 @@
     :set-leverage
     (cond
       ;; `cl/set-leverage` assoc-in's [:leverage account market] directly —
-      ;; a garbage account is a garbage :leverage key.
+      ;; a garbage account is a garbage :leverage key. The leverage itself is
+      ;; a count 1..i53-max: it becomes a VALUE the state root mirrors, and
+      ;; `(integer? 4.5e17)` is false on the JVM and true on nbb — the old
+      ;; `(and (integer? v) (pos? v))` admitted the SAME transaction at one
+      ;; door and refused it at the other (measured 2026-11-01 16:2x).
       (not (account-ok? account)) :bad-account
       (not (market-exists? ex market)) :unknown-market
-      (not (and (integer? (:leverage t)) (pos? (:leverage t)))) :missing-field
+      (not (int-in? (:leverage t) 1 fx/i53-max)) :missing-field
       :else nil)
 
     :cancel-trigger
@@ -1184,7 +1212,13 @@
     (cond
       (not (account-ok? account)) :bad-account
       (not (contains? (:markets ex) market)) :unknown-market
-      (not (and (integer? (:leverage t)) (pos? (:leverage t)))) :missing-field
+      ;; `cl/set-leverage` assoc-in's [:leverage account market] directly —
+      ;; a garbage account is a garbage :leverage key. The leverage itself is
+      ;; a count 1..i53-max: it becomes a VALUE the state root mirrors, and
+      ;; `(integer? 4.5e17)` is false on the JVM and true on nbb — the old
+      ;; `(and (integer? v) (pos? v))` admitted the SAME transaction at one
+      ;; door and refused it at the other (measured 2026-11-01 16:2x).
+      (not (int-in? (:leverage t) 1 fx/i53-max)) :missing-field
       :else nil)
 
     :attest-reserves
