@@ -37,10 +37,18 @@
   Refusals are pinned by VALUE at the engine (nothing lands) and by REASON
   at BOTH `api/store-tx-shape` (the engine door) and `api/validate` (the
   words the door mirrors) — the same judgments, the same order, the same
-  keywords; one shape rule, two doors. The mirror does not SHARPEN: where
-  `validate` admits a value (`integer?` subjects, `integer?` ids), so does
-  the door, and the residual is documented, not pinned. A pin that only
-  asserts \"no throw\" is half a pin — so every no-throw pin here is paired
+  keywords; one shape rule, two doors. The two doors share ONE sharpening:
+  the i53 boundary. An integer that can become part of a state-root key or
+  value is refused outside the domain by BOTH doors (falsify-7/8: one number
+  held in the root on the JVM, another on the JS runtime): the `:subject`
+  that keys `:principals`/`:principal-accounts`/`:rotations`, the `:proposal`
+  id a vote names (a winning one is stored into `:protocol :scheduled
+  :proposal`), and the `[witness evidence-height view]` KEY the slash record
+  is filed under in `:slashed`. Names that can only look up a record that was
+  itself created under an in-domain key — the withdraw `:claim` ids, the
+  cancel `:id`s — stay `integer?`, pinned as admitted where they live
+  (attest-totality, agent/trigger-totality). A pin that only asserts
+  \"no throw\" is half a pin — so every no-throw pin here is paired
   with the value it must leave alone, and a throw FAILS the pin rather than
   passing it. One fixture PER CASE."
   (:require [kotoba.test :refer [deftest is testing]]
@@ -177,6 +185,23 @@
           (is (= #{} (get-in ex' [:protocol :proposals 1 :votes]))
               "no vote the engine cannot shape may join the votes set"))))))
 
+(deftest a-garbage-key-proposal-and-vote-mutates-nothing
+  ;; The proposal id a vote names is a KEY into `:proposals` — and a winning
+  ;; one is stored into `:protocol :scheduled :proposal`. The proposal under
+  ;; the garbage key is seeded here so the vote FINDS it: a name that looks
+  ;; up nothing is inert, and inert is not the bug. Pre-fix the vote conj'd
+  ;; its account into the votes set under the out-of-domain key — the
+  ;; falsify-8 class inside the state root.
+  (let [ex (-> (gov-ex)
+               (assoc-in [:protocol :seq] 1)
+               (assoc-in [:protocol :proposals ood]
+                         {:version 2 :activation 20 :by 4 :votes #{} :expires 15}))
+        ex' (applied ex {:tx :upgrade-vote :account 4 :proposal ood})]
+    (is (not= ::threw ex') "apply-tx must answer, not throw")
+    (when (not= ::threw ex')
+      (is (= #{} (get-in ex' [:protocol :proposals ood :votes]))
+          "a vote naming a garbage key must not join its votes set"))))
+
 ;; ── the identity plane keyed by garbage ────────────────────────────────────
 
 (deftest a-claim-the-engine-cannot-shape-never-keys-claims
@@ -214,6 +239,23 @@
           (is (empty? (:principal-accounts ex'))
               "and to be stored as the :principal-accounts VALUE"))))))
 
+(deftest a-garbage-key-claim-and-confirm-binds-nothing
+  ;; An out-of-domain subject is a garbage KEY in `:principals` and a garbage
+  ;; VALUE in `:principal-accounts` — one number in the root on the JVM,
+  ;; another on the JS runtime (the falsify-8 class). The claim under the
+  ;; garbage key is seeded because reaching it through `:principal-claim` is
+  ;; that door's own refusal — here the question is what CONFIRM does with a
+  ;; subject the door must refuse. Pre-fix it bound both directions.
+  (let [ex (assoc-in (prin-ex) [:principal-claims ood] pid)
+        ex' (applied ex {:tx :principal-confirm :account ctrl
+                         :subject ood :principal pid})]
+    (is (not= ::threw ex') "apply-tx must answer, not throw")
+    (when (not= ::threw ex')
+      (is (empty? (:principals ex'))
+          "the out-of-domain subject must not key :principals")
+      (is (empty? (:principal-accounts ex'))
+          "and must not be stored as the :principal-accounts VALUE"))))
+
 (deftest a-rotation-with-a-garbage-subject-never-keys-rotations
   (doseq [[label subject] [["string subject" "garbage-account"]
                            ["nil subject" nil]
@@ -226,6 +268,19 @@
         (when (not= ::threw ex')
           (is (empty? (:rotations ex'))
               "the garbage subject used to key :rotations"))))))
+
+(deftest a-garbage-key-binding-and-rotate-keys-nothing
+  ;; `check-rotate` reaches only BOUND accounts, so the binding under the
+  ;; garbage key is seeded here — and then a rotate naming it must not key
+  ;; `:rotations` by the out-of-domain subject. Pre-fix `pr/rotate-propose`
+  ;; stored the proposal under that key.
+  (let [ex (assoc-in (prin-ex) [:principals ood] pid)
+        ex' (applied ex {:tx :principal-rotate :account ctrl
+                         :subject ood :pubkey "new-key"})]
+    (is (not= ::threw ex') "apply-tx must answer, not throw")
+    (when (not= ::threw ex')
+      (is (empty? (:rotations ex'))
+          "the out-of-domain subject must not key :rotations"))))
 
 (deftest a-veto-by-a-garbage-account-never-touches-a-real-rotation
   ;; The veto names no subject — the signer is the party refusing — so its
@@ -305,6 +360,28 @@
           (is (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
               "the bond the slash would take is untouched"))))))
 
+(deftest vouching-evidence-at-a-garbage-key-slashes-nobody-and-mints-nothing
+  ;; `[witness evidence-height view]` is the KEY the slash record is filed
+  ;; under in `:slashed` — an out-of-domain height or view is a garbage key
+  ;; in the root (the falsify-8 class). The verifier here vouches for any
+  ;; proof, so pre-fix the slash LANDed under the garbage key and minted its
+  ;; reward to the submitter; only the door can refuse it.
+  (doseq [[label tx] [["out-of-domain evidence-height"
+                       {:evidence-height ood :view 1}]
+                      ["out-of-domain view"
+                       {:evidence-height 10 :view ood}]]]
+    (testing label
+      (let [ex (evidence-ex)
+            ex' (applied ex (merge (evidence-tx 500) tx))]
+        (is (not= ::threw ex') "apply-tx must answer, not throw")
+        (when (not= ::threw ex')
+          (is (empty? (:slashed ex'))
+              "the slash must not be filed under a garbage key")
+          (is (nil? (get-in ex' [:clearing :accounts 500]))
+              "and the reward must not be minted to the submitter")
+          (is (= {4 {4 1000}} (get-in ex' [:clearing :bonds]))
+              "the bond the slash would take is untouched"))))))
+
 ;; ── a liquidate that names no market ───────────────────────────────────────
 
 (deftest a-liquidate-naming-no-market-never-touches-the-exchange
@@ -324,9 +401,11 @@
 (deftest the-two-doors-answer-with-the-same-word
   ;; The reason keywords the engine door answers with are exactly the words
   ;; `validate` answers with, in the same order — one shape rule, two doors.
-  ;; `validate` is unchanged by this package; if it moves, the mirror moves
-  ;; with it. Where `validate` ADMITS a value (`integer?` subjects and ids,
-  ;; `string?` witnesses), so does the mirror — the door does not sharpen.
+  ;; Both doors share ONE sharpening: an integer that becomes a state-root
+  ;; key (`:subject` as an account, `:proposal`, `:evidence-height`, `:view`)
+  ;; is refused outside the i53 domain, and the i53 bounds themselves are
+  ;; legal names. Where `validate` admits anything else (in-domain subjects
+  ;; and ids, `string?` witnesses), so does the mirror.
   (let [ex (gov-ex)]
     (doseq [[label t expect]
             [["upgrade-propose: string version"
@@ -377,8 +456,12 @@
               :bad-account]
              ["upgrade-vote: valid"
               {:tx :upgrade-vote :account 4 :proposal 1} nil]
-             ["upgrade-vote: out-of-domain id is still an integer"
-              {:tx :upgrade-vote :account 4 :proposal ood} nil]
+             ["upgrade-vote: out-of-domain proposal is refused at the i53 boundary"
+              {:tx :upgrade-vote :account 4 :proposal ood} :missing-field]
+             ["upgrade-vote: the floor is a legal proposal id"
+              {:tx :upgrade-vote :account 4 :proposal fx/i53-min} nil]
+             ["upgrade-vote: the ceiling is a legal proposal id"
+              {:tx :upgrade-vote :account 4 :proposal fx/i53-max} nil]
              ["principal-claim: string account"
               {:tx :principal-claim :account "garbage-account" :principal pid}
               :bad-account]
@@ -408,8 +491,16 @@
              ["principal-confirm: valid"
               {:tx :principal-confirm :account ctrl :subject 7 :principal pid}
               nil]
-             ["principal-confirm: out-of-domain subject is still an integer"
+             ["principal-confirm: out-of-domain subject is refused at the i53 boundary"
               {:tx :principal-confirm :account ctrl :subject ood :principal pid}
+              :bad-account]
+             ["principal-confirm: the floor is a legal subject"
+              {:tx :principal-confirm :account ctrl :subject fx/i53-min
+               :principal pid}
+              nil]
+             ["principal-confirm: the ceiling is a legal subject"
+              {:tx :principal-confirm :account ctrl :subject fx/i53-max
+               :principal pid}
               nil]
              ["principal-rotate: account first"
               {:tx :principal-rotate :account "garbage-account" :subject 7
@@ -432,6 +523,17 @@
               :missing-field]
              ["principal-rotate: valid"
               {:tx :principal-rotate :account ctrl :subject 7 :pubkey "new-key"}
+              nil]
+             ["principal-rotate: out-of-domain subject is refused at the i53 boundary"
+              {:tx :principal-rotate :account ctrl :subject ood :pubkey "new-key"}
+              :bad-account]
+             ["principal-rotate: the floor is a legal subject"
+              {:tx :principal-rotate :account ctrl :subject fx/i53-min
+               :pubkey "new-key"}
+              nil]
+             ["principal-rotate: the ceiling is a legal subject"
+              {:tx :principal-rotate :account ctrl :subject fx/i53-max
+               :pubkey "new-key"}
               nil]
              ["principal-rotate-cancel: string account"
               {:tx :principal-rotate-cancel :account "garbage-account"}
@@ -519,9 +621,24 @@
                :evidence-height 10 :view 1 :hash-a "ha" :sig-a "sa"
                :hash-b "hb" :sig-b "sb"}
               nil]
-             ["equivocation-evidence: out-of-domain height is still an integer"
+             ["equivocation-evidence: out-of-domain evidence-height is refused at the i53 boundary"
               {:tx :equivocation-evidence :account 500 :witness "alpha"
                :evidence-height ood :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: out-of-domain view is refused at the i53 boundary"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view ood :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              :missing-field]
+             ["equivocation-evidence: the floor is a legal evidence-height"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height fx/i53-min :view 1 :hash-a "ha" :sig-a "sa"
+               :hash-b "hb" :sig-b "sb"}
+              nil]
+             ["equivocation-evidence: the ceiling is a legal view"
+              {:tx :equivocation-evidence :account 500 :witness "alpha"
+               :evidence-height 10 :view fx/i53-max :hash-a "ha" :sig-a "sa"
                :hash-b "hb" :sig-b "sb"}
               nil]
              ["liquidate: unknown market"
