@@ -54,6 +54,7 @@
             [torihiki.funding-test]
             [torihiki.fuzz-seeded-test]
             [torihiki.governance-test]
+            [torihiki.integral-double-test]
             [torihiki.leverage-doors-test]
             [torihiki.light-test]
             [torihiki.liquidation-makers-test]
@@ -159,7 +160,14 @@
 ;; i53-boundary package (PR #86) left, and 35 is that suite plus the leverage
 ;; door pins. The constant stays hard so a classpath that drops more
 ;; namespaces still exits 2.
-(def ^:private expected-namespaces 35)
+;; The floor is 36, not 35: `torihiki.integral-double-test` joined the suite
+;; with the integral-number canon (`torihiki.api/canon-tx` run in front of
+;; `validate` and `torihiki.state/apply-tx`, `torihiki.log/enc-val`'s wire
+;; form and `signing-payload`) — 35 was the suite the leverage doors (PR
+;; #87) left, and 36 is that suite plus the 5.0-is-5 admission/refusal/VALUE
+;; pins. The constant stays hard so a classpath that drops more namespaces
+;; still exits 2.
+(def ^:private expected-namespaces 36)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -198,6 +206,7 @@
               'torihiki.funding-test
               'torihiki.fuzz-seeded-test
               'torihiki.governance-test
+              'torihiki.integral-double-test
               'torihiki.leverage-doors-test
               'torihiki.light-test
               'torihiki.liquidation-makers-test
