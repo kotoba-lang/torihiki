@@ -1,0 +1,279 @@
+(ns torihiki.integral-double-test
+  "An in-bounds integral number IS its integer, at every door and on both
+  runtimes — `{:qty 5.0}` and `{:qty 5}` are the same transaction.
+
+  Everything here corresponds to a measured failure (the 2026-11-01 20:2x
+  reconnaissance at f1216e2, direct probes on both runtimes):
+
+  - `integer?` is a TYPE test on the JVM (a Double is never an integer,
+    however whole) and a VALUE test on JS (every whole number is), so the
+    same signed transaction was refused `:bad-quantity`/`:bad-amount`/
+    `:missing-field` at one runtime's door and ADMITTED at the other's —
+    a deposit credited, rungs placed, a claim processed. One transaction,
+    two successor states: the falsify-6/7 class at the door itself.
+  - `(contains? #{0 1} 0.0)` disagrees the same way for `:side`.
+  - The JVM's `torihiki.log/enc-val` had no wire form for a Double and
+    THREW (\"no wire form\") while nbb encoded it bare — and the signing
+    payload printed \"5.0\" against nbb's \"5\".
+  - Out-of-bounds values (4.5e17, an integral double past 2^53) and
+    fractional values (2.5) are refused on BOTH runtimes already — those
+    pins are the over-tightening guard: canonicalisation must admit 5.0
+    without admitting anything the i53 doors refuse.
+
+  Refusals are pinned by REASON at BOTH doors (the shared shape function
+  and `torihiki.api/validate` — one shape rule, two doors) and by VALUE at
+  the engine: a 5.0 transaction must leave the SAME state behind as its
+  integer twin (state-root equality plus a spot value), and a refused one
+  must land nothing. A pin that only asserts \"no throw\" is half a pin —
+  so every no-throw pin here is paired with the value it must produce or
+  leave alone, and a throw FAILS the pin rather than passing it. One
+  fixture PER CASE: the book is a mutable slab."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
+            [torihiki.book :as bk]
+            [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.log :as log]
+            [torihiki.state :as st]))
+
+(def mkt (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1}))
+
+;; The integral double past 2^53 the reconnaissance measured the doors
+;; disagreeing on: `(integer? 4.5e17)` is FALSE on the JVM (a Double) and
+;; TRUE on nbb (an integral JS number).
+(def ^:private ood-double 4.5e17)
+
+;; The fractional double both runtimes refuse — the over-tightening guard.
+(def ^:private frac 2.5)
+
+(defn- funded []
+  (-> (st/new-exchange {:market mkt :book-opts {:n-levels 1024 :cap 1024 :ev-cap 1024}
+                       :bridge-authority 1})
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :deposit :account 2 :amount 100000000})))
+
+(defn- with-order
+  "A funded exchange with account 1's bid of 10 resting at level 10."
+  []
+  (st/apply-tx (funded) {:tx :order :account 1 :market 1 :side bk/bid :level 10 :qty 10}))
+
+(defn- oid-at [ex side level]
+  (:oid (first (bk/level-orders (get-in ex [:books 1]) side level))))
+
+(defn- applied
+  "Apply `tx`, catching a throw so one bad pin cannot hide the rest of the
+  file. Returns the exchange, or `::threw` — which every pin then fails on,
+  because nothing here may pass by having thrown."
+  [ex tx]
+  (try (st/apply-tx ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(defn- shaped
+  "One door's answer, catching a throw for the same reason `applied` does."
+  [f ex tx]
+  (try (f ex tx)
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+(defn- wired
+  "The printed wire form of `tx`, or `::threw` — the JVM's `enc-val` used to
+  throw on a Double where nbb encoded it bare."
+  [tx]
+  (try (pr-str (log/tx->wire tx))
+       (catch #?(:clj Exception :cljs js/Error) _ ::threw)))
+
+;; ── the canonicaliser itself ───────────────────────────────────────────────
+
+(deftest canon-tx-makes-5.0-five
+  (testing "an in-bounds integral number becomes its long form"
+    (is (= {:tx :deposit :account 1 :amount 5}
+           (api/canon-tx {:tx :deposit :account 1 :amount 5.0}))))
+  (testing "the walk is deep — maps, vectors and sets"
+    ;; (set [5.0 5]) not the literal #{5.0 5}: the SCI reader rejects the
+    ;; literal as a duplicate key (5.0 IS 5 there) — found by BROKEN #1.
+    (is (= {:o {:v [5 #{5}]}}
+           (api/canon-tx {:o {:v [5.0 (set [5.0 5])]}}))))
+  (testing "integers, fractional doubles and out-of-domain doubles are untouched"
+    (is (= {:qty 5} (api/canon-tx {:qty 5})))
+    (is (= {:qty frac} (api/canon-tx {:qty frac})))
+    (is (= {:qty ood-double} (api/canon-tx {:qty ood-double}))))
+  (testing "idempotent"
+    (is (= (api/canon-tx {:a 5.0}) (api/canon-tx (api/canon-tx {:a 5.0}))))))
+
+;; ── admission: 5.0-shaped values are answered nil at BOTH doors ────────────
+
+(deftest in-bounds-integral-doubles-are-admitted-at-both-doors
+  (let [ex (funded)]
+    (doseq [[label t door]
+            [["order qty" {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5.0}
+              api/order-tx-shape]
+             ["order level" {:tx :order :account 1 :market 1 :side 0 :level 5.0 :qty 5}
+              api/order-tx-shape]
+             ["order side" {:tx :order :account 1 :market 1 :side 0.0 :level 10 :qty 5}
+              api/order-tx-shape]
+             ["order account" {:tx :order :account 1.0 :market 1 :side 0 :level 10 :qty 5}
+              api/order-tx-shape]
+             ["order flags" {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5 :flags 5.0}
+              api/order-tx-shape]
+             ["order builder fee" {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5
+                                   :builder 2 :builder-fee 5.0}
+              api/order-tx-shape]
+             ["amend oid" {:tx :amend :account 1 :market 1 :oid 5.0 :qty 5.0 :level 10.0}
+              api/amend-tx-shape]
+             ["cancel oid" {:tx :cancel :account 1 :market 1 :oid 5.0}
+              api/cancel-tx-shape]
+             ["trigger price and embedded order"
+              {:tx :trigger :account 1 :market 1 :trigger-price 5.0 :direction :above
+               :order {:side 0.0 :level 10.0 :qty 5.0}}
+              api/trigger-tx-shape]
+             ["scale side/qty/level/count*/step"
+              {:tx :scale :account 1 :market 1 :side 0.0 :qty 2.0 :level 10.0
+               :count* 3.0 :step 5.0}
+              api/scale-tx-shape]
+             ["twap side/qty/slices/every"
+              {:tx :twap :account 1 :market 1 :side 0.0 :qty 10.0 :slices 2.0 :every 5.0}
+              api/twap-tx-shape]
+             ["deposit amount" {:tx :deposit :account 1 :amount 5.0}
+              api/store-tx-shape]
+             ["withdraw amount" {:tx :withdraw :account 1 :amount 5.0}
+              api/store-tx-shape]
+             ["set-leverage leverage" {:tx :set-leverage :account 1 :market 1 :leverage 5.0}
+              api/store-tx-shape]
+             ["withdraw-cancel claim" {:tx :withdraw-cancel :account 1 :claim 5.0}
+              api/store-tx-shape]
+             ["withdraw-settle claim" {:tx :withdraw-settle :account 1 :claim 5.0}
+              api/store-tx-shape]
+             ["withdraw-attest claim"
+              {:tx :withdraw-attest :account 1 :claim 5.0 :txid "t" :dest "d"}
+              api/store-tx-shape]
+             ["cancel-twap id" {:tx :cancel-twap :account 1 :market 1 :id 5.0}
+              api/market-tx-shape]]]
+      (is (nil? (shaped door ex t)) (str label " — the shape door"))
+      (is (nil? (shaped api/validate ex t)) (str label " — validate")))))
+
+;; ── refusal: 4.5e17 and 2.5 stay refused, with the same reason at both doors
+
+(deftest out-of-domain-and-fractional-values-are-refused-at-both-doors
+  (let [ex (funded)]
+    (doseq [[label slot v door reason]
+            [["order qty out-of-domain" :qty ood-double api/order-tx-shape :bad-quantity]
+             ["order qty fractional" :qty frac api/order-tx-shape :bad-quantity]
+             ["order level out-of-domain" :level ood-double api/order-tx-shape :bad-price-level]
+             ["order level fractional" :level frac api/order-tx-shape :bad-price-level]
+             ["order side over the set" :side 5.0 api/order-tx-shape :bad-side]
+             ["order side fractional" :side frac api/order-tx-shape :bad-side]
+             ["order account out-of-domain" :account ood-double api/order-tx-shape :bad-account]
+             ["order account fractional" :account frac api/order-tx-shape :bad-account]
+             ["amend oid fractional" :oid frac api/amend-tx-shape :missing-field]
+             ["cancel oid fractional" :oid frac api/cancel-tx-shape :missing-field]
+             ["cancel oid out-of-domain" :oid ood-double api/cancel-tx-shape :missing-field]
+             ["trigger price fractional" :trigger-price frac api/trigger-tx-shape :bad-trigger-price]
+             ["scale count* fractional" :count* frac api/scale-tx-shape :missing-field]
+             ["scale count* out-of-domain" :count* ood-double api/scale-tx-shape :missing-field]
+             ["scale step fractional" :step frac api/scale-tx-shape :missing-field]
+             ["twap slices fractional" :slices frac api/twap-tx-shape :missing-field]
+             ["twap slices out-of-domain" :slices ood-double api/twap-tx-shape :missing-field]
+             ;; :withdraw amount rows, not :deposit — the :deposit engine door
+             ;; judges account/credit only (the 22:2x finding 2 residual; the
+             ;; suite must not pin it as fixed). The :withdraw door DOES judge
+             ;; :amount, at both doors.
+             ["withdraw amount out-of-domain" :amount ood-double api/store-tx-shape :bad-amount]
+             ["withdraw amount fractional" :amount frac api/store-tx-shape :bad-amount]
+             ["set-leverage out-of-domain" :leverage ood-double api/store-tx-shape :missing-field]
+             ["set-leverage fractional" :leverage frac api/store-tx-shape :missing-field]
+             ["withdraw-cancel claim fractional" :claim frac api/store-tx-shape :missing-field]
+             ["cancel-twap id fractional" :id frac api/market-tx-shape :missing-field]]]
+      (let [tx (-> (case (name slot)
+                     "trigger-price" {:tx :trigger :account 1 :market 1 :direction :above
+                                      :order {:side 0 :level 10 :qty 5}}
+                     "count*" {:tx :scale :account 1 :market 1 :side 0 :qty 2 :level 10 :step 5}
+                     "step" {:tx :scale :account 1 :market 1 :side 0 :qty 2 :level 10 :count* 3}
+                     "slices" {:tx :twap :account 1 :market 1 :side 0 :qty 10 :every 5}
+                     "leverage" {:tx :set-leverage :account 1 :market 1}
+                     "claim" {:tx :withdraw-cancel :account 1}
+                     "id" {:tx :cancel-twap :account 1 :market 1}
+                     "amount" {:tx :withdraw :account 1}
+                     ;; "oid" is named by amend AND cancel rows — with the
+                     ;; :order default the row's shape door and `validate`
+                     ;; judged DIFFERENT transactions (BROKEN #3 finding 1).
+                     ;; The door the row carries says which base it means.
+                     "oid" (if (= door api/amend-tx-shape)
+                             {:tx :amend :account 1 :market 1 :qty 5 :level 10}
+                             {:tx :cancel :account 1 :market 1})
+                     {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5})
+                   (assoc slot v))]
+        (is (= reason (shaped door ex tx)) (str label " — the shape door"))
+        (is (= reason (shaped api/validate ex tx)) (str label " — validate"))))))
+
+;; ── VALUE: a 5.0 transaction applies IDENTICALLY to its integer twin ───────
+
+(deftest integral-doubles-apply-identically-to-their-integers
+  (testing "a deposit of 5.0 credits exactly 5"
+    (let [e5 (applied (funded) {:tx :deposit :account 1 :amount 5})
+          e50 (applied (funded) {:tx :deposit :account 1 :amount 5.0})]
+      (is (not= ::threw e50) "must not throw")
+      (is (= 100000005 (get-in e50 [:clearing :accounts 1 :collateral])))
+      (is (= (st/state-root e5) (st/state-root e50)))))
+  (testing "an order with 5.0-shaped fields rests where the integer order rests"
+    (let [e5 (applied (funded) {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5})
+          e50 (applied (funded) {:tx :order :account 1.0 :market 1 :side 0.0 :level 10.0 :qty 5.0})]
+      (is (not= ::threw e50) "must not throw")
+      (is (= 5 (bk/level-qty (get-in e50 [:books 1]) bk/bid 10)))
+      (is (= (st/state-root e5) (st/state-root e50)))))
+  (testing "a cancel naming its oid as a double cancels the order"
+    (let [ex (with-order)
+          oid (oid-at ex bk/bid 10)
+          ex50 (applied ex {:tx :cancel :account 1 :market 1 :oid (+ oid 0.0)})]
+      (is (not= ::threw ex50) "must not throw")
+      (is (= 0 (bk/resting-count (get-in ex50 [:books 1]))))))
+  (testing "a scale with :step 5.0 runs its rung walk into the book — no slab throw"
+    (let [e5 (applied (funded) {:tx :scale :account 1 :market 1 :side 0 :qty 2 :level 10
+                                :count* 3 :step 5})
+          e50 (applied (funded) {:tx :scale :account 1 :market 1 :side 0.0 :qty 2.0
+                                 :level 10.0 :count* 3.0 :step 5.0})]
+      (is (not= ::threw e50) "must not throw")
+      (is (= (bk/resting-count (get-in e5 [:books 1]))
+             (bk/resting-count (get-in e50 [:books 1]))))
+      (is (= (st/state-root e5) (st/state-root e50)))))
+  (testing "a twap schedule with 5.0-shaped fields stores the same record"
+    (let [e5 (applied (funded) {:tx :twap :account 1 :market 1 :side 0 :qty 10 :slices 2 :every 5})
+          e50 (applied (funded) {:tx :twap :account 1 :market 1 :side 0.0 :qty 10.0
+                                 :slices 2.0 :every 5.0})]
+      (is (not= ::threw e50) "must not throw")
+      (is (= (st/state-root e5) (st/state-root e50)))))
+  (testing ":set-leverage 5.0 lands the same leverage as 5"
+    (let [e5 (applied (funded) {:tx :set-leverage :account 1 :market 1 :leverage 5})
+          e50 (applied (funded) {:tx :set-leverage :account 1 :market 1 :leverage 5.0})]
+      (is (not= ::threw e50) "must not throw")
+      (is (= (st/state-root e5) (st/state-root e50))))))
+
+;; ── VALUE: refused garbage lands nothing at the engine ─────────────────────
+
+(deftest refused-garbage-lands-nothing
+  ;; :withdraw amount rows, not :deposit — the :deposit engine door judges
+  ;; account/credit only (the 22:2x finding 2 residual; this suite must not
+  ;; pin it as fixed). The :withdraw door DOES judge :amount, at both doors.
+  (doseq [[label tx] [["out-of-domain amount" {:tx :withdraw :account 1 :amount ood-double}]
+                      ["fractional amount" {:tx :withdraw :account 1 :amount frac}]
+                      ["out-of-domain qty" {:tx :order :account 1 :market 1 :side 0
+                                            :level 10 :qty ood-double}]
+                      ["fractional level" {:tx :order :account 1 :market 1 :side 0
+                                           :level frac :qty 5}]]]
+    (let [ex' (applied (funded) tx)]
+      (is (not= ::threw ex') (str label " must not throw"))
+      ;; account 1's collateral is ONE deposit of 100000000 (account 2 gets
+      ;; the other) — a refused transaction leaves it exactly there.
+      (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+          (str label " — nothing lands"))
+      (is (= 0 (bk/resting-count (get-in ex' [:books 1])))
+          (str label " — nothing rests")))))
+
+;; ── wire and signing bytes do not know the float tag ───────────────────────
+
+(deftest wire-and-signing-bytes-are-canonical
+  (let [t5 {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5}
+        t50 {:tx :order :account 1.0 :market 1.0 :side 0.0 :level 10.0 :qty 5.0}]
+    (is (= (wired t5) (wired t50)) "tx->wire of a 5.0 tx is byte-identical to the 5 tx")
+    (is (not= ::threw (wired t50)) "and enc-val has a wire form for it")
+    (is (= (log/signing-payload 1 2 "r" nil [t5])
+           (log/signing-payload 1 2 "r" nil [t50]))
+        "the signing payload prints the same bytes")))

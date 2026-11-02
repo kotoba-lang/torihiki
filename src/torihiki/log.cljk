@@ -38,6 +38,8 @@
   this namespace — whose whole purpose is that anyone can re-check the log —
   unable to run in the browser that wants to check it."
   (:require [chain.core :as chain]
+            [torihiki.api :as api]
+            [torihiki.fixed :as fx]
             [torihiki.state :as st]))
 
 ;; ── wire encoding ───────────────────────────────────────────────────────────
@@ -84,6 +86,15 @@
   make the CID depend on hash iteration order."
   [v]
   (cond
+    ;; An in-bounds integral double IS its integer — the canon
+    ;; (`torihiki.api/canon-tx`). `(long v)` is exact for a whole value
+    ;; inside the domain, so `{:qty 5.0}` encodes to the same bare bytes as
+    ;; `{:qty 5}` on both runtimes (it used to throw "no wire form" on the
+    ;; JVM and encode bare on nbb — one transaction, two logs). Out-of-domain
+    ;; numbers keep their old answer below: an integer is still bare and
+    ;; anything else is refused loudly — the wire records what was submitted,
+    ;; garbages included.
+    (and (api/int-like? v) (fx/in-domain? v)) (long v)
     (integer? v) v
     (string? v) v
     ;; The colon is `str`'s, not the keyword's: `:a/y` stringifies to
@@ -197,7 +208,8 @@
        "state-root=" state-root "\n"
        "prev=" (or prev-cid "genesis") "\n"
        "ntx=" (count txs) "\n"
-       (apply str (for [t txs]
+       (apply str (for [t txs
+                        :let [t (api/canon-tx t)]]
                     (str (name (:tx t)) ":"
                          (:account t) ":" (:market t) ":" (:side t) ":"
                          (:level t) ":" (:qty t) ":" (:flags t) ":"

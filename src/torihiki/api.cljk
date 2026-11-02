@@ -61,11 +61,65 @@
     :bad-cid
     :malformed-principal})
 
+;; ── the integral-number canon ───────────────────────────────────────────────
+;;
+;; `integer?` is a TYPE test on the JVM (a Double is never an integer, however
+;; whole) and a VALUE test on JS (every whole number is), so the same signed
+;; transaction was refused `:bad-quantity`/`:bad-amount`/`:missing-field` at
+;; one runtime's door and ADMITTED at the other's — a deposit credited, rungs
+;; placed, a claim processed. One transaction, two successor states: the
+;; falsify-6/7 class at the door itself (measured 2026-11-01 20:2x, direct
+;; probes on both runtimes). The fix is one canon: an in-bounds integral
+;; number IS its integer, at every door and on both runtimes.
+
+(defn int-like?
+  "Whether `v` is an INTEGER however it is typed: a true integer, or a whole
+  number held in a double (5.0 is 5; 2.5 is nothing). Provenance: the
+  `kotoba.spec.int-like` predicate, re-implemented here because that library
+  is not in this repository's dependency closure.
+
+  Whole-ness is `(== v (- v (rem v 1)))` — arithmetic, not `Math/floor`, so
+  the same words compile on both runtimes. NaN and infinities are not
+  whole (`rem` lands on NaN, `==` is false), and a huge whole double
+  (1e300) is int-like but out of every domain below, where it stays
+  untouched and is refused at the bounded doors."
+  [v]
+  (or (integer? v)
+      (and (number? v) (== v (- v (rem v 1))))))
+
+(defn- canon-val
+  "One value's canonical form: an in-bounds integral number becomes its long
+  (`(long v)` — exact, because the value is whole and inside i53), and the
+  walk is deep through maps, vectors and sets so a nested 5.0 cannot survive
+  anywhere a transaction can carry it. Everything else — integers already,
+  fractional doubles, out-of-domain numbers, strings, keywords — is
+  returned as it arrived. Idempotent by construction."
+  [v]
+  (cond
+    (and (int-like? v) (fx/in-domain? v)) (long v)
+    (map? v) (into {} (map (fn [[k vv]] [(canon-val k) (canon-val vv)])) v)
+    (vector? v) (mapv canon-val v)
+    (set? v) (into #{} (map canon-val) v)
+    :else v))
+
+(defn canon-tx
+  "The canonical form of a transaction: `{:qty 5.0}` and `{:qty 5}` are the
+  same transaction, and this is what says so. Public because every entry
+  that judges or applies a transaction runs it first (`validate`,
+  `torihiki.state/apply-tx`) and the wire form (`torihiki.log`) prints
+  through it — one canon, applied once, in front of everything.
+
+  A deep walk (`canon-val`): maps, vectors and sets, keys and values."
+  [tx]
+  (canon-val tx))
+
 (defn int-in?
   "A slab-storable integer in `[lo, hi]`. Public because the engine's store
   doors (`torihiki.state/apply-tx`) judge the same fields with the same
-  words — one shape rule, two doors."
-  [v lo hi] (and (integer? v) (<= lo v) (<= v hi)))
+  words — one shape rule, two doors. Judged by `int-like?`, so a whole
+  double in the range answers the same as its integer twin (the door
+  accepts it; the canon in front of the door stores it as the integer)."
+  [v lo hi] (and (int-like? v) (<= lo v) (<= v hi)))
 
 (defn account-ok?
   "An account id must be a slab-storable i53 integer. The book keeps owners in
@@ -75,7 +129,7 @@
   validator at the same place (the `validate` contract at the top of this
   namespace)."
   [id]
-  (and (integer? id) (fx/in-domain? id)))
+  (and (int-like? id) (fx/in-domain? id)))
 
 (defn- spec-ok?
   "Every INTEGER a market spec carries must be slab-storable. A spec value
@@ -85,7 +139,7 @@
   used; this only caps what would be stored in an i53 field."
   [v]
   (cond
-    (number? v) (or (not (integer? v)) (fx/in-domain? v))
+    (number? v) (or (not (int-like? v)) (fx/in-domain? v))
     (map? v) (every? spec-ok? (vals v))
     (or (vector? v) (set? v)) (every? spec-ok? v)
     :else true))
@@ -121,9 +175,9 @@
     (map? v) (every? (fn [[k val]]
                        (cond
                          (contains? fee-rate-keys k)
-                         (and (integer? val) (<= (- fx/rate-scale) val fx/rate-scale))
+                         (and (int-like? val) (<= (- fx/rate-scale) val fx/rate-scale))
                          (contains? margin-rate-keys k)
-                         (and (integer? val) (<= 0 val fx/rate-scale))
+                         (and (int-like? val) (<= 0 val fx/rate-scale))
                          :else (rates-ok? val)))
                      v)
     (or (vector? v) (set? v)) (every? rates-ok? v)
@@ -300,7 +354,7 @@
   (cond
     (not (market-exists? ex market)) :unknown-market
     (not (account-ok? account)) :bad-account
-    (not (nat-int? oid)) :missing-field
+    (not (int-in? oid 0 fx/i53-max)) :missing-field
     :else (validate-order-shape ex market (assoc t :side 0 :flags 0))))
 
 (defn cancel-tx-shape
@@ -316,7 +370,7 @@
   (cond
     (not (market-exists? ex market)) :unknown-market
     (not (account-ok? account)) :bad-account
-    (not (nat-int? oid)) :missing-field
+    (not (int-in? oid 0 fx/i53-max)) :missing-field
     :else nil))
 
 (defn trigger-tx-shape
@@ -358,13 +412,13 @@
   (cond
     (not (account-ok? account)) :bad-account
     (not (market-exists? ex market)) :unknown-market
-    (not (contains? #{0 1} (:side t))) :bad-side
+    (not (int-in? (:side t) 0 1)) :bad-side
     (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
     ;; :level is folded into rung prices — `(+ level (* dir i step))` — so
     ;; it is capped like the order's level, not merely signed.
     (not (int-in? (:level t) 0 fx/i53-max)) :bad-price-level
     ;; A ladder of one is an order, and this is not the way to send one.
-    (not (and (integer? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
+    (not (and (int-like? (:count* t)) (> (:count* t) 1) (<= (:count* t) 50)))
     :missing-field
     ;; A step of zero stacks every rung on one level, which is an order for
     ;; count x qty wearing a ladder's clothes.
@@ -419,12 +473,12 @@
   (cond
     (not (account-ok? account)) :bad-account
     (not (market-exists? ex market)) :unknown-market
-    (not (contains? #{0 1} (:side t))) :bad-side
+    (not (int-in? (:side t) 0 1)) :bad-side
     (not (int-in? (:qty t) 1 fx/i53-max)) :bad-quantity
     ;; A schedule of one slice is an order, and a schedule of none is
     ;; nothing. Both are better refused than quietly turned into something
     ;; the trader did not ask for.
-    (not (and (integer? (:slices t)) (> (:slices t) 1))) :missing-field
+    (not (int-in? (:slices t) 2 fx/i53-max)) :missing-field
     (not (int-in? (:every t) 1 fx/i53-max)) :missing-field
     ;; Every slice must be at least one lot, or the tail of the schedule
     ;; fires empty orders forever.
@@ -583,7 +637,7 @@
       ;; `update-in` CREATES the :triggers key, so a garbage id used to write
       ;; `:triggers {market []}` into the state root for a transaction
       ;; `validate` refuses. Integer, not natural: a name is a name.
-      (not (integer? (:id t))) :missing-field
+      (not (int-like? (:id t))) :missing-field
       :else nil)
 
     :funding-settle
@@ -643,7 +697,7 @@
     :withdraw-attest
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:claim t))) :missing-field
+      (not (int-like? (:claim t))) :missing-field
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       (not (and (string? (:dest t)) (seq (:dest t)))) :missing-field
       ;; optional — "when the event's amount is reported" — but a SAID amount
@@ -655,7 +709,7 @@
     :withdraw-invalidate-attest
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:claim t))) :missing-field
+      (not (int-like? (:claim t))) :missing-field
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       :else nil)
 
@@ -664,7 +718,7 @@
       (not (account-ok? account)) :bad-account
       ;; who may settle and who may cancel is decided in `torihiki.state`,
       ;; where the claim itself is in hand — this judges shape only
-      (not (integer? (:claim t))) :missing-field
+      (not (int-like? (:claim t))) :missing-field
       :else nil)
 
     :attest-reserves
@@ -808,7 +862,7 @@
     :cancel-twap
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? id)) :missing-field
+      (not (int-like? id)) :missing-field
       :else nil)
 
     :amend-market
@@ -932,16 +986,9 @@
                 account market (:side cur) level qty 0))
           :insufficient-margin)))))
 
-(defn validate
-  "nil when `tx` may be applied, otherwise a keyword from `reasons`.
-
-  Checks SHAPE and RANGE, and — from protocol version 2 — whether a perp
-  order or amend is one the account can back (`:insufficient-margin`,
-  `torihiki.order-margin`). That one affordability check is here, and not
-  only in the engine, so the refusal has a stated reason; the engine checks
-  the same function again for orders that never pass through here
-  (triggers, TWAP slices). A withdrawal that exceeds free collateral is
-  still a no-op in the clearinghouse."
+(defn- validate*
+  "The judgment behind `validate`, on a transaction `canon-tx` has already
+  canonicalised — the canon runs once, at the door."
   [ex {:keys [tx account market] :as t}]
   (case tx
     (:order :cancel :cancel-all :amend :trigger :cancel-trigger :oracle
@@ -957,7 +1004,7 @@
           (when (some? (:builder t))
             (cond
               (not (account-ok? (:builder t))) :bad-account
-              (not (and (integer? (:builder-fee t)) (pos? (:builder-fee t))))
+              (not (and (int-like? (:builder-fee t)) (pos? (:builder-fee t))))
               :missing-field
               (> (:builder-fee t) max-builder-fee-rate) :builder-fee-too-high))
           (validate-order-shape ex market t)
@@ -995,12 +1042,15 @@
               :insufficient-margin)))
 
       (= tx :cancel)
-      ;; `nat-int?`, not `pos?`. An order id is `slot * gen-mod + generation`
-      ;; (`bk/oid-of`), so the first order to occupy slot 0 has id 0 — a live,
-      ;; cancellable order that this refused as a missing field. Observed on
-      ;; the deployed chain: `/orders` returned `{"oid":0,...}` for a resting
-      ;; order that nobody, including its owner, could cancel.
-      (if-not (nat-int? (:oid t)) :missing-field nil)
+      ;; A BOUNDED natural integer, not `pos?`. An order id is
+      ;; `slot * gen-mod + generation` (`bk/oid-of`), so the first order to
+      ;; occupy slot 0 has id 0 — a live, cancellable order that a `pos?`
+      ;; refused as a missing field. Observed on the deployed chain: `/orders`
+      ;; returned `{"oid":0,...}` for a resting order that nobody, including
+      ;; its owner, could cancel. Bounded because `nat-int?` is a TYPE test on
+      ;; the JVM and a VALUE test on JS: an integral double past 2^53 (4.5e17)
+      ;; names nothing and was admitted at one door and refused at the other.
+      (if-not (int-in? (:oid t) 0 fx/i53-max) :missing-field nil)
 
       (= tx :cancel-all)
       ;; Nothing but the market and the signer, both already checked. There is
@@ -1011,7 +1061,7 @@
       (= tx :amend)
       (cond
         (not (account-ok? account)) :bad-account
-        (not (nat-int? (:oid t))) :missing-field
+        (not (int-in? (:oid t) 0 fx/i53-max)) :missing-field
         ;; The new resting shape has to be a legal order in its own right —
         ;; the same check `:order` gets, because that is what an amend
         ;; becomes whenever it cannot keep its place in the queue.
@@ -1020,7 +1070,7 @@
                   (spot-amend-funds ex t)))
 
       (= tx :cancel-trigger)
-      (if-not (integer? (:id t)) :missing-field nil)
+      (if-not (int-like? (:id t)) :missing-field nil)
 
       (= tx :trigger)
       (cond
@@ -1323,7 +1373,7 @@
     :withdraw-attest
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:claim t))) :missing-field
+      (not (int-like? (:claim t))) :missing-field
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       (not (and (string? (:dest t)) (seq (:dest t)))) :missing-field
       (and (some? (:amount t)) (not (int-in? (:amount t) 1 fx/i53-max))) :bad-amount
@@ -1332,14 +1382,14 @@
     :withdraw-invalidate-attest
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:claim t))) :missing-field
+      (not (int-like? (:claim t))) :missing-field
       (not (and (string? (:txid t)) (seq (:txid t)))) :missing-field
       :else nil)
 
     (:withdraw-settle :withdraw-cancel)
     (cond
       (not (account-ok? account)) :bad-account
-      (not (integer? (:claim t))) :missing-field
+      (not (int-like? (:claim t))) :missing-field
       ;; Who may settle and who may cancel is decided in `torihiki.state`,
       ;; where the claim itself is in hand: settling needs the bridge, and
       ;; cancelling needs the claim's owner. Neither question is answerable
@@ -1402,6 +1452,24 @@
       :else nil)
 
     :unknown-tx))
+
+(defn validate
+  "nil when `tx` may be applied, otherwise a keyword from `reasons`.
+
+  Checks SHAPE and RANGE, and — from protocol version 2 — whether a perp
+  order or amend is one the account can back (`:insufficient-margin`,
+  `torihiki.order-margin`). That one affordability check is here, and not
+  only in the engine, so the refusal has a stated reason; the engine checks
+  the same function again for orders that never pass through here
+  (triggers, TWAP slices). A withdrawal that exceeds free collateral is
+  still a no-op in the clearinghouse.
+
+  One canon in front of every judgment: the transaction is canonicalised
+  (`canon-tx`) first, so `{:qty 5.0}` and `{:qty 5}` are the same
+  transaction and are answered the same — an in-bounds integral number IS
+  its integer, at every door and on both runtimes."
+  [ex tx]
+  (validate* ex (canon-tx tx)))
 
 ;; ── read models ─────────────────────────────────────────────────────────────
 ;;

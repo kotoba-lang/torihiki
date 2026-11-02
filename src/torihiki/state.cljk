@@ -181,16 +181,30 @@
 
 ;; ── transactions ────────────────────────────────────────────────────────────
 
-(defmulti apply-tx
+(defmulti apply-tx*
   "Apply one transaction. Dispatches on `:tx`. Every method must be a pure
   function of (exchange, tx) — the book mutates its own arrays in place, but
   that mutation is fully determined by the arguments, so replay reproduces
   it exactly."
   (fn [_ex tx] (:tx tx)))
 
-(defmethod apply-tx :default [ex _tx] ex)
+(defn apply-tx
+  "Apply one transaction — the ONE name everything calls, including this
+  namespace's own re-dispatches. The transaction is canonicalised first
+  (`torihiki.api/canon-tx`): an in-bounds integral number IS its integer
+  (`{:qty 5.0}` is `{:qty 5}`), so one signed transaction has one successor
+  state on both runtimes. The canon is pure and idempotent, so re-dispatch
+  through this name costs one walk and changes nothing.
 
-(defmethod apply-tx :deposit
+  Every method (`apply-tx*`) must be a pure function of (exchange, tx) — the
+  book mutates its own arrays in place, but that mutation is fully determined
+  by the arguments, so replay reproduces it exactly."
+  [ex tx]
+  (apply-tx* ex (api/canon-tx tx)))
+
+(defmethod apply-tx* :default [ex _tx] ex)
+
+(defmethod apply-tx* :deposit
   [ex {:keys [account amount credit] :as t}]
   ;; `credit` when the bridge is paying somebody, `account` when an account is
   ;; paying itself. `api/validate` has already refused the combinations that
@@ -264,7 +278,7 @@
 
 (declare deposit-attest-by-set withdraw-attest-by-set)
 
-(defmethod apply-tx :deposit-attest
+(defmethod apply-tx* :deposit-attest
   [ex {:keys [account txid credit amount asset] :as t}]
   ;; A validator says it saw money arrive on the other chain.
   ;;
@@ -364,7 +378,7 @@
   (let [h #?(:clj (Long/toHexString (long n)) :cljs (.toString n 16))]
     (str "0x" (apply str (concat (repeat (- 40 (count h)) \0) h)))))
 
-(defmethod apply-tx :evm-deploy
+(defmethod apply-tx* :evm-deploy
   [ex {:keys [account code salt] :as t}]
   ;; Contract code, published into the CHAIN rather than into a node.
   ;;
@@ -397,7 +411,7 @@
             ex
             (assoc-in ex [:evm addr] {:code code :by account})))))))
 
-(defmethod apply-tx :withdraw
+(defmethod apply-tx* :withdraw
   [ex {:keys [account amount dest] :as t}]
   ;; The store door runs first: a NEGATIVE amount passes the free-collateral
   ;; gate (`free >= -3`) and pays the withdrawer — the mint — and a garbage
@@ -427,7 +441,7 @@
                           ;; destination somebody else can choose.
                           (string? dest) (assoc :dest (str/lower dest))))))))))
 
-(defmethod apply-tx :withdraw-settle
+(defmethod apply-tx* :withdraw-settle
   [ex {:keys [account claim] :as t}]
   ;; The bridge saying the money left. Only the bridge can say it, because it
   ;; is the only party that can know — the payment happened off this chain,
@@ -451,7 +465,7 @@
         (update ex :withdrawals dissoc claim)
         ex))))
 
-(defmethod apply-tx :withdraw-attest
+(defmethod apply-tx* :withdraw-attest
   [ex {:keys [account claim txid dest] :as t}]
   ;; The exit, said by the validators instead of by one key.
   ;;
@@ -529,7 +543,7 @@
               (update :withdrawals dissoc claim))
           ex)))))
 
-(defmethod apply-tx :withdraw-cancel
+(defmethod apply-tx* :withdraw-cancel
   [ex {:keys [account claim] :as t}]
   ;; A payout that could not be made, handed back. Gated on OWNERSHIP rather
   ;; than on the bridge, for the reason `api` already gives about withdrawal
@@ -558,7 +572,7 @@
             (update :clearing cl/deposit (:account c) (:amount c)))
         ex))))
 
-(defmethod apply-tx :withdraw-invalidate-attest
+(defmethod apply-tx* :withdraw-invalidate-attest
   [ex {:keys [account claim txid] :as t}]
   ;; The bridge contract cancelled a claim (`WithdrawalInvalidated`) — a
   ;; pending request, or one never requested, whose id it burned — so it will
@@ -615,7 +629,7 @@
           takes)
     (drop before (bk/fills book))))
 
-(defmethod apply-tx :order
+(defmethod apply-tx* :order
   [ex {:keys [account market side level qty flags builder builder-fee]
       :or {flags 0} :as t}]
   ;; The gate runs before ANY destructured field is computed with: the
@@ -885,7 +899,7 @@
 
 ;; ── conditional orders ──────────────────────────────────────────────────────
 
-(defmethod apply-tx :trigger
+(defmethod apply-tx* :trigger
   [ex {:keys [account market trigger-price direction order] :as t}]
   ;; Gated before `trg/trigger`/`trg/valid?` build or judge anything: `valid?`
   ;; computes with the embedded order (`pos?` on its quantity), so a stop with
@@ -990,7 +1004,7 @@
      ex
      due)))
 
-(defmethod apply-tx :bond
+(defmethod apply-tx* :bond
   [ex {:keys [account validator amount] :as t}]
   ;; Delegated stake. `validator` is any account — a publisher, a witness's
   ;; operator, or somebody else's name for one. On a chain configured with a
@@ -1009,14 +1023,14 @@
       (update ex :clearing cl/bond account validator amount
               (om/free-collateral ex account)))))
 
-(defmethod apply-tx :unbond
+(defmethod apply-tx* :unbond
   [ex {:keys [account validator amount] :as t}]
   ;; The store door runs first: a coerced amount unbonds real stake.
   (if (api/store-tx-shape ex t)
     ex
     (update ex :clearing cl/unbond account validator amount (:height ex 0))))
 
-(defmethod apply-tx :collect-unbonded
+(defmethod apply-tx* :collect-unbonded
   [ex {:keys [account] :as t}]
   ;; Asked for rather than swept, because a sweep would have to walk every
   ;; account every block to find the few that have something matured. The
@@ -1037,22 +1051,22 @@
 ;; `gov/*` and `pr/*` key maps by whatever account or subject they are
 ;; handed. A refusal is a NO-OP: the transaction is dropped whole.
 
-(defmethod apply-tx :validator-register [ex t]
+(defmethod apply-tx* :validator-register [ex t]
   (if (api/store-tx-shape ex t) ex (vals/register ex t)))
 
-(defmethod apply-tx :validator-rotate-key [ex t]
+(defmethod apply-tx* :validator-rotate-key [ex t]
   (if (api/store-tx-shape ex t) ex (vals/rotate-key ex t)))
 
-(defmethod apply-tx :validator-retire [ex t]
+(defmethod apply-tx* :validator-retire [ex t]
   (if (api/store-tx-shape ex t) ex (vals/retire ex t)))
 
-(defmethod apply-tx :upgrade-propose [ex t]
+(defmethod apply-tx* :upgrade-propose [ex t]
   (if (api/store-tx-shape ex t) ex (gov/propose ex t)))
 
-(defmethod apply-tx :upgrade-vote [ex t]
+(defmethod apply-tx* :upgrade-vote [ex t]
   (if (api/store-tx-shape ex t) ex (gov/vote ex t)))
 
-(defmethod apply-tx :equivocation-evidence
+(defmethod apply-tx* :equivocation-evidence
   [ex t]
   ;; Anybody may submit it: the proof is the votes, not the submitter. The
   ;; verifier is the node's (`apply-block` opts `:vote-verify-fn`), because the
@@ -1066,7 +1080,7 @@
       (vals/slash ex t)
       ex)))
 
-(defmethod apply-tx :principal-claim
+(defmethod apply-tx* :principal-claim
   ;; The owner half of the handshake. `torihiki.auth` has already established
   ;; that this envelope was signed by the account, so the only questions left
   ;; are the ones `torihiki.principal` answers -- and a refusal is a no-op
@@ -1080,7 +1094,7 @@
       ex
       (pr/claim ex account principal))))
 
-(defmethod apply-tx :principal-confirm
+(defmethod apply-tx* :principal-confirm
   ;; The controller half. `:subject` is the account being bound; `:account` is
   ;; the controller signing. Two fields rather than one because the signature
   ;; that authorises this is the controller's, and conflating the signer with
@@ -1095,7 +1109,7 @@
       ex
       (pr/confirm ex subject principal))))
 
-(defmethod apply-tx :principal-rotate
+(defmethod apply-tx* :principal-rotate
   ;; PROPOSING to replace an owner key. Bounded twice: `check-rotate` refuses
   ;; an account that never claimed and confirmed a principal, so this reaches
   ;; only accounts that asked for it with their own signature -- and then the
@@ -1108,7 +1122,7 @@
       ex
       (pr/rotate-propose ex subject pubkey (:height ex 0)))))
 
-(defmethod apply-tx :principal-rotate-cancel
+(defmethod apply-tx* :principal-rotate-cancel
   ;; The veto. `torihiki.auth` has already established that this envelope
   ;; carries the account's current owner key, which is the key the rotation
   ;; would replace -- so `:subject` would be wrong here: the signer IS the
@@ -1122,7 +1136,7 @@
       ex
       (pr/rotate-cancel ex account))))
 
-(defmethod apply-tx :create-sub-account
+(defmethod apply-tx* :create-sub-account
   [ex {:keys [account sub] :as t}]
   ;; A second margin pool under the same person. See `cl/create-sub-account`.
   ;;
@@ -1143,7 +1157,7 @@
           (assoc-in ex' [:account-keys sub] owner-key)
           ex')))))
 
-(defmethod apply-tx :transfer
+(defmethod apply-tx* :transfer
   [ex {:keys [account to amount] :as t}]
   ;; Inside one family only. Paying somebody else is a deposit with a
   ;; `:credit`, and that is gated on the bridge.
@@ -1155,7 +1169,7 @@
     (update ex :clearing cl/transfer account to amount
             (om/free-collateral ex account))))
 
-(defmethod apply-tx :anchor
+(defmethod apply-tx* :anchor
   [ex {:keys [account cid] :as t}]
   ;; Append-only anchor log: a content-addressed checkpoint (a fleet-ci receipt
   ;; CID) posted at this ts. It moves no money and mutates no market — it only
@@ -1167,7 +1181,7 @@
     ex
     (update ex :anchors (fnil conj []) {:cid cid :account account :ts (:ts ex)})))
 
-(defmethod apply-tx :set-leverage
+(defmethod apply-tx* :set-leverage
   [ex {:keys [account market leverage] :as t}]
   ;; A trader asking for a stricter margin requirement than the market
   ;; demands. See `cl/set-leverage` for why it is refused rather than clamped,
@@ -1194,7 +1208,7 @@
             leverage
             (pos? (fx/abs* (:size (cl/position (:clearing ex) account market)))))))
 
-(defmethod apply-tx :attest-reserves
+(defmethod apply-tx* :attest-reserves
   [ex {:keys [account amount height*] :as t}]
   ;; The asset side of proof of reserves, said on the chain.
   ;;
@@ -1236,7 +1250,7 @@
                 ;; time cannot be checked against anything.
                 :as-of height*})))))
 
-(defmethod apply-tx :vault-deposit
+(defmethod apply-tx* :vault-deposit
   [ex {:keys [account vault amount] :as t}]
   ;; Outside money into a vault, for shares.
   ;;
@@ -1255,7 +1269,7 @@
     ex
     (update ex :clearing cl/vault-deposit account vault amount)))
 
-(defmethod apply-tx :vault-withdraw
+(defmethod apply-tx* :vault-withdraw
   [ex {:keys [account vault shares] :as t}]
   ;; Paid out of what the vault holds FREE — collateral that is not backing its
   ;; positions.
@@ -1266,7 +1280,7 @@
     (update ex :clearing cl/vault-withdraw account vault shares
             (om/free-collateral ex vault))))
 
-(defmethod apply-tx :set-referrer
+(defmethod apply-tx* :set-referrer
   [ex {:keys [account referrer] :as t}]
   ;; Bound once, by the account itself. `cl/set-referrer` refuses a rebind and
   ;; a self-referral; both refusals are about the same thing — a referral that
@@ -1279,7 +1293,7 @@
     ex
     (update ex :clearing cl/set-referrer account referrer)))
 
-(defmethod apply-tx :scale
+(defmethod apply-tx* :scale
   [ex {:keys [account market side level qty count* step flags] :as t}]
   ;; A ladder of resting orders in one transaction.
   ;;
@@ -1320,7 +1334,7 @@
        ex
        (range count*)))))
 
-(defmethod apply-tx :twap
+(defmethod apply-tx* :twap
   [ex {:keys [account market side qty slices every] :as t}]
   ;; An order worked over time instead of all at once — the thing a size that
   ;; would move the book against you needs.
@@ -1354,7 +1368,7 @@
                    :next-at (inc (:height ex 0))
                    :started-at (:height ex 0)})))))
 
-(defmethod apply-tx :cancel-twap
+(defmethod apply-tx* :cancel-twap
   [ex {:keys [account id] :as t}]
   ;; Only the owner. Same rule as cancelling an order, and for the same reason.
   ;; The market door runs first: with a nil account `(= nil nil)` used to MATCH
@@ -1367,7 +1381,7 @@
       (update ex :twaps dissoc id)
       ex)))
 
-(defmethod apply-tx :cancel-trigger
+(defmethod apply-tx* :cancel-trigger
   [ex {:keys [market id] :as t}]
   ;; The store door runs first: `update-in` CREATES the :triggers key for a
   ;; market that has none — a garbage market key in the root (and `trg/cancel`
@@ -1440,7 +1454,7 @@
                            ex armed)]
             (recur (reprice! ex market) (inc round))))))))
 
-(defmethod apply-tx :amend-market
+(defmethod apply-tx* :amend-market
   [ex {:keys [account market spec] :as t}]
   ;; Changing a listed market's parameters — fees, leverage, tiers, the name.
   ;;
@@ -1481,7 +1495,7 @@
             oo (om/rebuild (:books ex) (:markets ex))]
         (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo)))))))
 
-(defmethod apply-tx :authorize-agent
+(defmethod apply-tx* :authorize-agent
   [ex {:keys [account agent expires] :as t}]
   ;; A delegated key. `torihiki.auth/agent-forbidden` is what makes it worth
   ;; having: this key can trade and cannot move money out, so a trading
@@ -1504,7 +1518,7 @@
       ex
       (assoc-in ex [:agents account agent] {:expires expires}))))
 
-(defmethod apply-tx :revoke-agent
+(defmethod apply-tx* :revoke-agent
   [ex {:keys [account agent] :as t}]
   ;; Revocation is immediate and needs no reason. A key you are unsure about
   ;; is a key you revoke; making that expensive is how people leave them live.
@@ -1514,7 +1528,7 @@
       (update-in ex [:agents account] dissoc agent)
       ex)))
 
-(defmethod apply-tx :list-market
+(defmethod apply-tx* :list-market
   [ex {:keys [account market spec book-opts] :as t}]
   ;; Listing a market on a RUNNING chain.
   ;;
@@ -1540,7 +1554,7 @@
           (assoc-in [:books market] (bk/new-book (or book-opts {})))
           (assoc-in [:funding market] fnd/empty-accumulator)))))
 
-(defmethod apply-tx :cancel-all
+(defmethod apply-tx* :cancel-all
   [ex {:keys [market account] :as t}]
   ;; The risk control every venue has and this did not: one transaction that
   ;; takes a maker out of the market. Without it, pulling N quotes costs N
@@ -1560,7 +1574,7 @@
                   ex (sort-by key released))
           (update-oo om/clear account market)))))
 
-(defmethod apply-tx :amend
+(defmethod apply-tx* :amend
   [ex {:keys [market oid account level qty] :as t}]
   ;; Gated before the book is read or anything is compared: `(< qty (:qty
   ;; cur))` computes with the new size and `bk/order-of` used to answer
@@ -1613,7 +1627,7 @@
                       {:tx :order :account account :market market
                        :side (:side cur) :level level :qty qty :flags 0})))))))
 
-(defmethod apply-tx :cancel
+(defmethod apply-tx* :cancel
   [ex {:keys [market oid account] :as t}]
   ;; Gated before the book is read: `bk/order-of` and `bk/cancel!` used to be
   ;; the throw — `(long nil)` on the JVM and `(long "one")` as NaN on JS
@@ -1641,7 +1655,7 @@
 ;; (see torihiki.api/validate). A devnet with one operator uses this; a market
 ;; with publishers must go through :oracle-submit, or the aggregate would be
 ;; decorative.
-(defmethod apply-tx :oracle
+(defmethod apply-tx* :oracle
   [ex {:keys [market price] :as t}]
   ;; The store door runs first: `reprice!` reads the book and `fire-triggers`
   ;; reads the mark — a market with no book threw inside apply-block. The
@@ -1656,7 +1670,7 @@
 
 ;; One publisher's observation. The aggregate is recomputed from every fresh
 ;; authorised submission; a single publisher never sets the price.
-(defmethod apply-tx :oracle-submit
+(defmethod apply-tx* :oracle-submit
   [ex {:keys [account market price] :as t}]
   ;; The store door runs first: the pair becomes the KEY of
   ;; :oracle-submissions and the price its VALUE — and a market with no book
@@ -1717,7 +1731,7 @@
         (reprice! market)
         (fire-triggers market)))))
 
-(defmethod apply-tx :funding-sample
+(defmethod apply-tx* :funding-sample
   [ex {:keys [market] :as t}]
   ;; The store door runs first: `fnd/premium` reads the book — a market with
   ;; no book threw inside apply-block (the falsify-6/7 class).
@@ -1728,7 +1742,7 @@
           impact (get-in ex [:funding-params :impact-notional])]
       (update-in ex [:funding market] fnd/sample (fnd/premium book oracle impact)))))
 
-(defmethod apply-tx :funding-settle
+(defmethod apply-tx* :funding-settle
   [ex {:keys [market] :as t}]
   ;; The store door runs first: the market becomes the KEY of :funding and
   ;; :last-funding-rate — a garbage key in the root (the falsify-8/14 class).
@@ -1906,7 +1920,7 @@
                                             :level level :qty qty :taker-side side})
                                          @old-fills))))))
 
-(defmethod apply-tx :liquidate
+(defmethod apply-tx* :liquidate
   [ex {:keys [market] :as t}]
   ;; Kept, and now redundant on its own chain: `apply-block` sweeps every
   ;; market at the end of every block, so a `:liquidate` transaction can only
