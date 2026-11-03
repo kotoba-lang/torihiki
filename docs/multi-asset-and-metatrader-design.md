@@ -157,3 +157,4 @@ history(since)
 - **P1（JUN-807）**: `src/torihiki/venue.cljk`（契約・十進境界・シンボル対応表）、`venue_fake.cljk`、`venue_router.cljk`（冪等性・キルスイッチ・上限・突合）と `test/torihiki/venue_test.cljk`。ネットワーク・実 venue アダプタは存在しない。
   - 検証: `kbb -M:test -n torihiki.venue-test` が 23 テスト 116 アサーションで通る。復旧経路を無効化した負の対照では 8 件失敗することを確認（2026-11-04）。
   - MT のコメント長上限（31）は未検証の想定値（`torihiki.venue/max-cid-len`）。
+- **P2（JUN-814）**: 読み取り専用 MT5 ブリッジのソース・フレーム仕様・純粋アダプタ（`venue_mt.cljk`）まで。仕様は `docs/mt5-readonly-bridge.md`。EA は未コンパイル・未実機、loopback 待受は未実装。P2 の完了条件（デモ口座 24h 突合差分 0）は**未達**。

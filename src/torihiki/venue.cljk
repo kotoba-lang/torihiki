@@ -88,6 +88,15 @@
         ua (up a) ub (up b)]
     (when (and ua ub) [ua ub s])))
 
+(defn compare-decimals
+  "-1, 0 or 1 comparing two decimal strings exactly, or nil if either does not
+  parse or the comparison would leave i53."
+  [a b]
+  (let [x (parse-decimal a) y (parse-decimal b)]
+    (when (and x y)
+      (when-let [[ux uy _] (align x y)]
+        (compare ux uy)))))
+
 (defn count-of
   "How many whole `unit`s are in the decimal string `s`, or nil.
   `unit` is a decimal string such as \"0.00001\".
