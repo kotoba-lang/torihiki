@@ -1,0 +1,191 @@
+(ns torihiki.venue-mt
+  "A read-only Venue over frames pushed by the MT5 bridge EA.
+
+  Protocol and install: docs/mt5-readonly-bridge.md. The EA
+  (mt5/TorihikiReadOnlyBridge.mq5) connects OUT to a loopback listener and
+  sends one JSON object per line. Nothing flows back, so this adapter cannot
+  place, cancel or amend anything: `:place` and `:cancel` return
+  `{:error :read-only}` and the EA contains no trading call to receive one.
+
+  This namespace is pure. It takes frames already parsed into maps with string
+  keys (as `torihiki.thorchain` takes parsed JSON); reading the socket and
+  splitting lines is the listener's job and is not in P2.
+
+  ## What it refuses, and why
+
+  - **Anything but a demo account.** The first frame says what the account is;
+    anything other than \"demo\" locks the adapter and every query then fails
+    with `:locked`. P2 has no live path.
+  - **A malformed frame.** It is counted and dropped, state untouched. A
+    price or volume that does not parse as an exact decimal is malformed
+    (`torihiki.venue/parse-decimal`); the EA formats with DoubleToString, so a
+    good frame always parses.
+  - **A half-sent position list.** Positions arrive between `pos-begin` and
+    `pos-end` and replace the previous list only at `pos-end`, after every
+    volume checked out against the symbol's volume step. A connection that
+    dies mid-list leaves the last complete list in place, then ages out.
+  - **Old data.** Quotes, account and positions are stamped with the time the
+    adapter RECEIVED them (the terminal's clock and the host's differ by a
+    timezone offset and drift, so the EA's timestamps are not compared). Past
+    `:max-age-ms` a query returns `{:error :stale}` rather than the last value.
+  - **Replays.** Within a connection, frame numbers `n` must increase.
+
+  Not verified against a running MT5 — see the doc."
+  (:require [torihiki.venue :as v]))
+
+(def default-opts {:max-age-ms 5000})
+
+(def ^:private max-rejects 20)
+
+(def ^:private trade-modes #{"full" "disabled" "longonly" "shortonly" "closeonly"})
+
+(defn empty-state []
+  {:locked nil :hello? false :n 0 :syms {} :ticks {} :acct nil
+   :positions nil :pending nil :rejects []})
+
+(defn- reject [st reason frame]
+  (update st :rejects
+          (fn [rs] (vec (take-last max-rejects
+                                   (conj rs {:reason reason
+                                             :t (when (map? frame) (get frame "t"))}))))))
+
+(defn- dec? [x] (some? (v/parse-decimal x)))
+(defn- pos-dec? [x] (let [d (v/parse-decimal x)] (and d (pos? (:units d)))))
+(defn- nonneg-dec? [x] (let [d (v/parse-decimal x)] (and d (not (neg? (:units d))))))
+(defn- sym? [s] (and (string? s) (boolean (re-matches #"[A-Za-z0-9._#-]{1,32}" s))))
+
+(defn- ingest* [st frame now]
+  (let [t (get frame "t")
+        n (get frame "n")]
+    (cond
+      (not (and (map? frame) (string? t))) (reject st :no-type frame)
+
+      (= t "hello")
+      (cond
+        (not= 1 (get frame "v")) (reject st :bad-version frame)
+        (not= "demo" (get frame "mode"))
+        (-> (empty-state) (assoc :locked :not-demo))
+        :else
+        ;; a new connection: nothing from the previous one survives
+        (assoc (empty-state) :hello? true :n 0))
+
+      (:locked st) st
+      (not (:hello? st)) (reject st :no-hello frame)
+      (not (and (integer? n) (> n (:n st)))) (reject st :bad-seq frame)
+
+      :else
+      (let [st (assoc st :n n)]
+        (case t
+          "sym"
+          (let [s (get frame "s")]
+            (if (and (sym? s)
+                     (integer? (get frame "digits")) (<= 0 (get frame "digits") v/max-scale)
+                     (pos-dec? (get frame "step")) (pos-dec? (get frame "min"))
+                     (pos-dec? (get frame "max")) (pos-dec? (get frame "tick"))
+                     (contains? trade-modes (get frame "trade")))
+              (assoc-in st [:syms s]
+                        {:digits (get frame "digits")
+                         :volume-step (get frame "step")
+                         :volume-min (get frame "min")
+                         :volume-max (get frame "max")
+                         :trade-allowed? (= "full" (get frame "trade"))
+                         :trade-mode (keyword (get frame "trade"))})
+              (reject st :bad-sym frame)))
+
+          "tick"
+          (let [s (get frame "s") bid (get frame "bid") ask (get frame "ask")]
+            (if (and (sym? s) (pos-dec? bid) (pos-dec? ask)
+                     (some-> (v/compare-decimals ask bid) (>= 0)))
+              (assoc-in st [:ticks s] {:bid (get frame "bid") :ask (get frame "ask") :rx now})
+              (reject st :bad-tick frame)))
+
+          "acct"
+          (if (and (nonneg-dec? (get frame "balance")) (dec? (get frame "equity"))
+                   (nonneg-dec? (get frame "margin")) (dec? (get frame "free"))
+                   (string? (get frame "ccy")) (<= 1 (count (get frame "ccy")) 8))
+            (assoc st :acct {:balance (get frame "balance") :equity (get frame "equity")
+                             :margin (get frame "margin") :free-margin (get frame "free")
+                             :currency (get frame "ccy") :rx now})
+            (reject st :bad-acct frame))
+
+          "pos-begin" (assoc st :pending [])
+
+          "pos"
+          (cond
+            (nil? (:pending st)) (reject st :pos-outside-list frame)
+            :else
+            (let [s (get frame "s") ty (get frame "type") vol (get frame "vol")]
+              (if (and (sym? s) (#{"buy" "sell"} ty) (pos-dec? vol))
+                (update st :pending conj {:symbol s :type ty :vol vol})
+                (-> st (assoc :pending nil) (reject :bad-pos frame)))))
+
+          "pos-end"
+          (if (nil? (:pending st))
+            (reject st :pos-end-without-begin frame)
+            ;; net per symbol, in whole volume steps, exactly
+            (let [net (reduce
+                       (fn [acc {:keys [symbol type vol]}]
+                         (let [step (get-in st [:syms symbol :volume-step])
+                               k (when step (v/count-of vol step :exact))]
+                           (if k
+                             (update acc symbol (fnil + 0) (if (= type "buy") k (- k)))
+                             (reduced :bad))))
+                       {} (:pending st))]
+              (if (= :bad net)
+                (-> st (assoc :pending nil) (reject :unrepresentable-position frame))
+                (-> st
+                    (assoc :pending nil)
+                    (assoc :positions
+                           {:rx now
+                            :list (vec (for [[s k] (sort-by key net) :when (not (zero? k))]
+                                         {:symbol s
+                                          :volume (v/string-of k (get-in st [:syms s :volume-step]))}))})))))
+
+          (reject st :unknown-type frame))))))
+
+(defn ingest
+  "State after one parsed frame received at `now` (ms, the adapter's clock).
+  Total: a bad frame returns the state with the rejection recorded."
+  [st frame now]
+  (ingest* st frame now))
+
+(defn venue
+  "A Venue (see `torihiki.venue/contract`) over the state held in `state-atom`.
+  `clock` is a no-argument function returning now in ms. Options:
+  `:max-age-ms` (default 5000)."
+  ([state-atom clock] (venue state-atom clock nil))
+  ([state-atom clock opts]
+   (let [max-age (:max-age-ms (merge default-opts opts))
+         gate (fn [thunk]
+                (let [st @state-atom]
+                  (cond
+                    (:locked st) {:error :locked}
+                    (not (:hello? st)) {:error :no-data}
+                    :else (thunk st))))
+         fresh? (fn [rx] (and rx (<= (- (clock) rx) max-age)))]
+     {:symbol-info (fn [sym] (gate (fn [st] {:ok (get-in st [:syms sym])})))
+      :quote (fn [sym]
+               (gate (fn [st]
+                       (let [t (get-in st [:ticks sym])]
+                         (cond
+                           (nil? t) {:error :no-quote}
+                           (not (fresh? (:rx t))) {:error :stale}
+                           :else {:ok {:bid (:bid t) :ask (:ask t) :ts (:rx t)}})))))
+      :account (fn []
+                 (gate (fn [st]
+                         (let [a (:acct st)]
+                           (cond
+                             (nil? a) {:error :no-data}
+                             (not (fresh? (:rx a))) {:error :stale}
+                             :else {:ok (dissoc a :rx)})))))
+      :positions (fn []
+                   (gate (fn [st]
+                           (let [p (:positions st)]
+                             (cond
+                               (nil? p) {:error :no-data}
+                               (not (fresh? (:rx p))) {:error :stale}
+                               :else {:ok (:list p)})))))
+      :orders (fn [] {:error :read-only})
+      :history (fn [_since] {:error :read-only})
+      :place (fn [_req] {:error :read-only})
+      :cancel (fn [_id] {:error :read-only})})))

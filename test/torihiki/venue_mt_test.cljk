@@ -1,0 +1,171 @@
+(ns torihiki.venue-mt-test
+  "The MT5 read-only adapter, fed the frames the EA emits, joined to the P1
+  router. No terminal, no socket: the frames are written out by hand and match
+  docs/mt5-readonly-bridge.md."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.venue :as v]
+            [torihiki.venue-mt :as mt]
+            [torihiki.venue-router :as r]))
+
+(def hello {"t" "hello" "v" 1 "n" 0 "mode" "demo"})
+(def sym-eurusd {"t" "sym" "n" 1 "s" "EURUSD" "digits" 5 "step" "0.01" "min" "0.01"
+                 "max" "100.00" "tick" "0.00001" "trade" "full"})
+(defn tick [n bid ask] {"t" "tick" "n" n "s" "EURUSD" "bid" bid "ask" ask})
+(def acct {"t" "acct" "n" 3 "balance" "10000.00" "equity" "10010.50" "margin" "0.00"
+           "free" "10010.50" "ccy" "USD"})
+
+(def entry {:market 1 :venue-symbol "EURUSD" :tick-size "0.00001" :lot-size "0.01"})
+
+(defn- feed [st frames now] (reduce (fn [s f] (mt/ingest s f now)) st frames))
+
+(defn- rig
+  "State after hello + sym + tick + acct + an empty position list, at time 1000."
+  []
+  (let [st (atom (feed (mt/empty-state)
+                       [hello sym-eurusd (tick 2 "1.08490" "1.08500") acct
+                        {"t" "pos-begin" "n" 4} {"t" "pos-end" "n" 5}]
+                       1000))
+        now (atom 1000)]
+    {:st st :now now :venue (mt/venue st (fn [] @now))}))
+
+;; ── the happy path ──────────────────────────────────────────────────────────
+
+(deftest frames-become-a-venue
+  (let [{:keys [venue]} (rig)]
+    (is (v/conforms? venue))
+    (is (= {:ok {:digits 5 :volume-step "0.01" :volume-min "0.01" :volume-max "100.00"
+                 :trade-allowed? true :trade-mode :full}}
+           ((:symbol-info venue) "EURUSD")))
+    (is (= {:ok nil} ((:symbol-info venue) "XAUUSD")) "unknown symbol is an answer, not an error")
+    (is (= {:ok {:bid "1.08490" :ask "1.08500" :ts 1000}} ((:quote venue) "EURUSD")))
+    (is (= {:ok {:balance "10000.00" :equity "10010.50" :margin "0.00"
+                 :free-margin "10010.50" :currency "USD"}}
+           ((:account venue))))
+    (is (= {:ok []} ((:positions venue))))))
+
+(deftest the-symbol-map-binds-against-it
+  (let [{:keys [venue]} (rig)
+        binds (v/bind-markets [entry] venue)]
+    (is (:enabled? (get binds 1)) (pr-str (get binds 1)))))
+
+(deftest positions-are-netted-exactly
+  (let [{:keys [st venue]} (rig)]
+    (swap! st feed [{"t" "pos-begin" "n" 6}
+                    {"t" "pos" "n" 7 "s" "EURUSD" "type" "buy" "vol" "0.30"}
+                    {"t" "pos" "n" 8 "s" "EURUSD" "type" "buy" "vol" "0.10"}
+                    {"t" "pos" "n" 9 "s" "EURUSD" "type" "sell" "vol" "0.15"}
+                    {"t" "pos-end" "n" 10}] 1000)
+    (is (= {:ok [{:symbol "EURUSD" :volume "0.25"}]} ((:positions venue))))
+    (testing "a flat hedge is no position"
+      (swap! st feed [{"t" "pos-begin" "n" 11}
+                      {"t" "pos" "n" 12 "s" "EURUSD" "type" "buy" "vol" "0.10"}
+                      {"t" "pos" "n" 13 "s" "EURUSD" "type" "sell" "vol" "0.10"}
+                      {"t" "pos-end" "n" 14}] 1000)
+      (is (= {:ok []} ((:positions venue)))))))
+
+;; ── it joins the P1 router ──────────────────────────────────────────────────
+
+(deftest reconcile-sees-a-position-we-did-not-open
+  (let [{:keys [st venue]} (rig)
+        router (r/make venue [entry] {})]
+    (is (:ok? (r/reconcile! router)) "flat and flat agree")
+    (swap! st feed [{"t" "pos-begin" "n" 6}
+                    {"t" "pos" "n" 7 "s" "EURUSD" "type" "buy" "vol" "0.20"}
+                    {"t" "pos-end" "n" 8}] 1000)
+    (let [res (r/reconcile! router)]
+      (is (not (:ok? res)))
+      (is (= [{:market 1 :ours 0 :venue 20}] (:diffs res)))
+      (is (r/halted? router)))))
+
+(deftest no-order_can_be_placed
+  (let [{:keys [venue]} (rig)
+        router (r/make venue [entry] {})
+        res (r/place! router {:cid "x1" :market 1 :side :buy :qty 1})]
+    (is (= :rejected (:status res)))
+    (is (= :read-only (:reason res)))
+    (doseq [f [:place :cancel :orders :history]]
+      (is (= {:error :read-only} ((get venue f) {})) (str f)))))
+
+;; ── refusals ────────────────────────────────────────────────────────────────
+
+(deftest only-a-demo-account
+  (let [st (feed (mt/empty-state) [(assoc hello "mode" "other") sym-eurusd (tick 2 "1" "2")] 1000)
+        venue (mt/venue (atom st) (fn [] 1000))]
+    (is (= :not-demo (:locked st)))
+    (is (= {:error :locked} ((:quote venue) "EURUSD")))
+    (is (= {:error :locked} ((:positions venue))))
+    (testing "a later demo hello is a new connection and unlocks it"
+      (let [st2 (mt/ingest st hello 1001)]
+        (is (nil? (:locked st2)))))
+    (testing "real is not 'demo' by any other spelling"
+      (doseq [m ["real" "contest" "Demo" "DEMO" "" nil]]
+        (is (= :not-demo (:locked (mt/ingest (mt/empty-state) (assoc hello "mode" m) 0)))
+            (pr-str m))))))
+
+(deftest nothing-before-hello
+  (let [st (feed (mt/empty-state) [sym-eurusd] 1000)
+        venue (mt/venue (atom st) (fn [] 1000))]
+    (is (= :no-hello (:reason (first (:rejects st)))))
+    (is (= {:error :no-data} ((:quote venue) "EURUSD")))))
+
+(deftest bad-frames-are-dropped-and-counted
+  (let [{:keys [st]} (rig)
+        before @st]
+    (doseq [[bad why]
+            [[(tick 6 "1.0850x" "1.0851") :bad-tick]
+             [(tick 6 "1e0" "2") :bad-tick]
+             [(tick 6 "0" "1.1") :bad-tick]
+             [(tick 6 "1.1" "1.0") :bad-tick]            ; ask below bid
+             [(assoc (tick 6 "1" "2") "s" "EUR USD") :bad-tick]
+             [(assoc sym-eurusd "n" 6 "step" "0") :bad-sym]
+             [(assoc sym-eurusd "n" 6 "trade" "yes") :bad-sym]
+             [(assoc acct "n" 6 "ccy" "") :bad-acct]
+             [{"t" "pos" "n" 6 "s" "EURUSD" "type" "buy" "vol" "0.1"} :pos-outside-list]
+             [{"t" "pos-end" "n" 6} :pos-end-without-begin]
+             [{"t" "nonsense" "n" 6} :unknown-type]
+             [{"n" 6} :no-type]]]
+      (let [after (mt/ingest before bad 1000)]
+        (is (= why (:reason (last (:rejects after)))) (pr-str bad))
+        (is (= (dissoc before :rejects :n) (dissoc after :rejects :n)) "state otherwise untouched")))
+    (is (= :bad-seq (:reason (last (:rejects (mt/ingest before (tick 5 "1" "2") 1000)))))
+        "n must increase: a replay is refused")))
+
+(deftest a-half-sent-position-list-changes-nothing
+  (let [{:keys [st venue]} (rig)]
+    (swap! st feed [{"t" "pos-begin" "n" 6}
+                    {"t" "pos" "n" 7 "s" "EURUSD" "type" "buy" "vol" "0.50"}] 1000)
+    (is (= {:ok []} ((:positions venue))) "the old list stands until pos-end")
+    (testing "a bad entry abandons the whole list"
+      (swap! st feed [{"t" "pos" "n" 8 "s" "EURUSD" "type" "buy" "vol" "abc"}
+                      {"t" "pos-end" "n" 9}] 1000)
+      (is (= {:ok []} ((:positions venue)))))
+    (testing "a volume off the volume step cannot be represented and is refused whole"
+      (swap! st feed [{"t" "pos-begin" "n" 10}
+                      {"t" "pos" "n" 11 "s" "EURUSD" "type" "buy" "vol" "0.015"}
+                      {"t" "pos-end" "n" 12}] 1000)
+      (is (= {:ok []} ((:positions venue))))
+      (is (= :unrepresentable-position (:reason (last (:rejects @st))))))))
+
+(deftest a-new-hello-forgets-the-old-connection
+  (let [{:keys [st venue]} (rig)]
+    (swap! st mt/ingest hello 1500)
+    (is (= {:ok nil} ((:symbol-info venue) "EURUSD")) "symbols must be re-announced")
+    (is (= {:error :no-quote} ((:quote venue) "EURUSD")))
+    (is (= {:error :no-data} ((:positions venue))))))
+
+(deftest old-data-is-an-error-not-a-value
+  (let [{:keys [now venue]} (rig)]
+    (reset! now 6000)                               ; exactly max-age (5000 ms) old
+    (is (:ok ((:quote venue) "EURUSD")))
+    (reset! now 6001)
+    (is (= {:error :stale} ((:quote venue) "EURUSD")))
+    (is (= {:error :stale} ((:account venue))))
+    (is (= {:error :stale} ((:positions venue))))
+    (testing "and the router halts rather than trust it"
+      (let [router (r/make venue [entry] {})]
+        (is (= {:ok? false :reason :venue-unreachable} (r/reconcile! router)))
+        (is (r/halted? router))))))
+
+(deftest the-rejection-log-is-bounded
+  (let [st (feed (mt/empty-state) (repeat 100 {"t" "x" "n" 1}) 0)]
+    (is (= 20 (count (:rejects st))))))
