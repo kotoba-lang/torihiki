@@ -1,0 +1,85 @@
+;; probe-nums5 successor: isolate BigInt-loop corruption on kbb/SCI, settle the
+;; :cljs "d" expansion route. Compare against JVM ground truth (BigDecimal ctor).
+(println "A. integer? semantics")
+(println "  (integer? 1e17)      =>" (integer? 1e17))
+(println "  (integer? 5.5)       =>" (integer? 5.5))
+(println "  (integer? (js/BigInt 5)) =>" (integer? (js/BigInt 5)))
+(println "  (number? (js/BigInt 5))  =>" (number? (js/BigInt 5)))
+(println "  reader-cond          =>" #?(:clj :clj-branch :cljs :cljs-branch))
+(println "  Number.isFinite      =>" (js/Number.isFinite 5.5) (js/Number.isFinite js/Infinity) (js/Number.isFinite js/NaN))
+(println "  ##Inf str            =>" (str ##Inf) (str ##-Inf))
+(println "  NaN detect (== v v)  =>" (== js/NaN js/NaN))
+
+(println "B. BigInt multiply: one-shot vs loop-50 vs pow (5.5 = m*2^-50, expect 55 + 49 zeros)")
+(let [m (js/BigInt "6192449487634928")
+      f5 (js/BigInt 5)
+      p50 (js/BigInt "88817841970012523233890533447265625") ;; 5^50
+      one-shot (* m p50)
+      looped (loop [i 0 acc m] (if (< i 50) (recur (inc i) (* acc f5)) acc))
+      powed "n/a (.pow not resolvable on SCI)"
+      expect "550000000000000000000000000000000000000000000000000"]
+  (println "  one-shot =>" (.toString one-shot))
+  (println "  looped   =>" (.toString looped))
+  (println "  powed    =>" (.toString powed))
+  (println "  expect   =>" expect)
+  (println "  one=loop?" (= one-shot looped) " loop=pow?" (= looped powed) " one=expect?" (= (.toString one-shot) expect)))
+
+(println "C. digit-vector x5-with-carry route (no BigInt arithmetic)")
+(defn mul5d [ds]
+  ;; ds: vector of decimal digit ints, LEAST-significant first -> digits of ds*5
+  (loop [i 0 carry 0 acc []]
+    (if (< i (count ds))
+      (let [p (+ (* (nth ds i) 5) carry)]
+        (recur (inc i) (quot p 10) (conj acc (rem p 10))))
+      (if (pos? carry) (conj acc carry) acc))))
+
+(defn digits-of [x]
+  ;; exact decimal digits of a non-negative integral double x (< 2^53 or not)
+  (loop [n (.toString (js/BigInt x)) i (dec (count n)) acc []]
+    (if (neg? i) acc
+      (recur n (dec i) (conj acc (- (js/parseInt (subs n i (inc i)) 10) 0))))))
+
+(defn frac-expansion [v]
+  ;; exact decimal expansion of a finite fractional double
+  (let [neg? (neg? v)
+        av (if neg? (- v) v)]
+    (loop [x av k 0]
+      (if (== x (js/Math.floor x))
+        (let [ds0 (digits-of x)
+              ds (loop [i 0 ds ds0] (if (< i k) (recur (inc i) (mul5d ds)) ds))
+              lp (count ds)
+              padded (if (<= lp k) (into ds (repeat (inc (- k lp)) 0)) ds)
+              ip (- (count padded) k)
+              pstr (apply str (map str (reverse padded)))
+              out (if (zero? k) pstr (str (subs pstr 0 ip) "." (subs pstr ip)))]
+          (if neg? (str "-" out) out))
+        (recur (* x 2) (inc k))))))
+
+(doseq [[label v expect] [["5.5" 5.5 "5.5"]
+                          ["-2.5" -2.5 "-2.5"]
+                          ["2.5" 2.5 "2.5"]
+                          ["0.1" 0.1 "0.1000000000000000055511151231257827021181583404541015625"]
+                          ["0.1+0.2" (+ 0.1 0.2) "0.3000000000000000444089209850062616169452667236328125"]]]
+  (let [got (frac-expansion v)]
+    (println " " label "=>" got)
+    (println "   MATCH?" (= got expect))))
+
+(println "D. decomp scaling loop")
+(doseq [v [5.5 0.1 1e-300]]
+  (let [[x k] (loop [x v k 0] (if (== x (js/Math.floor x)) [x k] (recur (* x 2) (inc k))))]
+    (println " " v "-> m" (.toString (js/BigInt x)) "k" k)))
+
+(println "E. u-route digits")
+(doseq [[label v] [["1e17" 1e17] ["-2.5e18" -2.5e18] ["1.5e300" 1.5e300] ["2^53+1" 9007199254740993]]]
+  (println " " label "=>" (.toString (js/BigInt v))))
+(println "  (str 1e17) =>" (str 1e17))
+
+(println "F. 1e-300 expansion check (expect 299 zeros after \"0.\")")
+(let [e (frac-expansion 1e-300)]
+  (println "  len" (count e))
+  (println "  zero-count after 0. =" (count (take-while #(= % \0) (subs e 2))))
+  (println "  tail ...28125?" (.endsWith e "28125")))
+
+(println "G. parse")
+(println "  parseFloat Infinity =>" (js/parseFloat "Infinity") (js/parseFloat "-Infinity"))
+(println "  BigInt decode 2^53+1 =>" (js/Number (js/BigInt "9007199254740993")))
