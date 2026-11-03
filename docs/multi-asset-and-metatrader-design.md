@@ -151,3 +151,9 @@ history(since)
 - 株・商品の oracle は営業時間外 stale が通常状態で、既存の「stale = 清算停止」と整合させる必要がある（§2.2 のギャップ保留）。
 - 一般公開・他者提供の可否は技術ではなく owner と法務の判断。
 - 競合する既存市場（Hyperliquid の builder 市場等）との差別化は本書で扱わない。
+
+## 7. 実装状況
+
+- **P1（JUN-807）**: `src/torihiki/venue.cljk`（契約・十進境界・シンボル対応表）、`venue_fake.cljk`、`venue_router.cljk`（冪等性・キルスイッチ・上限・突合）と `test/torihiki/venue_test.cljk`。ネットワーク・実 venue アダプタは存在しない。
+  - 検証: `kbb -M:test -n torihiki.venue-test` が 23 テスト 116 アサーションで通る。復旧経路を無効化した負の対照では 8 件失敗することを確認（2026-11-04）。
+  - MT のコメント長上限（31）は未検証の想定値（`torihiki.venue/max-cid-len`）。

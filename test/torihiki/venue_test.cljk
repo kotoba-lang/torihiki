@@ -1,0 +1,252 @@
+(ns torihiki.venue-test
+  "The Venue port against the in-memory fake. No network, no real venue."
+  (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.venue :as v]
+            [torihiki.venue-fake :as fake]
+            [torihiki.venue-router :as r]))
+
+(def eurusd {:digits 5 :volume-step "0.01" :volume-min "0.01" :volume-max "100"
+             :trade-allowed? true})
+
+(def entry {:market 1 :venue-symbol "EURUSD" :tick-size "0.00001" :lot-size "0.01"})
+
+(defn- rig
+  ([] (rig {}))
+  ([limits]
+   (let [f (fake/make {"EURUSD" eurusd} {"EURUSD" {:bid "1.08490" :ask "1.08500"}})]
+     {:fake f :router (r/make (:venue f) [entry] limits)})))
+
+(defn- buy [cid qty & {:as more}]
+  (merge {:cid cid :market 1 :side :buy :qty qty} more))
+
+;; ── exact decimals ──────────────────────────────────────────────────────────
+
+(deftest decimals-never-touch-a-float
+  (is (= {:units 108500 :scale 5} (v/parse-decimal "1.08500")))
+  (is (= {:units -30 :scale 2} (v/parse-decimal "-0.30")))
+  (doseq [bad ["" "1." ".5" "+1" "1e3" "1,5" " 1" "1 " "NaN" "0x10" nil 1.5
+               "0.1234567890123"                 ; 13 fractional digits
+               "9007199254740992"]]               ; past i53
+    (is (nil? (v/parse-decimal bad)) (str "refused: " (pr-str bad)))))
+
+(deftest count-of-is-exact-or-refuses
+  (is (= 108500 (v/count-of "1.08500" "0.00001" :exact)))
+  (is (= 30 (v/count-of "0.30" "0.01" :exact)))
+  (testing "off the grid is refused, not rounded"
+    (is (nil? (v/count-of "1.085005" "0.00001" :exact))))
+  (testing "volume is cut toward zero, in both directions"
+    (is (= 30 (v/count-of "0.309" "0.01" :trunc)))
+    (is (= -30 (v/count-of "-0.309" "0.01" :trunc))))
+  (is (nil? (v/count-of "1" "0" :exact)) "a zero unit is not a unit"))
+
+(deftest string-of-round-trips
+  (doseq [[n unit] [[108500 "0.00001"] [30 "0.01"] [-30 "0.01"] [5 "1"] [1 "0.001"] [0 "0.01"]]]
+    (is (= n (v/count-of (v/string-of n unit) unit :exact))
+        (str n " x " unit)))
+  (is (= "0.04" (v/string-of 4 "0.01")))
+  (is (= "-0.30" (v/string-of -30 "0.01")))
+  (is (= "1.08500" (v/string-of 108500 "0.00001")))
+  (is (nil? (v/string-of 9007199254740991 "0.10")) "overflow is refused"))
+
+;; ── symbol map ──────────────────────────────────────────────────────────────
+
+(deftest a-matching-entry-is-enabled
+  (is (= [] (v/check-entry entry eurusd))))
+
+(deftest a-mismatch-disables-the-market-and-says-why
+  (is (= [:unknown-symbol] (v/check-entry entry nil)))
+  (is (some #{:trading-disabled} (v/check-entry entry (assoc eurusd :trade-allowed? false))))
+  (is (some #{:tick-finer-than-venue}
+            (v/check-entry (assoc entry :tick-size "0.000001") eurusd)))
+  (is (some #{:lot-not-a-venue-step}
+            (v/check-entry (assoc entry :lot-size "0.015") eurusd)))
+  (is (some #{:lot-below-venue-minimum}
+            (v/check-entry (assoc entry :lot-size "0.001") (assoc eurusd :volume-step "0.001"))))
+  (is (some #{:lot-above-venue-maximum}
+            (v/check-entry (assoc entry :lot-size "1000") (assoc eurusd :volume-step "1"))))
+  (is (some #{:bad-tick-size} (v/check-entry (assoc entry :tick-size "abc") eurusd))))
+
+(deftest the-venue-changing-a-contract-disables-the-market
+  (let [{:keys [fake router]} (rig)]
+    (is (= :filled (:status (r/place! router (buy "a1" 5)))))
+    (swap! (:state fake) assoc-in [:symbols "EURUSD" :volume-step] "0.10")
+    (r/rebind! router)
+    (let [res (r/place! router (buy "a2" 5))]
+      (is (= :refused (:status res)))
+      (is (= :market-disabled (:reason res))))))
+
+(deftest an-unreachable-venue-disables-everything
+  (let [f (fake/make {"EURUSD" eurusd} {})
+        _ (fake/fault! f :symbol-info :unreachable)
+        router (r/make (:venue f) [entry] {})]
+    (is (= :refused (:status (r/place! router (buy "a1" 5)))))))
+
+;; ── order translation ───────────────────────────────────────────────────────
+
+(deftest engine-order-to-venue-request
+  (is (= {:symbol "EURUSD" :side :buy :volume "0.30" :price "1.08500"
+          :comment "t-1" :reduce-only? false}
+         (v/->venue-order entry {:cid "t-1" :side :buy :qty 30 :price 108500})))
+  (is (not (contains? (v/->venue-order entry {:cid "t-1" :side :sell :qty 1}) :price))
+      "no price means market")
+  (doseq [[bad why] [[{:cid "" :side :buy :qty 1} :bad-cid]
+                     [{:cid (apply str (repeat 32 "x")) :side :buy :qty 1} :bad-cid]
+                     [{:cid "a b" :side :buy :qty 1} :bad-cid]
+                     [{:cid "a" :side :hold :qty 1} :bad-side]
+                     [{:cid "a" :side :buy :qty 0} :bad-qty]
+                     [{:cid "a" :side :buy :qty 1.5} :bad-qty]
+                     [{:cid "a" :side :buy :qty 1 :price 0} :bad-price]]]
+    (is (= {:error why} (v/->venue-order entry bad)) (pr-str bad))))
+
+;; ── idempotency ─────────────────────────────────────────────────────────────
+
+(deftest the-fake-itself-does-not-deduplicate
+  (testing "so the tests below prove the router, not the fake"
+    (let [{:keys [fake]} (rig)
+          req (v/->venue-order entry (buy "dup" 5))]
+      ((:place (:venue fake)) req)
+      ((:place (:venue fake)) req)
+      (is (= 2 (count (fake/orders-with-comment fake "dup")))))))
+
+(deftest sending-the-same-order-twice-places-it-once
+  (let [{:keys [fake router]} (rig)]
+    (is (= :filled (:status (r/place! router (buy "o1" 5)))))
+    (let [again (r/place! router (buy "o1" 5))]
+      (is (= :filled (:status again)))
+      (is (:repeat? again)))
+    (is (= 1 (count (fake/orders-with-comment fake "o1"))))
+    (is (= 5 (r/position router 1)))))
+
+(deftest a-lost-reply-after-execution-is-recovered-not-resent
+  (let [{:keys [fake router]} (rig)]
+    (fake/fault! fake :place :timeout-after-accept)
+    (is (= :unknown (:status (r/place! router (buy "o2" 5)))))
+    (is (= 1 (count (fake/orders-with-comment fake "o2"))) "it did execute")
+    (let [again (r/place! router (buy "o2" 5))]
+      (is (= :filled (:status again)))
+      (is (:recovered? again)))
+    (is (= 1 (count (fake/orders-with-comment fake "o2"))) "and was not sent again")
+    (is (= 5 (r/position router 1)))))
+
+(deftest a-lost-request-is-resent-once-the-venue-shows-it-never-arrived
+  (let [{:keys [fake router]} (rig)]
+    (fake/fault! fake :place :timeout-before-accept)
+    (is (= :unknown (:status (r/place! router (buy "o3" 5)))))
+    (is (= 0 (count (fake/orders-with-comment fake "o3"))))
+    (is (= :filled (:status (r/place! router (buy "o3" 5)))))
+    (is (= 1 (count (fake/orders-with-comment fake "o3"))))))
+
+(deftest when-the-venue-cannot-be-asked-nothing-is-sent
+  (let [{:keys [fake router]} (rig)]
+    (fake/fault! fake :place :timeout-after-accept)
+    (r/place! router (buy "o4" 5))
+    (fake/fault! fake :orders :unreachable)
+    (let [res (r/place! router (buy "o4" 5))]
+      (is (= :unknown (:status res)))
+      (is (= :cannot-confirm (:reason res))))
+    (is (= 1 (count (fake/orders-with-comment fake "o4"))) "no second order")
+    (testing "history unreachable is just as unconfirmed"
+      (fake/fault! fake :history :unreachable)
+      (is (= :unknown (:status (r/place! router (buy "o4" 5)))))
+      (is (= 1 (count (fake/orders-with-comment fake "o4")))))
+    (testing "once it can be asked, the order is found"
+      (is (= :filled (:status (r/place! router (buy "o4" 5)))))
+      (is (= 1 (count (fake/orders-with-comment fake "o4")))))))
+
+(deftest a-rejection-is-remembered
+  (let [{:keys [fake router]} (rig)]
+    (fake/fault! fake :place :reject)
+    (is (= :rejected (:status (r/place! router (buy "o5" 5)))))
+    (is (= :rejected (:status (r/place! router (buy "o5" 5))))
+        "the same cid does not quietly retry a refusal")
+    (is (= 0 (count (fake/orders-with-comment fake "o5"))))))
+
+(deftest a-resting-order-does-not-count-as-position
+  (let [{:keys [router]} (rig)]
+    (is (= :resting (:status (r/place! router (buy "l1" 5 :price 108000)))))
+    (is (= 0 (r/position router 1)))))
+
+;; ── kill switch and limits ──────────────────────────────────────────────────
+
+(deftest halt-blocks-exposure-but-not-closing
+  (let [{:keys [fake router]} (rig)]
+    (r/place! router (buy "h1" 10))
+    (r/halt! router)
+    (is (= :halted (:reason (r/place! router (buy "h2" 1)))))
+    (is (= :halted (:reason (r/place! router {:cid "h3" :market 1 :side :sell :qty 1}))))
+    (testing "a reduce-only close goes through"
+      (is (= :filled (:status (r/place! router {:cid "h4" :market 1 :side :sell :qty 4
+                                                :reduce-only? true}))))
+      (is (= 6 (r/position router 1))))
+    (testing "reduce-only must really reduce"
+      (doseq [[cid side qty] [["h5" :buy 1] ["h6" :sell 7]]]
+        (is (= :not-reducing
+               (:reason (r/place! router {:cid cid :market 1 :side side :qty qty
+                                          :reduce-only? true}))) cid)))
+    (is (= 0 (count (fake/orders-with-comment fake "h2"))))
+    (r/resume! router)
+    (is (= :filled (:status (r/place! router (buy "h7" 1)))))))
+
+(deftest limits-refuse-before-sending
+  (let [{:keys [fake router]} (rig {1 {:max-order-qty 10 :max-position 15}})]
+    (is (= :over-order-limit (:reason (r/place! router (buy "m1" 11)))))
+    (is (= :filled (:status (r/place! router (buy "m2" 10)))))
+    (is (= :over-position-limit (:reason (r/place! router (buy "m3" 6)))))
+    (is (= :filled (:status (r/place! router (buy "m4" 5)))))
+    (testing "the short side is bounded the same way (15 long -> 5 -> -5 -> -15 -> refused)"
+      (is (= :filled (:status (r/place! router {:cid "m5" :market 1 :side :sell :qty 10}))))
+      (is (= :filled (:status (r/place! router {:cid "m6" :market 1 :side :sell :qty 10}))))
+      (is (= :filled (:status (r/place! router {:cid "m7" :market 1 :side :sell :qty 10}))))
+      (is (= -15 (r/position router 1)))
+      (is (= :over-position-limit
+             (:reason (r/place! router {:cid "m8" :market 1 :side :sell :qty 1})))))
+    (is (= 0 (count (fake/orders-with-comment fake "m1"))))
+    (is (= 0 (count (fake/orders-with-comment fake "m3"))))))
+
+;; ── reconciliation ──────────────────────────────────────────────────────────
+
+(deftest agreement-is-ok
+  (let [{:keys [router]} (rig)]
+    (r/place! router (buy "r1" 7))
+    (let [res (r/reconcile! router)]
+      (is (:ok? res))
+      (is (empty? (:diffs res)))
+      (is (not (r/halted? router))))))
+
+(deftest a-difference-halts
+  (let [{:keys [fake router]} (rig)]
+    (r/place! router (buy "r2" 7))
+    (testing "the venue holds something we did not send"
+      (swap! (:state fake) update-in [:positions "EURUSD"] + 3)
+      (let [res (r/reconcile! router)]
+        (is (not (:ok? res)))
+        (is (= [{:market 1 :ours 7 :venue 10}] (:diffs res)))
+        (is (r/halted? router))))))
+
+(deftest an-unconfirmed-order-shows-up-as-a-difference
+  (let [{:keys [fake router]} (rig)]
+    (fake/fault! fake :place :timeout-after-accept)
+    (r/place! router (buy "r3" 5))
+    (let [res (r/reconcile! router)]
+      (is (not (:ok? res)))
+      (is (= [{:market 1 :ours 0 :venue 5}] (:diffs res)))
+      (is (r/halted? router)))))
+
+(deftest a-position-in-an-unmapped-symbol-halts
+  (let [{:keys [fake router]} (rig)]
+    (swap! (:state fake) assoc-in [:symbols "GBPUSD"] eurusd)
+    (swap! (:state fake) assoc-in [:positions "GBPUSD"] 1)
+    (let [res (r/reconcile! router)]
+      (is (not (:ok? res)))
+      (is (= ["GBPUSD"] (:unmapped res)))
+      (is (r/halted? router)))))
+
+(deftest an-unreadable-venue-halts
+  (let [{:keys [fake router]} (rig)]
+    (fake/fault! fake :positions :unreachable)
+    (is (= {:ok? false :reason :venue-unreachable} (r/reconcile! router)))
+    (is (r/halted? router))))
+
+(deftest the-fake-conforms-to-the-contract
+  (is (v/conforms? (:venue (:fake (rig)))))
+  (is (not (v/conforms? (dissoc (:venue (:fake (rig))) :cancel)))))
