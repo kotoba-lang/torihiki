@@ -101,6 +101,30 @@
     (is (:ok (log/replay get-fn (:cid r) fresh))
         "replay agrees on the rejections")))
 
+(deftest an-infinite-amount-is-rejected-into-the-root-not-thrown
+  ;; The door predicate (`torihiki.api/int-like?`) judged whole-ness with
+  ;; `rem` — which THROWS on an infinity on the JVM ("Infinite or NaN"; the
+  ;; JVM's remainder is BigDecimal-backed) and lands on NaN on JS. One
+  ;; signed tx with :amount ##Inf halted the JVM sequencer inside
+  ;; apply-block ("never thrown from" broken at the door) while the JS leg
+  ;; answered :bad-amount — falsify-6/7 class. A non-finite number is not
+  ;; whole; that is answered BEFORE `rem`, identically on both runtimes.
+  ;; End to end through the codec: the block COMMITS, each tx lands
+  ;; :rejected into the root, replay agrees.
+  (let [{:keys [put! get-fn]} (store)
+        r (log/commit-blocks! (fresh) put! get-fn nil
+                              [{:height 1 :ts 100
+                                :txs [{:tx :deposit :account 1 :amount ##Inf}
+                                      {:tx :deposit :account 1 :amount ##-Inf}]}])]
+    (is (= 1 (count (:roots r)))
+        "the block commits — no throw at the door or the codec")
+    (is (= [{:index 0 :tx :deposit :reason :bad-amount}
+            {:index 1 :tx :deposit :reason :bad-amount}]
+           (:rejected (:exchange r)))
+        "an infinity is a bad amount, like every out-of-range number")
+    (is (:ok (log/replay get-fn (:cid r) fresh))
+        "replay agrees on the rejections")))
+
 ;; ── producing and checking ──────────────────────────────────────────────────
 
 (deftest log-is-well-formed-and-replays
