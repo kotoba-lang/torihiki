@@ -1,0 +1,110 @@
+(ns torihiki.venue-fake
+  "An in-memory venue for tests. It is the only venue that exists in P1.
+
+  It behaves like a terminal, not like a well-designed exchange: it does NOT
+  deduplicate by order comment, so a caller that sends the same order twice
+  gets two orders. That is deliberate. Idempotency has to live in
+  `torihiki.venue-router`, and a fake that quietly protected it would let a
+  broken router pass.
+
+  Faults are queued per function and consumed one call at a time:
+
+    :timeout-after-accept   the order is executed, the reply is lost
+    :timeout-before-accept  the request is lost, nothing happened
+    :reject                 the venue refuses it
+    :unreachable            (any function) the call fails outright"
+  (:require [torihiki.venue :as v]))
+
+(defn make
+  "{:venue <map of functions> :state <atom> :faults <atom>}.
+
+  symbols : {\"EURUSD\" {:digits 5 :volume-step \"0.01\" :volume-min \"0.01\"
+                         :volume-max \"100\" :trade-allowed? true}}
+  quotes  : {\"EURUSD\" {:bid \"1.08490\" :ask \"1.08500\"}}"
+  [symbols quotes]
+  (let [state (atom {:symbols symbols :quotes quotes :seq 0
+                     :orders [] :positions {}})
+        faults (atom {})
+        pop-fault! (fn [f]
+                     (let [q (get @faults f)]
+                       (when (seq q)
+                         (swap! faults update f subvec 1)
+                         (first q))))
+        guard (fn [f thunk]
+                (if (= :unreachable (pop-fault! f))
+                  {:error :unreachable}
+                  (thunk)))
+        step-of (fn [sym] (get-in @state [:symbols sym :volume-step]))
+        signed (fn [side n] (if (= side :buy) n (- n)))
+        execute!
+        (fn [{:keys [symbol side volume price comment]}]
+          (let [id (str "V" (:seq (swap! state update :seq inc)))
+                step (step-of symbol)
+                n (v/count-of volume step :exact)
+                market? (nil? price)
+                order {:venue-order-id id :symbol symbol :side side
+                       :volume volume :price price :comment comment
+                       :status (if market? :filled :resting)}]
+            (swap! state
+                   (fn [s]
+                     (cond-> (update s :orders conj order)
+                       market? (update-in [:positions symbol] (fnil + 0)
+                                          (signed side n)))))
+            order))]
+    {:state state
+     :faults faults
+     :venue
+     {:symbol-info (fn [sym]
+                     (guard :symbol-info
+                            #(if-let [i (get-in @state [:symbols sym])]
+                               {:ok i}
+                               {:ok nil})))
+      :quote (fn [sym]
+               (guard :quote
+                      #(if-let [q (get-in @state [:quotes sym])]
+                         {:ok q}
+                         {:error :no-quote})))
+      :account (fn [] (guard :account #(do {:ok {:balance "10000.00" :equity "10000.00"
+                                                 :margin "0.00" :free-margin "10000.00"
+                                                 :currency "USD"}})))
+      :positions (fn []
+                   (guard :positions
+                          #(let [s @state]
+                             {:ok (vec (for [[sym n] (:positions s) :when (not (zero? n))]
+                                         {:symbol sym
+                                          :volume (v/string-of n (step-of sym))}))})))
+      :orders (fn []
+                (guard :orders
+                       #(do {:ok (vec (filter (comp #{:resting} :status) (:orders @state)))})))
+      :history (fn [_since]
+                 (guard :history
+                        #(do {:ok (vec (remove (comp #{:resting} :status) (:orders @state)))})))
+      :place (fn [req]
+               (let [f (pop-fault! :place)]
+                 (case f
+                   :unreachable {:error :unreachable}
+                   :reject {:error :rejected}
+                   :timeout-before-accept {:timeout true}
+                   :timeout-after-accept (do (execute! req) {:timeout true})
+                   (if-not (get-in @state [:symbols (:symbol req)])
+                     {:error :unknown-symbol}
+                     (let [o (execute! req)]
+                       {:ok (select-keys o [:venue-order-id :status])})))))
+      :cancel (fn [id]
+                (guard :cancel
+                       #(do (swap! state update :orders
+                                   (fn [os] (mapv (fn [o] (if (= id (:venue-order-id o))
+                                                            (assoc o :status :cancelled) o))
+                                                  os)))
+                            {:ok {}})))}}))
+
+(defn fault!
+  "Queue `kind` for the next call of function `f` (a venue function keyword)."
+  [fake f kind]
+  (swap! (:faults fake) update f (fnil conj []) kind))
+
+(defn orders-with-comment
+  "Every order the fake holds whose comment is `cid`, in any state. A test
+  oracle: it looks inside the venue, which a real caller cannot."
+  [fake cid]
+  (filterv #(= cid (:comment %)) (:orders @(:state fake))))
