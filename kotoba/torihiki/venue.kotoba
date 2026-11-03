@@ -1,0 +1,276 @@
+(ns torihiki.venue)
+
+;; The Venue port's number boundary, symbol map and order translation, in
+;; Kotoba. src/torihiki/venue.cljk (JUN-807) is the ORACLE and stays; this is
+;; its port (JUN-816), checked with `amu check` and exercised by
+;; kotoba/torihiki/venue_test.kotoba through script/kotoba-venue-test.sh.
+;;
+;; Design: docs/multi-asset-and-metatrader-design.md, section 3.
+;;
+;; A decimal is a STRING here, as at the venue boundary, and it is read
+;; without a float: "1.08500" has magnitude 108500 and scale 5. Three shape
+;; differences from the cljk, none a translation artefact:
+;;
+;; 1. No nil. "Not a decimal" is `(dec-ok? s)` false; "no count" is an
+;;    `[:option :i64]`; "no string" is the empty string, which no successful
+;;    `string-of` can produce.
+;; 2. No vector of keyword reasons. `check-entry` returns the reasons joined
+;;    by commas in the cljk's order, "" when there are none.
+;; 3. An order is translated to one text line (or an "ERR <reason>" line),
+;;    the same line-per-request shape the Amu GPU protocol uses.
+
+(def I53-MAX 9007199254740991)
+(def OVF 9007199254740992)
+(def MAX-SCALE 12)
+(def MAX-CID-LEN 31)
+(def EXACT 0)
+(def TRUNC 1)
+
+(defn abs* [n :i64] :i64 (if (< n 0) (- 0 n) n))
+(defn max2 [a :i64 b :i64] :i64 (if (> a b) a b))
+
+(defn pow10 [k :i64] :i64
+  (if (<= k 0) 1 (* 10 (pow10 (- k 1)))))
+
+(defn digit? [c :i64] :bool
+  (if (and (>= c 48) (<= c 57)) true false))
+
+;; ── exact decimals ──────────────────────────────────────────────────────────
+
+;; `string-code-point-at` takes a UTF-8 BYTE offset and traps when that offset
+;; is inside a multi-byte character (measured 2026-11-04: "１", U+FF11, index 1
+;; ends the program with SIGTRAP and no output). So a scan steps by the width
+;; of the character it just read, never by one. `digits-acc` and `cid-chars?`
+;; stop at the first non-ASCII character, which they reject, so they never
+;; step into one.
+(defn cp-width [c :i64] :i64
+  (cond (< c 128) 1
+        (< c 2048) 2
+        (< c 65536) 3
+        :else 4))
+
+(defn find-dot [s :string i :i64 n :i64] :i64
+  (if (>= i n)
+    -1
+    (let [c (string-code-point-at s i)]
+      (if (= c 46) i (find-dot s (+ i (cp-width c)) n)))))
+
+;; Fold the digits of [i, end) onto acc. -1 for a non-digit or a magnitude
+;; past i53; a negative acc stays -1.
+(defn digits-acc [s :string i :i64 end :i64 acc :i64] :i64
+  (cond
+    (< acc 0) -1
+    (>= i end) acc
+    :else
+    (let [c (string-code-point-at s i)]
+      (if (digit? c)
+        (if (> acc (quot (- I53-MAX (- c 48)) 10))
+          -1
+          (digits-acc s (+ i 1) end (+ (* acc 10) (- c 48))))
+        -1))))
+
+(defn dec-neg? [s :string] :bool
+  (if (and (> (string-length s) 0) (= (string-code-point-at s 0) 45)) true false))
+
+(defn dec-start [s :string] :i64 (if (dec-neg? s) 1 0))
+
+;; The magnitude of a decimal string, or -1 when it is not one: empty,
+;; exponent, plus sign, no integer digit (".5"), no fraction digit ("1."),
+;; more than MAX-SCALE fractional digits, or past i53.
+(defn dec-mag [s :string] :i64
+  (let [n (string-length s)
+        st (dec-start s)
+        d (find-dot s 0 n)
+        ie (if (< d 0) n d)
+        fl (if (< d 0) 0 (- n d 1))]
+    (cond
+      (= n 0) -1
+      (<= ie st) -1
+      (and (>= d 0) (= fl 0)) -1
+      (> fl MAX-SCALE) -1
+      :else
+      (let [a (digits-acc s st ie 0)]
+        (if (< d 0) a (digits-acc s (+ d 1) n a))))))
+
+(defn dec-ok? [s :string] :bool (if (>= (dec-mag s) 0) true false))
+
+(defn dec-units [s :string] :i64
+  (let [m (dec-mag s)]
+    (cond (< m 0) 0
+          (dec-neg? s) (- 0 m)
+          :else m)))
+
+(defn dec-scale [s :string] :i64
+  (if (dec-ok? s)
+    (let [n (string-length s) d (find-dot s 0 n)]
+      (if (< d 0) 0 (- n d 1)))
+    0))
+
+;; u x 10^(to - from), or OVF when that leaves i53.
+(defn up [u :i64 from :i64 to :i64] :i64
+  (let [m (pow10 (- to from))]
+    (if (> (abs* u) (quot I53-MAX m)) OVF (* u m))))
+
+;; How many whole `unit`s are in `s`: EXACT demands a multiple, TRUNC cuts
+;; toward zero. None for a malformed string, a non-positive unit, or overflow.
+(defn count-of [s :string unit :string mode :i64] [:option :i64]
+  (if (and (dec-ok? s) (dec-ok? unit) (> (dec-units unit) 0))
+    (let [sc (max2 (dec-scale s) (dec-scale unit))
+          uv (up (dec-units s) (dec-scale s) sc)
+          uu (up (dec-units unit) (dec-scale unit) sc)]
+      (if (or (= uv OVF) (= uu OVF))
+        (option-none-of [:option :i64])
+        (let [q (quot uv uu)
+              r (- uv (* q uu))]
+          (cond
+            (= mode EXACT) (if (= r 0)
+                             (option-some-of [:option :i64] q)
+                             (option-none-of [:option :i64]))
+            (= mode TRUNC) (option-some-of [:option :i64] q)
+            :else (option-none-of [:option :i64])))))
+    (option-none-of [:option :i64])))
+
+(def NOPE -1000000000000000000)
+
+(defn count-or [s :string unit :string mode :i64 dflt :i64] :i64
+  (option-value-of [:option :i64] (count-of s unit mode) dflt))
+
+;; -1, 0, 1; 2 when either side is not a decimal or the comparison overflows.
+(defn compare-decimals [a :string b :string] :i64
+  (if (and (dec-ok? a) (dec-ok? b))
+    (let [sc (max2 (dec-scale a) (dec-scale b))
+          ua (up (dec-units a) (dec-scale a) sc)
+          ub (up (dec-units b) (dec-scale b) sc)]
+      (cond (or (= ua OVF) (= ub OVF)) 2
+            (< ua ub) -1
+            (> ua ub) 1
+            :else 0))
+    2))
+
+(defn zeros [k :i64] :string
+  (if (<= k 0) "" (string-concat "0" (zeros (- k 1)))))
+
+;; n whole `unit`s as a decimal string with exactly the unit's fractional
+;; digits; "" on overflow or a bad unit.
+(defn string-of [n :i64 unit :string] :string
+  (if (and (dec-ok? unit) (> (dec-units unit) 0)
+           (<= (abs* n) (quot I53-MAX (dec-units unit))))
+    (let [total (* n (dec-units unit))
+          sc (dec-scale unit)
+          ds0 (string-from-i64 (abs* total))
+          ds (if (<= (string-length ds0) sc)
+               (string-concat (zeros (- (+ sc 1) (string-length ds0))) ds0)
+               ds0)
+          split (- (string-length ds) sc)
+          body (if (= sc 0)
+                 ds
+                 (string-concat (string-substring ds 0 split)
+                                (string-concat "." (string-substring ds split (string-length ds)))))]
+      (if (< total 0) (string-concat "-" body) body))
+    ""))
+
+;; ── symbol map ──────────────────────────────────────────────────────────────
+
+;; The venue's smallest price step for `digits` decimals; "" when digits is
+;; out of range.
+(defn point-of [digits :i64] :string
+  (cond
+    (or (< digits 0) (> digits MAX-SCALE)) ""
+    (= digits 0) "1"
+    :else (string-concat "0." (string-concat (zeros (- digits 1)) "1"))))
+
+(defn add-reason [acc :string r :string on :bool] :string
+  (cond
+    (not on) acc
+    (string=? acc "") r
+    :else (string-concat acc (string-concat "," r))))
+
+(defn pos-count? [s :string unit :string mode :i64] :bool
+  (> (count-or s unit mode 0) 0))
+
+;; Reasons, comma-joined in the cljk's order, why an entry may not be used
+;; with what the venue reports; "" when none. `known` is false when the venue
+;; has no such symbol.
+(defn check-entry [tick-size :string lot-size :string
+                   known :bool trade-allowed :bool digits :i64
+                   step :string vmin :string vmax :string] :string
+  (if (not known)
+    "unknown-symbol"
+    (let [tick-ok (dec-ok? tick-size)
+          lot-ok (dec-ok? lot-size)
+          point (point-of digits)
+          step-ok (dec-ok? step)
+          r0 ""
+          r1 (add-reason r0 "trading-disabled" (not trade-allowed))
+          r2 (add-reason r1 "bad-tick-size" (not tick-ok))
+          r3 (add-reason r2 "bad-lot-size" (not lot-ok))
+          r4 (add-reason r3 "bad-venue-digits" (string=? point ""))
+          r5 (add-reason r4 "bad-venue-step" (not step-ok))
+          r6 (add-reason r5 "tick-finer-than-venue"
+                         (and tick-ok (not (string=? point ""))
+                              (not (pos-count? tick-size point EXACT))))
+          r7 (add-reason r6 "lot-not-a-venue-step"
+                         (and lot-ok step-ok (not (pos-count? lot-size step EXACT))))
+          r8 (add-reason r7 "lot-below-venue-minimum"
+                         (and lot-ok (dec-ok? vmin)
+                              (= (count-or lot-size vmin TRUNC NOPE) 0)))
+          r9 (add-reason r8 "lot-above-venue-maximum"
+                         (and lot-ok (dec-ok? vmax)
+                              (= (count-or vmax lot-size TRUNC NOPE) 0)))]
+      r9)))
+
+;; ── order translation ───────────────────────────────────────────────────────
+
+(defn cid-char? [c :i64] :bool
+  (if (or (digit? c)
+          (and (>= c 65) (<= c 90))
+          (and (>= c 97) (<= c 122))
+          (= c 95) (= c 45))
+    true false))
+
+(defn cid-chars? [s :string i :i64 n :i64] :bool
+  (cond
+    (>= i n) true
+    (cid-char? (string-code-point-at s i)) (cid-chars? s (+ i 1) n)
+    :else false))
+
+(defn valid-cid? [cid :string] :bool
+  (let [n (string-length cid)]
+    (if (and (>= n 1) (<= n MAX-CID-LEN) (cid-chars? cid 0 n)) true false)))
+
+(defn err [reason :string] :string (string-concat "ERR " reason))
+
+;; An engine order as one request line:
+;;   ORDER <symbol> <buy|sell> <volume> <price|-> <cid> <0|1 reduce-only>
+;; or "ERR <reason>". qty is in lots, price in ticks (has-price false = market).
+(defn venue-order-line [venue-symbol :string tick-size :string lot-size :string
+                        cid :string side :string qty :i64
+                        has-price :bool price :i64 reduce-only :bool] :string
+  (cond
+    (not (valid-cid? cid)) (err "bad-cid")
+    (not (or (string=? side "buy") (string=? side "sell"))) (err "bad-side")
+    (<= qty 0) (err "bad-qty")
+    (and has-price (<= price 0)) (err "bad-price")
+    :else
+    (let [vol (string-of qty lot-size)
+          px (if has-price (string-of price tick-size) "-")]
+      (cond
+        (string=? vol "") (err "qty-out-of-range")
+        (string=? px "") (err "price-out-of-range")
+        :else
+        (string-concat "ORDER "
+          (string-concat venue-symbol
+            (string-concat " "
+              (string-concat side
+                (string-concat " "
+                  (string-concat vol
+                    (string-concat " "
+                      (string-concat px
+                        (string-concat " "
+                          (string-concat cid
+                            (string-concat " " (if reduce-only "1" "0"))))))))))))))))
+
+;; A venue's signed volume as engine lots, cut toward zero; NOPE when it is
+;; not a decimal.
+(defn volume->lots [volume :string lot-size :string] :i64
+  (count-or volume lot-size TRUNC NOPE))
