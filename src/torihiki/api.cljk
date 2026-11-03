@@ -79,13 +79,20 @@
   is not in this repository's dependency closure.
 
   Whole-ness is `(== v (- v (rem v 1)))` — arithmetic, not `Math/floor`, so
-  the same words compile on both runtimes. NaN and infinities are not
-  whole (`rem` lands on NaN, `==` is false), and a huge whole double
-  (1e300) is int-like but out of every domain below, where it stays
-  untouched and is refused at the bounded doors."
+  the same words compile on both runtimes. NaN and infinities are answered
+  BEFORE `rem`, because `rem` is not portable there: the JVM's remainder is
+  BigDecimal-backed and THROWS `NumberFormatException: Infinite or NaN`,
+  while JS lands on NaN and answers false — one signed tx carrying an
+  infinity halted the JVM sequencer at this door while the JS leg refused
+  it `:bad-amount` (measured 2026-11-04, JVM leg of the wire-number-canon
+  landing, 5 errors' worth of stack traces). `(== (- v v) 0)` is false
+  exactly for the non-finites (NaN and the infinities land on NaN there)
+  and true for every finite number, so it is the portable finiteness
+  guard. A huge whole double (1e300) is int-like but out of every domain
+  below, where it stays untouched and is refused at the bounded doors."
   [v]
   (or (integer? v)
-      (and (number? v) (== v (- v (rem v 1))))))
+      (and (number? v) (== (- v v) 0) (== v (- v (rem v 1))))))
 
 (defn- canon-val
   "One value's canonical form: an in-bounds integral number becomes its long

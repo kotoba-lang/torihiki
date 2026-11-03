@@ -64,7 +64,11 @@
 ;; What stays explicit is the KIND: it is named on the wire under "tx". What
 ;; becomes total is the VALUE space. Integers and strings encode bare — the
 ;; exact shape every block already committed has, so old logs keep decoding.
-;; Keywords, booleans, nils, nested maps and vectors encode tagged
+;; Numbers outside that shape carry their EXACT digits under a tag: a whole
+;; number out of the i53 domain under "u", a fractional double (or a signed
+;; infinity) under "d" — one number, one wire form, byte-identical on both
+;; runtimes (see the number canon below). Keywords, booleans, nils, nested
+;; maps and vectors encode tagged
 ;; (`["k" "below"]`), because a bare string and a keyword must not decode to
 ;; the same thing. Round trip is the law: `(= tx (wire->tx (tx->wire tx)))`
 ;; for every transaction, including the ones the engine will reject.
@@ -74,6 +78,98 @@
   wire map: keys that are not plain keywords, or whose plain names would
   collide. Each is a `[key value]` pair in encoded form."
   "_pairs")
+
+;; ── the number canon ────────────────────────────────────────────────────────
+;;
+;; Every real number a transaction can carry has ONE canonical form on the
+;; wire and ONE canonical rendering in the signing payload, byte-identical
+;; on both runtimes. `str` is neither: the JVM prints 1e17 as "1.0E17" and
+;; JS as "100000000000000000", and neither prints the 55-digit expansion the
+;; double 0.1 actually holds. A whole number — however typed, in or out of
+;; the i53 domain — carries its exact integer digits under "u"; a fractional
+;; double (and a signed infinity) carries its exact decimal expansion under
+;; "d". NaN has no canonical form (`(= ##NaN ##NaN)` is false, so the round
+;; trip law cannot hold) and is refused loudly, like a function value.
+
+(defn- wire-number?
+  "The number TYPES the canon covers: doubles and true integers. A JVM Ratio
+  or BigDecimal is refused — its wire form would be a value decision the
+  canon has not made — and a js/BigInt is digits-only (it is not `number?`
+  and `long` throws on it; measured on SCI)."
+  [v]
+  #?(:clj (or (instance? Double v) (integer? v))
+     :cljs (number? v)))
+
+(defn- u-digits
+  "The exact decimal digits of a whole number. A double is the integer it
+  ACTUALLY holds (1e17 is 100000000000000000): the BigDecimal double
+  CONSTRUCTOR is exact (`bigdec` is shortest-representation and disagrees
+  with JS), and on the JS side `js/BigInt`'s string conversion of the double
+  is exact. Arithmetic through BigInt is deliberately avoided — a 50-step
+  BigInt x5 loop measured corrupted on SCI at the double-rounding scale
+  (evidence/wnc-kbb-probe.cljk) — digits in, digits out, nothing else."
+  [v]
+  #?(:clj (if (instance? Double v)
+            (str (.toBigIntegerExact (BigDecimal. (double v))))
+            (str v))
+     :cljs (.toString (js/BigInt v))))
+
+#?(:cljs
+   (defn- mul5d
+     "Digits (least significant first) of a digit vector times 5, by carry —
+     plain digit-string arithmetic, no BigInt (validated on SCI)."
+     [ds]
+     (loop [i 0 carry 0 acc []]
+       (if (< i (count ds))
+         (let [p (+ (* (nth ds i) 5) carry)]
+           (recur (inc i) (quot p 10) (conj acc (rem p 10))))
+         (if (pos? carry) (conj acc carry) acc)))))
+
+#?(:cljs
+   (defn- digits-of
+     "Exact decimal digits (least significant first) of a non-negative
+     integral double — its `js/BigInt` decimal STRING, char by char."
+     [x]
+     (let [n (.toString (js/BigInt x))]
+       (loop [i (dec (count n)) acc []]
+         (if (neg? i)
+           acc
+           (recur (dec i) (conj acc (- (js/parseInt (subs n i (inc i)) 10) 0))))))))
+
+#?(:cljs
+   (defn- frac-expansion
+     "The exact decimal expansion of a finite fractional double. The double
+     is exactly m*2^k (k >= 1 once the value is scaled whole), so its exact
+     decimal is m*5^k over 10^k: digits of m, x5-with-carry k times, point
+     placed k from the right. (The route is evidence/wnc-kbb-probe.cljk,
+     validated byte-for-byte against the JVM's BigDecimal ground truth.)"
+     [v]
+     (let [neg? (neg? v)
+           av (if neg? (- v) v)]
+       (loop [x av k 0]
+         (if (== x (js/Math.floor x))
+           (let [ds0 (digits-of x)
+                 ds (loop [i 0 ds ds0] (if (< i k) (recur (inc i) (mul5d ds)) ds))
+                 lp (count ds)
+                 padded (if (<= lp k) (into ds (repeat (inc (- k lp)) 0)) ds)
+                 ip (- (count padded) k)
+                 pstr (apply str (map str (reverse padded)))
+                 out (if (zero? k) pstr (str (subs pstr 0 ip) "." (subs pstr ip)))]
+             (if neg? (str "-" out) out))
+           (recur (* x 2) (inc k)))))))
+
+(defn- d-digits
+  "The exact decimal expansion of a finite fractional double — the digits
+  the double actually holds — and the string \"Infinity\"/\"-Infinity\" for
+  a signed infinity. JVM: BigDecimal's double constructor is exact and
+  `toPlainString` never goes scientific. JS: the digit-vector route above."
+  [v]
+  #?(:clj (if (Double/isInfinite v)
+            (if (neg? v) "-Infinity" "Infinity")
+            (.toPlainString (BigDecimal. (double v))))
+     :cljs (if (js/Number.isFinite v)
+             (frac-expansion v)
+             (if (neg? v) "-Infinity" "Infinity"))))
 
 (defn- enc-val
   "The wire form of one value: bare where the wire format was always bare
@@ -90,12 +186,23 @@
     ;; (`torihiki.api/canon-tx`). `(long v)` is exact for a whole value
     ;; inside the domain, so `{:qty 5.0}` encodes to the same bare bytes as
     ;; `{:qty 5}` on both runtimes (it used to throw "no wire form" on the
-    ;; JVM and encode bare on nbb — one transaction, two logs). Out-of-domain
-    ;; numbers keep their old answer below: an integer is still bare and
-    ;; anything else is refused loudly — the wire records what was submitted,
-    ;; garbages included.
+    ;; JVM and encode bare on nbb — one transaction, two logs).
     (and (api/int-like? v) (fx/in-domain? v)) (long v)
-    (integer? v) v
+    ;; A whole number OUTSIDE the domain carries its exact digits under "u"
+    ;; (Gap 1: it used to throw "no wire form" on the JVM, where `integer?`
+    ;; is a TYPE test, and encode bare on JS, where it is a VALUE test — one
+    ;; signed block, two logs, and the JVM sequencer halted at the wire).
+    ;; A js/BigInt is digits-only here: not `number?`, and `long` throws.
+    (or (and (wire-number? v) (api/int-like? v))
+        #?(:cljs (instance? js/BigInt v) :clj false))
+    ["u" (u-digits v)]
+    ;; A fractional double and a signed infinity carry their exact decimal
+    ;; expansion under "d" (Gap 2: both threw "no wire form" on BOTH
+    ;; runtimes — a block the engine had already handled and recorded as
+    ;; :rejected into the root could not be committed at all). NaN falls
+    ;; past here on purpose: `(= ##NaN ##NaN)` is false, the round-trip law
+    ;; cannot hold, so it stays the loud refusal at the bottom.
+    (and (wire-number? v) (== v v)) ["d" (d-digits v)]
     (string? v) v
     ;; The colon is `str`'s, not the keyword's: `:a/y` stringifies to
     ;; ":a/y" and `(keyword ":a/y")` names a DIFFERENT keyword (one whose
@@ -119,6 +226,18 @@
                   "k" (keyword (second w))
                   "b" (second w)
                   "n" nil
+                  ;; "u" decodes to the runtime's own integer category —
+                  ;; BigInt on the JVM, Number on JS. This is the one place
+                  ;; the two runtimes' value TYPES legitimately differ; the
+                  ;; wire digits are identical and `==` (unlike `=`, which
+                  ;; is type-sensitive across categories) is the honest
+                  ;; comparison for a recovered value.
+                  "u" #?(:clj (bigint (second w))
+                         :cljs (js/Number (js/BigInt (second w))))
+                  ;; "d" parses to the nearest double — which, for the
+                  ;; exact expansion of a double, is the double itself.
+                  "d" #?(:clj (Double/parseDouble (second w))
+                         :cljs (js/parseFloat (second w)))
                   "m" (into {} (map (fn [[k v]] [(dec-val k) (dec-val v)])
                                     (second w)))
                   "v" (mapv dec-val (second w))
@@ -193,6 +312,31 @@
 
 ;; ── what gets signed ────────────────────────────────────────────────────────
 
+(defn- slot-str
+  "The canonical rendering of one signed value: a number goes through the
+  number canon (exact digits — `str` would print 1e17 as \"1.0E17\" on the
+  JVM and \"100000000000000000\" on JS, so the two runtimes would sign
+  different bytes over the same block), anything else is `str` — nil as the
+  empty string, as before. Total: it never throws."
+  [v]
+  (cond
+    (and (wire-number? v) (api/int-like? v)) (u-digits v)
+    #?(:cljs (instance? js/BigInt v) :clj false) (u-digits v)
+    (and (wire-number? v) (== v v)) (d-digits v)
+    :else (str v)))
+
+(defn- kind-str
+  "The canonical rendering of a transaction kind. Total — `(name (:tx t))`
+  threw on a kind that was not a keyword and DROPPED a namespaced
+  keyword's namespace (`:a/y` printed \"y\"): a keyword becomes its string
+  with the slash kept, a string is itself, anything else falls back to the
+  slot rendering."
+  [k]
+  (cond
+    (keyword? k) (subs (str k) 1)
+    (string? k) k
+    :else (slot-str k)))
+
 (defn signing-payload
   "The canonical bytes-as-string a sequencer signs.
 
@@ -210,10 +354,12 @@
        "ntx=" (count txs) "\n"
        (apply str (for [t txs
                         :let [t (api/canon-tx t)]]
-                    (str (name (:tx t)) ":"
-                         (:account t) ":" (:market t) ":" (:side t) ":"
-                         (:level t) ":" (:qty t) ":" (:flags t) ":"
-                         (:oid t) ":" (:amount t) ":" (:price t) "\n")))))
+                    (str (kind-str (:tx t)) ":"
+                         (slot-str (:account t)) ":" (slot-str (:market t)) ":"
+                         (slot-str (:side t)) ":" (slot-str (:level t)) ":"
+                         (slot-str (:qty t)) ":" (slot-str (:flags t)) ":"
+                         (slot-str (:oid t)) ":" (slot-str (:amount t)) ":"
+                         (slot-str (:price t)) "\n")))))
 
 ;; ── producing the log ───────────────────────────────────────────────────────
 

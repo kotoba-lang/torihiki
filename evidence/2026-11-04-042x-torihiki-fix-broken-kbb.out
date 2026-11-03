@@ -1,0 +1,184 @@
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.integral-double-test
+
+Testing torihiki.leverage-doors-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+FAIL in (out-of-domain-whole-numbers-tag-u) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-21810.cljk:238)
+expected: (= ["u" u-1e17] (amount-wire 100000000000000000))
+  actual: (not (= ["u" "100000000000000000"] 100000000000000000))
+
+FAIL in (out-of-domain-whole-numbers-tag-u) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-21810.cljk:239)
+expected: (= ["u" u-neg-2p5e18] (amount-wire -2500000000000000000))
+  actual: (not (= ["u" "-2500000000000000000"] -2500000000000000000))
+
+ERROR in (out-of-domain-whole-numbers-tag-u) (:240:7)
+expected: (= ["u" u-1p5e300] (amount-wire 1.5e+300))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 1.5e+300}}
+
+FAIL in (out-of-domain-whole-numbers-tag-u) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-21810.cljk:241)
+the tag follows the value, not the slot
+expected: (= ["u" u-1e17] (get (log/tx->wire {:tx :withdraw-invalidate-attest, :account 1, :claim 100000000000000000}) "claim"))
+  actual: (not (= ["u" "100000000000000000"] 100000000000000000))
+
+ERROR in (fractional-numbers-tag-d) (:250:7)
+expected: (= ["d" d-5p5] (amount-wire 5.5))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 5.5}}
+
+ERROR in (fractional-numbers-tag-d) (:251:7)
+expected: (= ["d" d-neg-2p5] (amount-wire -2.5))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value -2.5}}
+
+ERROR in (fractional-numbers-tag-d) (:252:7)
+expected: (= ["d" d-2p5] (amount-wire 2.5))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 2.5}}
+
+ERROR in (fractional-numbers-tag-d) (:253:7)
+expected: (= ["d" d-0p1] (amount-wire 0.1))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 0.1}}
+
+ERROR in (fractional-numbers-tag-d) (:254:7)
+expected: (= ["d" d-0p1-plus-0p2] (amount-wire (+ 0.1 0.2)))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 0.30000000000000004}}
+
+ERROR in (fractional-numbers-tag-d) (:255:7)
+expected: (= ["d" d-1e-300] (amount-wire 1e-300))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 1e-300}}
+
+ERROR in (fractional-numbers-tag-d) (:256:7)
+expected: (= ["d" "Infinity"] (amount-wire ##Inf))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value ##Inf}}
+
+ERROR in (fractional-numbers-tag-d) (:257:7)
+expected: (= ["d" "-Infinity"] (amount-wire ##-Inf))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value ##-Inf}}
+
+ERROR in (the-wire-round-trip-is-idempotent) (todo:)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:type :sci/error, :line 112, :column 11, :message "torihiki.log: value has no wire form", :sci.impl/callstack #object[cljs.core.Volatile {:val (#sci.impl.utils.StackFrame{:line 278, :column 3, :end-line nil, :end-column nil, :ns #object[at torihiki.log-test], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/test/torihiki/log_test.cljk", :f-meta nil, :special false} #sci.impl.utils.StackFrame{:line 280, :column 13, :end-line nil, :end-column nil, :ns #object[at torihiki.log-test], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/test/torihiki/log_test.cljk", :f-meta {:arglists ([tx]), :doc "Encode a transaction exactly — every key, every value, whatever the engine\n  will later make of it.\n\n  The kind rides under \"tx\": a plain keyword as its name string (the shape\n  every committed block has), anything else tagged. Other entries ride under\n  their name string when that name is unambiguous, and under `pairs-key` when\n  it is not — so a transaction carrying a namespaced key or a key the codec\n  has never seen still round-trips byte-exactly through `wire->tx`.", :line 130, :column 1, :ns #object[at torihiki.log], :name tx->wire, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 147, :column 14, :end-line nil, :end-column nil, :ns #object[at torihiki.log], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk", :f-meta {:name into, :doc "Returns a new coll consisting of to-coll with all of the items of\n  from-coll conjoined. A transducer may be supplied.", :arglists ([] [to] [to from] [to xform from]), :file "cljs/core.cljs", :line 5430, :column 7, :ns #object[at clojure.core], :sci/built-in true}, :special false} #sci.impl.utils.StackFrame{:line nil, :column nil, :end-line nil, :end-column nil, :ns #object[at torihiki.log], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk", :f-meta nil, :special false} #sci.impl.utils.StackFrame{:line 148, :column 35, :end-line nil, :end-column nil, :ns #object[at torihiki.log], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk", :f-meta {:private true, :arglists ([v]), :doc "The wire form of one value: bare where the wire format was always bare\n  (integers, strings), tagged `[tag payload]` where the type must survive the\n  round trip. Total over the EDN subset a transaction can carry; anything\n  else has no wire form and is refused loudly rather than mangled.\n\n  Map entries are sorted by the printed encoding of their key so two runtimes\n  that fold the same map produce the same bytes — an unsorted pair list would\n  make the CID depend on hash iteration order.", :line 78, :column 1, :ns #object[at torihiki.log], :name enc-val, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 112, :column 11, :end-line nil, :end-column nil, :ns #object[at torihiki.log], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk", :f-meta nil, :special true})}], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261104-0028/src/torihiki/log.cljk"}, :cause #error {:message "torihiki.log: value has no wire form", :data {:value 5.5}}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery 5.5
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 5.5}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery -2.5
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value -2.5}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery 2.5
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 2.5}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery 0.1
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 0.1}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery 0.30000000000000004
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 0.30000000000000004}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery 1e-300
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 1e-300}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery Infinity
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value ##Inf}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:286:9)
+exact recovery -Infinity
+expected: (= v (amount-back v))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value ##-Inf}}
+
+ERROR in (decoded-numbers-recover-the-submitted-value) (:293:7)
+expected: (== 1.5e+300 (amount-back 1.5e+300))
+  actual: #error {:message "torihiki.log: value has no wire form", :data {:value 1.5e+300}}
+
+ERROR in (the-signing-kind-rendering-is-total) (:314:7)
+a numeric kind renders as its digits — never a throw
+expected: (= (str "torihiki/block\n" "height=1\n" "ts=100\n" "state-root=root-a\n" "prev=genesis\n" "ntx=1\n" "5:::::::::\n") (log/signing-payload 1 100 "root-a" nil [{:tx 5}]))
+  actual: #object[Error Error: Doesn't support name: 5]
+
+FAIL in (the-signing-kind-rendering-is-total) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-21810.cljk:323)
+a namespaced kind keeps its slash
+expected: (= (str "torihiki/block\n" "height=1\n" "ts=100\n" "state-root=root-a\n" "prev=genesis\n" "ntx=1\n" "a/y:::::::::\n") (log/signing-payload 1 100 "root-a" nil [{:tx :a/y}]))
+  actual: (not (= "torihiki/block\nheight=1\nts=100\nstate-root=root-a\nprev=genesis\nntx=1\na/y:::::::::\n" "torihiki/block\nheight=1\nts=100\nstate-root=root-a\nprev=genesis\nntx=1\ny:::::::::\n"))
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Ran 608 tests containing 5250 assertions.
+4 failures, 20 errors.
+kbb test: 608 test(s), 5226 pass, 4 fail, 20 error

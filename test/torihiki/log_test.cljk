@@ -101,6 +101,30 @@
     (is (:ok (log/replay get-fn (:cid r) fresh))
         "replay agrees on the rejections")))
 
+(deftest an-infinite-amount-is-rejected-into-the-root-not-thrown
+  ;; The door predicate (`torihiki.api/int-like?`) judged whole-ness with
+  ;; `rem` — which THROWS on an infinity on the JVM ("Infinite or NaN"; the
+  ;; JVM's remainder is BigDecimal-backed) and lands on NaN on JS. One
+  ;; signed tx with :amount ##Inf halted the JVM sequencer inside
+  ;; apply-block ("never thrown from" broken at the door) while the JS leg
+  ;; answered :bad-amount — falsify-6/7 class. A non-finite number is not
+  ;; whole; that is answered BEFORE `rem`, identically on both runtimes.
+  ;; End to end through the codec: the block COMMITS, each tx lands
+  ;; :rejected into the root, replay agrees.
+  (let [{:keys [put! get-fn]} (store)
+        r (log/commit-blocks! (fresh) put! get-fn nil
+                              [{:height 1 :ts 100
+                                :txs [{:tx :deposit :account 1 :amount ##Inf}
+                                      {:tx :deposit :account 1 :amount ##-Inf}]}])]
+    (is (= 1 (count (:roots r)))
+        "the block commits — no throw at the door or the codec")
+    (is (= [{:index 0 :tx :deposit :reason :bad-amount}
+            {:index 1 :tx :deposit :reason :bad-amount}]
+           (:rejected (:exchange r)))
+        "an infinity is a bad amount, like every out-of-range number")
+    (is (:ok (log/replay get-fn (:cid r) fresh))
+        "replay agrees on the rejections")))
+
 ;; ── producing and checking ──────────────────────────────────────────────────
 
 (deftest log-is-well-formed-and-replays
@@ -200,3 +224,132 @@
     (is (not= (log/signing-payload 2 200 "root-a" nil (:txs b))
               (log/signing-payload 2 200 "root-b" nil (:txs b)))
         "a signature that ignored the root would authenticate an invented one")))
+
+;; ── the number canon ────────────────────────────────────────────────────────
+;;
+;; Every real number a transaction can carry has ONE canonical wire form and
+;; ONE canonical signing rendering, byte-identical on both runtimes. `str` is
+;; not that rendering: 1e17 prints "1.0E17" on the JVM and "100000000000000000"
+;; on JS. The digit strings below are JVM ground truth (BigDecimal's exact
+;; double constructor route — regenerate from evidence/wnc-jvm-lits.clj, never
+;; hand-copy), validated byte-for-byte on kbb (evidence/wnc-kbb-probe.cljk).
+
+(def u-1e17 "100000000000000000")
+(def u-neg-2p5e18 "-2500000000000000000")
+(def u-1p5e300 "1500000000000000078757140382806630373056702871662238732373781173267703686983362293679557062620671796065556665749325817265413784853040645863467188277180060474272580801389863705606745350692182135089053429852456199917621678558451461320111979114170213741868888183230085264257173504208294580298189100810240")
+(def d-5p5 "5.5")
+(def d-neg-2p5 "-2.5")
+(def d-2p5 "2.5")
+(def d-0p1 "0.1000000000000000055511151231257827021181583404541015625")
+(def d-0p1-plus-0p2 "0.3000000000000000444089209850062616169452667236328125")
+(def d-1e-300 "0.00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100000000000000002505909183520875968569614680770370524992534231990046604318405148467630281218195010089496230627027825414891031146499880413081224609160619018271942662793458427551041478278701507022263926060379361392435977509403014386614147912551359088259101734169222292122040491862182202915561954185941852588326204092831631787205015401996986616948980410676557942431921652541808732242554300585073938340203330993157646467433638479065531661724812599598594906293782493759617177861888792970476530542335134710418229637566637950767497147854236589795152044892049176025289756709261767081824924720105632337755616538050643653812583050224659631159300563236507929025398878153811554013986009587978081167432804936359631140419153283449560376539011485874652862548828125")
+
+(defn- amount-wire
+  "The wire form of the :amount field of a deposit carrying `v`."
+  [v]
+  (get (log/tx->wire {:tx :deposit :account 1 :amount v}) "amount"))
+
+(defn- amount-back
+  "The decoded :amount after a full wire round trip."
+  [v]
+  (:amount (log/wire->tx (log/tx->wire {:tx :deposit :account 1 :amount v}))))
+
+(deftest out-of-domain-whole-numbers-tag-u
+  ;; Gap 1: a whole number outside the i53 domain threw "no wire form" on the
+  ;; JVM (integer? is a TYPE test there) and encoded bare on kbb (integer? is
+  ;; a VALUE test there) — one signed block, two logs, and the JVM sequencer
+  ;; halted at the wire. Now: one wire form, both runtimes.
+  (is (= ["u" u-1e17] (amount-wire 1e17)))
+  (is (= ["u" u-neg-2p5e18] (amount-wire -2.5e18)))
+  (is (= ["u" u-1p5e300] (amount-wire 1.5e300)))
+  (is (= ["u" u-1e17]
+         (get (log/tx->wire {:tx :withdraw-invalidate-attest :account 1 :claim 1e17})
+              "claim"))
+      "the tag follows the value, not the slot"))
+
+(deftest fractional-numbers-tag-d
+  ;; Gap 2: a fractional double threw "no wire form" on BOTH runtimes — a
+  ;; block the engine had already handled (:bad-amount, recorded :rejected
+  ;; into the root) could not be committed at all.
+  (is (= ["d" d-5p5] (amount-wire 5.5)))
+  (is (= ["d" d-neg-2p5] (amount-wire -2.5)))
+  (is (= ["d" d-2p5] (amount-wire 2.5)))
+  (is (= ["d" d-0p1] (amount-wire 0.1)))
+  (is (= ["d" d-0p1-plus-0p2] (amount-wire (+ 0.1 0.2))))
+  (is (= ["d" d-1e-300] (amount-wire 1e-300)))
+  (is (= ["d" "Infinity"] (amount-wire ##Inf)))
+  (is (= ["d" "-Infinity"] (amount-wire ##-Inf))))
+
+(deftest in-domain-integral-numbers-stay-bare
+  ;; Over-tightening guard: the canon must not touch what the wire format
+  ;; always wrote bare.
+  (is (= 5 (amount-wire 5)))
+  (is (= 5 (amount-wire 5.0)) "an in-bounds integral double IS its integer")
+  (is (= 0 (amount-wire -0.0)) "-0.0 is 0 on the wire")
+  (is (= 0 (amount-back -0.0)) "and decodes as 0"))
+
+(deftest nan-has-no-wire-form
+  ;; (= ##NaN ##NaN) is false, so the round-trip law cannot hold for NaN — it
+  ;; is refused loudly and symmetrically, on both runtimes, forever.
+  (is (thrown? #?(:clj Exception :cljs :default)
+               (log/tx->wire {:tx :deposit :account 1 :amount ##NaN}))
+      "NaN has no wire form"))
+
+(deftest the-wire-round-trip-is-idempotent
+  ;; THE LAW, pinned at the wire level where it is runtime-independent:
+  ;; encoding what decoding produced reproduces the same bytes. Never a
+  ;; type-sensitive `=` across a submitted double and a decoded value.
+  (doseq [v [1e17 -2.5e18 5.5 0.1 -0.0 1e-300 1.5e300 ##Inf ##-Inf]]
+    (let [tx {:tx :deposit :account 1 :amount v}
+          w (log/tx->wire tx)]
+      (is (= w (log/tx->wire (log/wire->tx w)))
+          (str "idempotent wire for " v)))))
+
+(deftest decoded-numbers-recover-the-submitted-value
+  (doseq [v [5.5 -2.5 2.5 0.1 (+ 0.1 0.2) 1e-300 ##Inf ##-Inf]]
+    (is (= v (amount-back v)) (str "exact recovery " v)))
+  ;; "u" values decode to the runtime's integer category (BigInt on the JVM,
+  ;; Number on JS) and Clojure `=` is TYPE-sensitive across categories
+  ;; (measured: (= 1e17 (bigint "100000000000000000")) is false on the JVM) —
+  ;; the recovered value is pinned category-blind:
+  (is (== 1e17 (amount-back 1e17)))
+  (is (== -2.5e18 (amount-back -2.5e18)))
+  (is (== 1.5e300 (amount-back 1.5e300))))
+
+(deftest signing-payload-renders-numbers-through-the-number-canon
+  ;; Gap 3: the signing payload printed `str`, which is "1.0E17" on the JVM
+  ;; and "100000000000000000" on kbb — a signature produced on one runtime
+  ;; could not verify against the other's payload computation.
+  (is (= (str "torihiki/block\n"
+              "height=1\n"
+              "ts=100\n"
+              "state-root=root-a\n"
+              "prev=genesis\n"
+              "ntx=1\n"
+              "deposit:" u-1e17 ":::::::5.5:\n")
+         (log/signing-payload 1 100 "root-a" nil
+                              [{:tx :deposit :account 1e17 :amount 5.5}]))))
+
+(deftest the-signing-kind-rendering-is-total
+  ;; (name (:tx t)) threw on anything not a keyword and DROPPED the namespace
+  ;; of a namespaced kind (:a/y printed "y"). One total helper now: keyword ->
+  ;; name with the slash kept, string -> as-is, number -> canon digits,
+  ;; anything else -> str. It never throws.
+  (is (= (str "torihiki/block\n"
+              "height=1\n"
+              "ts=100\n"
+              "state-root=root-a\n"
+              "prev=genesis\n"
+              "ntx=1\n"
+              "5:::::::::\n")
+         (log/signing-payload 1 100 "root-a" nil [{:tx 5}]))
+      "a numeric kind renders as its digits — never a throw")
+  (is (= (str "torihiki/block\n"
+              "height=1\n"
+              "ts=100\n"
+              "state-root=root-a\n"
+              "prev=genesis\n"
+              "ntx=1\n"
+              "a/y:::::::::\n")
+         (log/signing-payload 1 100 "root-a" nil [{:tx :a/y}]))
+      "a namespaced kind keeps its slash"))
