@@ -21,34 +21,28 @@ int    g_sock = INVALID_HANDLE;
 long   g_n    = 0;
 string g_syms[];
 
-//--- JSON string literal (symbol names and currency only; escape \ and ")
-string JStr(const string s)
-  {
-   string o = s;
-   StringReplace(o, "\\", "\\\\");
-   StringReplace(o, "\"", "\\\"");
-   return "\"" + o + "\"";
-  }
-
-//--- every frame carries a strictly increasing n within a connection
-string Head(const string t)
+//--- protocol v2: one ASCII text line per frame, "n VERB field field ...".
+//    Fields never contain spaces: symbols and currency are single tokens and
+//    numbers are DoubleToString output. The consumer drops any line that is
+//    not printable ASCII with single spaces.
+string Head(const string verb)
   {
    g_n++;
-   return "{\"t\":" + JStr(t) + ",\"n\":" + IntegerToString(g_n);
+   return IntegerToString(g_n) + " " + verb;
   }
 
 bool SendLine(const string body)
   {
    if(g_sock == INVALID_HANDLE) return false;
    uchar buf[];
-   int len = StringToCharArray(body + "}\n", buf, 0, WHOLE_ARRAY, CP_UTF8) - 1; // drop terminator
+   int len = StringToCharArray(body + "\n", buf, 0, WHOLE_ARRAY, CP_UTF8) - 1; // drop terminator
    if(len <= 0) return false;
    return SocketSend(g_sock, buf, (uint)len) == len;
   }
 
-//--- decimals are sent as strings with the symbol's own digit count, so the
+//--- decimals are sent as text with the symbol's own digit count, so the
 //    consumer never sees a binary float
-string Px(const double v, const int digits) { return JStr(DoubleToString(v, digits)); }
+string Px(const double v, const int digits) { return DoubleToString(v, digits); }
 
 int VolDigits(const double step)
   {
@@ -76,13 +70,13 @@ bool SendSym(const string sym)
    double step   = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
    int    vd     = VolDigits(step);
    double tick   = SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE);
-   return SendLine(Head("sym") + ",\"s\":" + JStr(sym)
-                   + ",\"digits\":" + IntegerToString(digits)
-                   + ",\"step\":" + JStr(DoubleToString(step, vd))
-                   + ",\"min\":"  + JStr(DoubleToString(SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN), vd))
-                   + ",\"max\":"  + JStr(DoubleToString(SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX), vd))
-                   + ",\"tick\":" + JStr(DoubleToString(tick, digits))
-                   + ",\"trade\":" + JStr(TradeMode(sym)));
+   return SendLine(Head("SYM") + " " + sym
+                   + " " + IntegerToString(digits)
+                   + " " + DoubleToString(step, vd)
+                   + " " + DoubleToString(SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN), vd)
+                   + " " + DoubleToString(SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX), vd)
+                   + " " + DoubleToString(tick, digits)
+                   + " " + TradeMode(sym));
   }
 
 bool SendTick(const string sym)
@@ -91,25 +85,23 @@ bool SendTick(const string sym)
    if(!SymbolInfoTick(sym, t)) return true;       // no tick yet: say nothing
    if(t.bid <= 0.0 || t.ask <= 0.0) return true;
    int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-   return SendLine(Head("tick") + ",\"s\":" + JStr(sym)
-                   + ",\"bid\":" + Px(t.bid, digits)
-                   + ",\"ask\":" + Px(t.ask, digits));
+   return SendLine(Head("TICK") + " " + sym + " " + Px(t.bid, digits) + " " + Px(t.ask, digits));
   }
 
 bool SendAccount()
   {
-   return SendLine(Head("acct")
-                   + ",\"balance\":" + JStr(DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2))
-                   + ",\"equity\":"  + JStr(DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2))
-                   + ",\"margin\":"  + JStr(DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2))
-                   + ",\"free\":"    + JStr(DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2))
-                   + ",\"ccy\":"     + JStr(AccountInfoString(ACCOUNT_CURRENCY)));
+   return SendLine(Head("ACCT")
+                   + " " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2)
+                   + " " + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2)
+                   + " " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN), 2)
+                   + " " + DoubleToString(AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2)
+                   + " " + AccountInfoString(ACCOUNT_CURRENCY));
   }
 
 //--- the whole list is bracketed so the consumer replaces its copy atomically
 bool SendPositions()
   {
-   if(!SendLine(Head("pos-begin"))) return false;
+   if(!SendLine(Head("POS-BEGIN"))) return false;
    int total = PositionsTotal();
    for(int i = 0; i < total; i++)
      {
@@ -120,11 +112,10 @@ bool SendPositions()
       double vol  = PositionGetDouble(POSITION_VOLUME);
       double step = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
       string side = (type == POSITION_TYPE_BUY) ? "buy" : "sell";
-      if(!SendLine(Head("pos") + ",\"s\":" + JStr(sym) + ",\"type\":" + JStr(side)
-                   + ",\"vol\":" + JStr(DoubleToString(vol, VolDigits(step)))))
+      if(!SendLine(Head("POS") + " " + sym + " " + side + " " + DoubleToString(vol, VolDigits(step))))
          return false;
      }
-   return SendLine(Head("pos-end"));
+   return SendLine(Head("POS-END"));
   }
 
 void Disconnect()
@@ -140,7 +131,7 @@ bool Connect()
    g_n = 0;                                       // a new connection restarts n
    string mode = "other";
    if(AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO) mode = "demo";
-   if(!SendLine("{\"t\":\"hello\",\"v\":1,\"n\":0,\"mode\":" + JStr(mode) + "}")) { Disconnect(); return false; }
+   if(!SendLine("HELLO 2 " + mode)) { Disconnect(); return false; }
    for(int i = 0; i < ArraySize(g_syms); i++)
       if(!SendSym(g_syms[i])) { Disconnect(); return false; }
    return true;

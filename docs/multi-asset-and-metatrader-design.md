@@ -162,3 +162,4 @@ history(since)
   - 検証: `amu check` ok、全ケース 0 失敗、CONTROL 変種はちょうど 1 失敗（2026-11-04、amu a4c16e7c4）。cljk 側と同じケースを手で移したもので、機械的な突き合わせではない。
   - 計測で分かった制約: `string-code-point-at` は UTF-8 **バイト**オフセットを取り、多バイト文字の途中を指すと SIGTRAP で無出力終了する。走査は読んだ文字の幅だけ進める。`result-match-of` + ラムダは `amu run` が EABI で拒否するため option と番兵で書いた。
   - 段 2 以降（MT フレーム reducer の行テキスト化、router/fake、loopback 待受）は未着手。
+- **Kotoba 移植・段 2（JUN-816）**: MT フレームを v2 の 1 行テキストにし、reducer と照会を `kotoba/torihiki/venue_mt.kotoba` へ移植、EA も v2 に追随。状態は行テキスト（`:document` は整数が使えない）。`script/kotoba-venue-test.sh` が venue と venue_mt の 2 本を実行し、各 CONTROL 変種がちょうど 1 件失敗することを要求する。負の対照（デモ判定・鮮度判定・リスト外 POS の判定を無効化）で 13 件失敗することを確認（2026-11-04）。cljk の `venue_mt`（v1 JSON）は v1 の oracle として残るが、EA はもう v1 を話さない。router/fake（段 3）・loopback 待受（段 4）は未着手。

@@ -1,0 +1,428 @@
+(ns torihiki.venue-mt)
+
+;; The read-only MT5 adapter's reducer and queries, in Kotoba (JUN-816 stage 2).
+;; src/torihiki/venue_mt.cljk (JUN-814) is the ORACLE for the v1 JSON frames
+;; and stays. This reads protocol v2: one ASCII text line per frame, the shape
+;; the Amu GPU protocol uses, because a JSON reader is far more code than the
+;; frames are worth. Spec: docs/mt5-readonly-bridge.md.
+;;
+;; Needs torihiki.venue (kotoba/torihiki/venue.kotoba) in the same unit.
+;;
+;;   HELLO 2 demo                                    first line of a connection
+;;   n SYM sym digits step min max tick trade
+;;   n TICK sym bid ask
+;;   n ACCT balance equity margin free ccy
+;;   n POS-BEGIN
+;;   n POS sym buy|sell vol
+;;   n POS-END
+;;
+;; The state is TEXT, one record per line, because `:document` has no integer
+;; (measured 2026-11-04: only the compiler's own seed names a document-i64) and
+;; everything held here is a short ASCII token anyway:
+;;
+;;   H ok|none|locked            N <last n>        R <count> <last reason>
+;;   S sym digits step min max tick trade
+;;   T sym bid ask rx            A balance equity margin free ccy rx
+;;   B (a position list is open) W sym buy|sell vol (its entries so far)
+;;   P rx                        Q sym signed-volume (the last complete list)
+;;
+;; Differences from the cljk, none a translation artefact:
+;; - a state is a string and every function returns the next one; there is no
+;;   atom to hold it and no function map, so there is also no `place` to
+;;   refuse: the adapter has no way to send anything, which is the property
+;;   the cljk had to assert with `{:error :read-only}`;
+;; - rejections keep a count and the LAST reason, not the last twenty;
+;; - the positions list is in symbol-announcement order, not sorted by name;
+;; - a line that is not printable ASCII with single spaces is rejected whole
+;;   as "bad-line" before it is looked at.
+;;
+;; Queries answer "OK ..." or "ERR <reason>" so the caller can tell a missing
+;; answer from an empty one.
+
+(def NO-ROW "")
+
+;; ── text helpers (ASCII only; every scan steps by one byte) ────────────────
+
+(defn ascii-line? [s :string i :i64 n :i64] :bool
+  (if (>= i n)
+    true
+    (let [c (string-code-point-at s i)]
+      (if (and (>= c 32) (<= c 126)) (ascii-line? s (+ i 1) n) false))))
+
+;; no leading or trailing space, no two in a row
+(defn spaced? [s :string i :i64 n :i64] :bool
+  (cond
+    (>= i n) true
+    (and (= (string-code-point-at s i) 32)
+         (or (= i 0) (= i (- n 1)) (= (string-code-point-at s (- i 1)) 32))) false
+    :else (spaced? s (+ i 1) n)))
+
+(defn line-shaped? [s :string] :bool
+  (let [n (string-length s)]
+    (if (and (> n 0) (ascii-line? s 0 n) (spaced? s 0 n)) true false)))
+
+(defn skip-sp [s :string i :i64 n :i64] :i64
+  (if (and (< i n) (= (string-code-point-at s i) 32)) (skip-sp s (+ i 1) n) i))
+
+(defn skip-word [s :string i :i64 n :i64] :i64
+  (if (and (< i n) (not (= (string-code-point-at s i) 32))) (skip-word s (+ i 1) n) i))
+
+(defn tok-pos [s :string k :i64 i :i64 n :i64] :i64
+  (let [j (skip-sp s i n)]
+    (cond
+      (>= j n) -1
+      (= k 0) j
+      :else (tok-pos s (- k 1) (skip-word s j n) n))))
+
+(defn tok [s :string k :i64] :string
+  (let [n (string-length s)
+        p (tok-pos s k 0 n)]
+    (if (< p 0) "" (string-substring s p (skip-word s p n)))))
+
+(defn ntok-from [s :string i :i64 n :i64 acc :i64] :i64
+  (let [j (skip-sp s i n)]
+    (if (>= j n) acc (ntok-from s (skip-word s j n) n (+ acc 1)))))
+
+(defn ntok [s :string] :i64 (ntok-from s 0 (string-length s) 0))
+
+;; ── state as lines ─────────────────────────────────────────────────────────
+
+(defn line-end [s :string i :i64 n :i64] :i64
+  (cond
+    (>= i n) n
+    (= (string-code-point-at s i) 10) i
+    :else (line-end s (+ i 1) n)))
+
+(defn starts-at? [s :string i :i64 prefix :string] :bool
+  (let [pl (string-length prefix)]
+    (if (<= (+ i pl) (string-length s))
+      (string=? (string-substring s i (+ i pl)) prefix)
+      false)))
+
+(defn find-from [st :string prefix :string i :i64 n :i64] :string
+  (if (>= i n)
+    NO-ROW
+    (let [e (line-end st i n)]
+      (if (starts-at? st i prefix)
+        (string-substring st i e)
+        (find-from st prefix (+ e 1) n)))))
+
+;; the first line starting with `prefix`, without its newline; "" if none
+(defn row [st :string prefix :string] :string
+  (find-from st prefix 0 (string-length st)))
+
+(defn keep-from [st :string prefix :string i :i64 n :i64 acc :string keep :bool] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end st i n)
+          ln (string-concat (string-substring st i e) "\n")
+          m (starts-at? st i prefix)]
+      (keep-from st prefix (+ e 1) n
+                 (if (if keep m (not m)) (string-concat acc ln) acc)
+                 keep))))
+
+;; every line EXCEPT those starting with prefix / ONLY those
+(defn without [st :string prefix :string] :string
+  (keep-from st prefix 0 (string-length st) "" false))
+
+(defn only [st :string prefix :string] :string
+  (keep-from st prefix 0 (string-length st) "" true))
+
+(defn put [st :string prefix :string line :string] :string
+  (string-concat (without st prefix) (string-concat line "\n")))
+
+(defn add [st :string line :string] :string
+  (string-concat st (string-concat line "\n")))
+
+(defn sp [a :string b :string] :string
+  (string-concat a (string-concat " " b)))
+
+(defn empty-state [] :string "H none\nN 0\nR 0 -\n")
+
+(defn status [st :string] :string (tok (row st "H ") 1))
+(defn last-n [st :string] :i64 (dec-units (tok (row st "N ") 1)))
+(defn reject-count [st :string] :i64 (dec-units (tok (row st "R ") 1)))
+(defn last-reject [st :string] :string (tok (row st "R ") 2))
+
+(defn reject [st :string reason :string] :string
+  (put st "R "
+       (string-concat "R "
+         (string-concat (string-from-i64 (+ 1 (reject-count st)))
+           (string-concat " " reason)))))
+
+;; ── field checks ───────────────────────────────────────────────────────────
+
+(defn sym-char? [c :i64] :bool
+  (if (or (digit? c) (and (>= c 65) (<= c 90)) (and (>= c 97) (<= c 122))
+          (= c 46) (= c 95) (= c 35) (= c 45))
+    true false))
+
+(defn sym-chars? [s :string i :i64 n :i64] :bool
+  (cond (>= i n) true
+        (sym-char? (string-code-point-at s i)) (sym-chars? s (+ i 1) n)
+        :else false))
+
+(defn sym? [s :string] :bool
+  (let [n (string-length s)]
+    (if (and (>= n 1) (<= n 32) (sym-chars? s 0 n)) true false)))
+
+(defn alnum-chars? [s :string i :i64 n :i64] :bool
+  (cond (>= i n) true
+        (let [c (string-code-point-at s i)]
+          (or (digit? c) (and (>= c 65) (<= c 90)) (and (>= c 97) (<= c 122))))
+        (alnum-chars? s (+ i 1) n)
+        :else false))
+
+(defn ccy? [s :string] :bool
+  (let [n (string-length s)]
+    (if (and (>= n 1) (<= n 8) (alnum-chars? s 0 n)) true false)))
+
+(defn pos-dec? [s :string] :bool
+  (if (and (dec-ok? s) (> (dec-units s) 0)) true false))
+
+(defn nonneg-dec? [s :string] :bool
+  (if (and (dec-ok? s) (>= (dec-units s) 0) (not (dec-neg? s))) true false))
+
+;; a whole number token in [lo, hi]
+(defn int-in? [s :string lo :i64 hi :i64] :bool
+  (if (and (dec-ok? s) (= (dec-scale s) 0) (not (dec-neg? s))
+           (>= (dec-units s) lo) (<= (dec-units s) hi))
+    true false))
+
+(defn trade-mode? [s :string] :bool
+  (if (or (string=? s "full") (string=? s "disabled") (string=? s "longonly")
+          (string=? s "shortonly") (string=? s "closeonly"))
+    true false))
+
+(defn side? [s :string] :bool
+  (if (or (string=? s "buy") (string=? s "sell")) true false))
+
+;; ── frames ─────────────────────────────────────────────────────────────────
+
+(defn on-sym [st :string line :string] :string
+  (let [s (tok line 2)]
+    (if (and (= (ntok line) 9) (sym? s)
+             (int-in? (tok line 3) 0 MAX-SCALE)
+             (pos-dec? (tok line 4)) (pos-dec? (tok line 5))
+             (pos-dec? (tok line 6)) (pos-dec? (tok line 7))
+             (trade-mode? (tok line 8)))
+      (put st (sp "S" (sp s ""))
+           (sp "S" (sp s (sp (tok line 3) (sp (tok line 4) (sp (tok line 5)
+                (sp (tok line 6) (sp (tok line 7) (tok line 8)))))))))
+      (reject st "bad-sym"))))
+
+(defn on-tick [st :string line :string now :i64] :string
+  (let [s (tok line 2) bid (tok line 3) ask (tok line 4)]
+    (if (and (= (ntok line) 5) (sym? s) (pos-dec? bid) (pos-dec? ask)
+             (>= (compare-decimals ask bid) 0) (<= (compare-decimals ask bid) 1))
+      (put st (sp "T" (sp s ""))
+           (sp "T" (sp s (sp bid (sp ask (string-from-i64 now))))))
+      (reject st "bad-tick"))))
+
+(defn on-acct [st :string line :string now :i64] :string
+  (if (and (= (ntok line) 7)
+           (nonneg-dec? (tok line 2)) (dec-ok? (tok line 3))
+           (nonneg-dec? (tok line 4)) (dec-ok? (tok line 5))
+           (ccy? (tok line 6)))
+    (put st "A "
+         (sp "A" (sp (tok line 2) (sp (tok line 3) (sp (tok line 4)
+              (sp (tok line 5) (sp (tok line 6) (string-from-i64 now))))))))
+    (reject st "bad-acct")))
+
+(defn has-open-list? [st :string] :bool
+  (if (string=? (row st "B") "") false true))
+
+(defn on-pos-begin [st :string line :string] :string
+  (if (= (ntok line) 2)
+    (add (without (without st "W ") "B") "B")
+    (reject st "bad-pos-begin")))
+
+(defn on-pos [st :string line :string] :string
+  (cond
+    (not (has-open-list? st)) (reject st "pos-outside-list")
+    (and (= (ntok line) 5) (sym? (tok line 2)) (side? (tok line 3)) (pos-dec? (tok line 4)))
+    (add st (string-concat "W "
+              (string-concat (tok line 2)
+                (string-concat " " (string-concat (tok line 3)
+                  (string-concat " " (tok line 4)))))))
+    ;; one bad entry abandons the whole list
+    :else (reject (without (without st "W ") "B") "bad-pos")))
+
+;; W line: W sym side vol ; S line: S sym digits step min max tick trade
+(defn step-of [st :string sym :string] :string
+  (tok (row st (string-concat "S " (string-concat sym " "))) 3))
+
+(defn w-line-ok? [st :string ln :string] :bool
+  (let [step (step-of st (tok ln 1))]
+    (if (and (not (string=? step ""))
+             (> (count-or (tok ln 3) step EXACT NOPE) NOPE))
+      true false)))
+
+(defn ws-ok? [st :string ws :string i :i64 n :i64] :bool
+  (if (>= i n)
+    true
+    (let [e (line-end ws i n)]
+      (if (w-line-ok? st (string-substring ws i e))
+        (ws-ok? st ws (+ e 1) n)
+        false))))
+
+(defn ws-net [st :string ws :string sym :string step :string i :i64 n :i64 acc :i64] :i64
+  (if (>= i n)
+    acc
+    (let [e (line-end ws i n)
+          ln (string-substring ws i e)]
+      (ws-net st ws sym step (+ e 1) n
+              (if (string=? (tok ln 1) sym)
+                (+ acc (if (string=? (tok ln 2) "buy")
+                         (count-or (tok ln 3) step EXACT 0)
+                         (- 0 (count-or (tok ln 3) step EXACT 0))))
+                acc)))))
+
+;; Q lines for every announced symbol with a non-zero net, in announcement order
+(defn emit-q [st :string ss :string ws :string i :i64 n :i64 acc :string] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end ss i n)
+          ln (string-substring ss i e)
+          sym (tok ln 1)
+          step (tok ln 3)
+          net (ws-net st ws sym step 0 (string-length ws) 0)]
+      (emit-q st ss ws (+ e 1) n
+              (if (= net 0)
+                acc
+                (string-concat acc
+                  (string-concat "Q "
+                    (string-concat sym
+                      (string-concat " " (string-concat (string-of net step) "\n"))))))))))
+
+(defn on-pos-end [st :string line :string now :i64] :string
+  (cond
+    (not (= (ntok line) 2)) (reject st "bad-pos-end")
+    (not (has-open-list? st)) (reject st "pos-end-without-begin")
+    :else
+    (let [ws (only st "W ")]
+      (if (ws-ok? st ws 0 (string-length ws))
+        (let [ss (only st "S ")
+              qs (emit-q st ss ws 0 (string-length ss) "")
+              base (without (without (without (without st "W ") "B") "P ") "Q ")]
+          (string-concat (add base (string-concat "P " (string-from-i64 now))) qs))
+        (reject (without (without st "W ") "B") "unrepresentable-position")))))
+
+(defn hello [st :string line :string] :string
+  (cond
+    (not (= (ntok line) 3)) (reject st "bad-hello")
+    (not (string=? (tok line 1) "2")) (reject st "bad-version")
+    (not (string=? (tok line 2) "demo")) "H locked\nN 0\nR 0 -\n"
+    :else "H ok\nN 0\nR 0 -\n"))
+
+(defn dispatch [st :string line :string now :i64] :string
+  (let [v (tok line 1)]
+    (cond
+      (string=? v "SYM") (on-sym st line)
+      (string=? v "TICK") (on-tick st line now)
+      (string=? v "ACCT") (on-acct st line now)
+      (string=? v "POS-BEGIN") (on-pos-begin st line)
+      (string=? v "POS") (on-pos st line)
+      (string=? v "POS-END") (on-pos-end st line now)
+      :else (reject st "unknown-type"))))
+
+;; The state after one received line at `now` (ms, the adapter's clock).
+;; Total: a bad line returns the state with the rejection recorded.
+(defn ingest [st :string line :string now :i64] :string
+  (cond
+    (not (line-shaped? line)) (reject st "bad-line")
+    (string=? (tok line 0) "HELLO") (hello st line)
+    (string=? (status st) "locked") st
+    (string=? (status st) "none") (reject st "no-hello")
+    (not (int-in? (tok line 0) (+ 1 (last-n st)) I53-MAX)) (reject st "bad-seq")
+    :else (dispatch (put st "N " (string-concat "N " (tok line 0))) line now)))
+
+;; ── queries ────────────────────────────────────────────────────────────────
+
+;; "" when the state can answer, else the error line
+(defn gate [st :string] :string
+  (cond
+    (string=? (status st) "locked") "ERR locked"
+    (not (string=? (status st) "ok")) "ERR no-data"
+    :else ""))
+
+(defn fresh? [rx :string now :i64 max-age :i64] :bool
+  (if (<= (- now (dec-units rx)) max-age) true false))
+
+;; OK digits step min max trade-allowed(1|0) trade, or "OK -" for an unknown symbol
+(defn q-symbol-info [st :string sym :string] :string
+  (let [g (gate st)]
+    (if (not (string=? g ""))
+      g
+      (let [r (row st (string-concat "S " (string-concat sym " ")))]
+        (if (string=? r "")
+          "OK -"
+          (string-concat "OK "
+            (string-concat (tok r 2)
+              (string-concat " " (string-concat (tok r 3)
+                (string-concat " " (string-concat (tok r 4)
+                  (string-concat " " (string-concat (tok r 5)
+                    (string-concat " " (string-concat (if (string=? (tok r 7) "full") "1" "0")
+                      (string-concat " " (tok r 7)))))))))))))))))
+
+;; OK bid ask rx
+(defn q-quote [st :string now :i64 max-age :i64 sym :string] :string
+  (let [g (gate st)]
+    (if (not (string=? g ""))
+      g
+      (let [r (row st (string-concat "T " (string-concat sym " ")))]
+        (cond
+          (string=? r "") "ERR no-quote"
+          (not (fresh? (tok r 4) now max-age)) "ERR stale"
+          :else (string-concat "OK " (string-concat (tok r 2)
+                  (string-concat " " (string-concat (tok r 3)
+                    (string-concat " " (tok r 4)))))))))))
+
+;; OK balance equity margin free ccy
+(defn q-account [st :string now :i64 max-age :i64] :string
+  (let [g (gate st)]
+    (if (not (string=? g ""))
+      g
+      (let [r (row st "A ")]
+        (cond
+          (string=? r "") "ERR no-data"
+          (not (fresh? (tok r 6) now max-age)) "ERR stale"
+          :else (string-concat "OK " (string-concat (tok r 1)
+                  (string-concat " " (string-concat (tok r 2)
+                    (string-concat " " (string-concat (tok r 3)
+                      (string-concat " " (string-concat (tok r 4)
+                        (string-concat " " (tok r 5)))))))))))))))
+
+(defn q-list [qs :string i :i64 n :i64 acc :string] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end qs i n)
+          ln (string-substring qs i e)]
+      (q-list qs (+ e 1) n
+              (string-concat acc (string-concat " " (string-concat (tok ln 1)
+                (string-concat ":" (tok ln 2)))))))))
+
+;; "OK" then " SYM:VOL" for each held symbol (signed volume); "OK" alone is flat
+(defn q-positions [st :string now :i64 max-age :i64] :string
+  (let [g (gate st)]
+    (if (not (string=? g ""))
+      g
+      (let [p (row st "P ")]
+        (cond
+          (string=? p "") "ERR no-data"
+          (not (fresh? (tok p 1) now max-age)) "ERR stale"
+          :else (let [qs (only st "Q ")]
+                  (q-list qs 0 (string-length qs) "OK")))))))
+
+;; Reasons (comma-joined, "" when none) why this entry may not be used with the
+;; symbol as the venue reports it now. An adapter that cannot answer disables
+;; everything: a map nobody could verify is not a map.
+(defn entry-reasons [st :string tick-size :string lot-size :string sym :string] :string
+  (let [g (gate st)]
+    (if (not (string=? g ""))
+      "venue-unreachable"
+      (let [r (row st (string-concat "S " (string-concat sym " ")))]
+        (if (string=? r "")
+          (check-entry tick-size lot-size false false 0 "" "" "")
+          (check-entry tick-size lot-size true (string=? (tok r 7) "full")
+                       (dec-units (tok r 2)) (tok r 3) (tok r 4) (tok r 5)))))))

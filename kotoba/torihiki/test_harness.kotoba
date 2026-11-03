@@ -1,0 +1,25 @@
+(ns torihiki.test-harness)
+
+;; Shared by the Kotoba test programs. A test program's main answers the number
+;; of failed cases and prints one FAIL line for each. CONTROL is rewritten to 1
+;; by script/kotoba-venue-test.sh, which then requires exactly one failure.
+
+(def CONTROL 0)
+
+(defn say [s :string] :i64
+  (let [x (typed-cap-call :io/write :string :string (string-concat s "\n"))] 0))
+
+(defn fail [what :string got :string want :string] :i64
+  (let [x (say (string-concat "FAIL " (string-concat what (string-concat " => " (string-concat got (string-concat " ; want " want))))))] 1))
+
+(defn expect-i64 [what :string got :i64 want :i64] :i64
+  (if (= got want) 0 (fail what (string-from-i64 got) (string-from-i64 want))))
+
+(defn expect-str [what :string got :string want :string] :i64
+  (if (string=? got want) 0 (fail what got want)))
+
+(defn expect-true [what :string got :bool] :i64
+  (if got 0 (fail what "false" "true")))
+
+(defn expect-false [what :string got :bool] :i64
+  (if got (fail what "true" "false") 0))

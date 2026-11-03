@@ -2,34 +2,14 @@
 
 ;; Cases for kotoba/torihiki/venue.kotoba, the same ones test/torihiki/
 ;; venue_test.cljk runs against src/torihiki/venue.cljk. No venue, no network.
-;; script/kotoba-venue-test.sh joins venue.kotoba (without its ns line) and
-;; this file (without its ns line) under one ns, runs it with `amu run`, and
+;; script/kotoba-venue-test.sh joins test_harness.kotoba, venue.kotoba and
+;; this file (each without its ns line) under one ns, runs it with `amu run`, and
 ;; requires the printed answer to be 0. main answers the number of failed
 ;; cases and prints one FAIL line for each.
 ;;
 ;; CONTROL 1 swaps one expected answer for a wrong one; the script builds that
 ;; variant as well and requires exactly one failure, so a harness that cannot
 ;; fail cannot pass.
-
-(def CONTROL 0)
-
-(defn say [s :string] :i64
-  (let [x (typed-cap-call :io/write :string :string (string-concat s "\n"))] 0))
-
-(defn fail [what :string got :string want :string] :i64
-  (let [x (say (string-concat "FAIL " (string-concat what (string-concat " => " (string-concat got (string-concat " ; want " want))))))] 1))
-
-(defn expect-i64 [what :string got :i64 want :i64] :i64
-  (if (= got want) 0 (fail what (string-from-i64 got) (string-from-i64 want))))
-
-(defn expect-str [what :string got :string want :string] :i64
-  (if (string=? got want) 0 (fail what got want)))
-
-(defn expect-true [what :string got :bool] :i64
-  (if got 0 (fail what "false" "true")))
-
-(defn expect-false [what :string got :bool] :i64
-  (if got (fail what "true" "false") 0))
 
 (defn ce [s :string unit :string mode :i64] :i64 (count-or s unit mode NOPE))
 

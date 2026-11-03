@@ -1,0 +1,140 @@
+(ns torihiki.venue-mt-test (:export [main]))
+
+;; Cases for kotoba/torihiki/venue_mt.kotoba, ported by hand from
+;; test/torihiki/venue_mt_test.cljk (the v1 JSON oracle) to the v2 text lines.
+;; Router-joined cases (reconcile, refused placement) wait for stage 3.
+
+(def T0 1000)
+
+(defn ing [st :string line :string] :string (ingest st line T0))
+
+(def HELLO "HELLO 2 demo")
+(def SYM "1 SYM EURUSD 5 0.01 0.01 100.00 0.00001 full")
+
+;; hello + sym + tick + acct + an empty position list, all received at T0
+(defn base [] :string
+  (let [s1 (ing (empty-state) HELLO)
+        s2 (ing s1 SYM)
+        s3 (ing s2 "2 TICK EURUSD 1.08490 1.08500")
+        s4 (ing s3 "3 ACCT 10000.00 10010.50 0.00 10010.50 USD")
+        s5 (ing s4 "4 POS-BEGIN")]
+    (ing s5 "5 POS-END")))
+
+(defn q [st :string] :string (q-positions st T0 5000))
+
+(defn happy-path [] :i64
+  (let [st (base)]
+    (+ (expect-str "symbol info" (q-symbol-info st "EURUSD") "OK 5 0.01 0.01 100.00 1 full")
+       (expect-str "unknown symbol is an answer" (q-symbol-info st "XAUUSD") "OK -")
+       (expect-str "quote" (q-quote st T0 5000 "EURUSD") (if (= CONTROL 1) "OK 1.08490 1.08501 1000" "OK 1.08490 1.08500 1000"))
+       (expect-str "no quote for an unknown symbol" (q-quote st T0 5000 "XAUUSD") "ERR no-quote")
+       (expect-str "account" (q-account st T0 5000) "OK 10000.00 10010.50 0.00 10010.50 USD")
+       (expect-str "flat" (q st) "OK")
+       (expect-str "the symbol map binds" (entry-reasons st "0.00001" "0.01" "EURUSD") "")
+       (expect-str "a wrong lot does not" (entry-reasons st "0.00001" "0.015" "EURUSD") "lot-not-a-venue-step")
+       (expect-str "an unknown symbol is disabled" (entry-reasons st "0.00001" "0.01" "XAUUSD") "unknown-symbol"))))
+
+(defn netting [] :i64
+  (let [st (base)
+        a (ing st "6 POS-BEGIN")
+        b (ing a "7 POS EURUSD buy 0.30")
+        c (ing b "8 POS EURUSD buy 0.10")
+        d (ing c "9 POS EURUSD sell 0.15")
+        e (ing d "10 POS-END")
+        f (ing e "11 POS-BEGIN")
+        g (ing f "12 POS EURUSD buy 0.10")
+        h (ing g "13 POS EURUSD sell 0.10")
+        i (ing h "14 POS-END")]
+    (+ (expect-str "netted exactly" (q e) "OK EURUSD:0.25")
+       (expect-str "a flat hedge is no position" (q i) "OK"))))
+
+(defn demo-only [] :i64
+  (let [locked (ing (empty-state) "HELLO 2 other")
+        after (ing (ing locked SYM) "2 TICK EURUSD 1 2")
+        again (ing locked HELLO)]
+    (+ (expect-str "locked status" (status locked) "locked")
+       (expect-str "nothing is recorded" (row after "S ") "")
+       (expect-str "quote is locked" (q-quote after T0 5000 "EURUSD") "ERR locked")
+       (expect-str "positions are locked" (q after) "ERR locked")
+       (expect-str "a demo hello unlocks" (status again) "ok")
+       (expect-str "Demo is not demo" (status (ing (empty-state) "HELLO 2 Demo")) "locked")
+       (expect-str "DEMO is not demo" (status (ing (empty-state) "HELLO 2 DEMO")) "locked")
+       (expect-str "real" (status (ing (empty-state) "HELLO 2 real")) "locked")
+       (expect-str "contest" (status (ing (empty-state) "HELLO 2 contest")) "locked")
+       (expect-str "no mode" (last-reject (ing (empty-state) "HELLO 2")) "bad-hello")
+       (expect-str "v1 hello is refused" (last-reject (ing (empty-state) "HELLO 1 demo")) "bad-version"))))
+
+(defn before-hello [] :i64
+  (let [st (ing (empty-state) SYM)]
+    (+ (expect-str "reason" (last-reject st) "no-hello")
+       (expect-str "no data" (q-quote st T0 5000 "EURUSD") "ERR no-data"))))
+
+;; the state with the rejection recorded must otherwise be unchanged
+(defn untouched [before :string line :string why :string] :i64
+  (let [after (ing before line)]
+    (+ (expect-str line (last-reject after) why)
+       (expect-str (string-concat line " (state)") (without (without after "R ") "N ")
+                   (without (without before "R ") "N ")))))
+
+(defn bad-lines [] :i64
+  (let [b (base)]
+    (+ (untouched b "6 TICK EURUSD 1.0850x 1.0851" "bad-tick")
+       (untouched b "6 TICK EURUSD 1e0 2" "bad-tick")
+       (untouched b "6 TICK EURUSD 0 1.1" "bad-tick")
+       (untouched b "6 TICK EURUSD 1.1 1.0" "bad-tick")
+       (untouched b "6 TICK EUR!USD 1 2" "bad-tick")
+       (untouched b "6 TICK EURUSD 1" "bad-tick")
+       (untouched b "6 SYM EURUSD 5 0 0.01 100 0.00001 full" "bad-sym")
+       (untouched b "6 SYM EURUSD 5 0.01 0.01 100 0.00001 yes" "bad-sym")
+       (untouched b "6 SYM EURUSD 13 0.01 0.01 100 0.00001 full" "bad-sym")
+       (untouched b "6 ACCT 1 2 3 4 TOOLONGCCY" "bad-acct")
+       (untouched b "6 POS EURUSD buy 0.1" "pos-outside-list")
+       (untouched b "6 POS-END" "pos-end-without-begin")
+       (untouched b "6 NONSENSE" "unknown-type")
+       (untouched b "x TICK EURUSD 1 2" "bad-seq")
+       (untouched b "5 TICK EURUSD 1 2" "bad-seq")
+       (untouched b "6  TICK EURUSD 1 2" "bad-line")
+       (untouched b " 6 TICK EURUSD 1 2" "bad-line")
+       (untouched b "6 TICK EURUSD 1 2 " "bad-line")
+       (untouched b "6 TICK EURUSD 日 2" "bad-line")
+       (untouched b "6 TICK EURUSD 1\t2" "bad-line")
+       (untouched b "" "bad-line")
+       (expect-i64 "the rejection count" (reject-count (ing (ing b "6 NONSENSE") "7 NONSENSE")) 2))))
+
+(defn half-lists [] :i64
+  (let [b (base)
+        a (ing (ing b "6 POS-BEGIN") "7 POS EURUSD buy 0.50")
+        bad (ing (ing a "8 POS EURUSD buy abc") "9 POS-END")
+        off (ing (ing (ing (ing b "10 POS-BEGIN") "11 POS EURUSD buy 0.015") "12 POS-END") "13 NOP")
+        unk (ing (ing (ing b "6 POS-BEGIN") "7 POS GBPUSD buy 0.10") "8 POS-END")]
+    (+ (expect-str "the old list stands until pos-end" (q a) "OK")
+       (expect-str "a bad entry abandons the whole list" (q bad) "OK")
+       (expect-str "and pos-end then has nothing to close" (last-reject bad) "pos-end-without-begin")
+       (expect-str "a volume off the step is refused whole" (q off) "OK")
+       (expect-str "unrepresentable" (last-reject (ing (ing (ing b "10 POS-BEGIN") "11 POS EURUSD buy 0.015") "12 POS-END"))
+                   "unrepresentable-position")
+       (expect-str "an unannounced symbol is refused" (last-reject unk) "unrepresentable-position"))))
+
+(defn new-hello [] :i64
+  (let [st (ing (base) HELLO)]
+    (+ (expect-str "symbols must be re-announced" (q-symbol-info st "EURUSD") "OK -")
+       (expect-str "no quote" (q-quote st T0 5000 "EURUSD") "ERR no-quote")
+       (expect-str "no positions" (q st) "ERR no-data")
+       (expect-i64 "n restarts" (last-n st) 0))))
+
+(defn staleness [] :i64
+  (let [st (base)]
+    (+ (expect-str "exactly max-age old is fresh" (q-quote st 6000 5000 "EURUSD") "OK 1.08490 1.08500 1000")
+       (expect-str "one ms older is stale" (q-quote st 6001 5000 "EURUSD") "ERR stale")
+       (expect-str "stale account" (q-account st 6001 5000) "ERR stale")
+       (expect-str "stale positions" (q-positions st 6001 5000) "ERR stale"))))
+
+(defn rep [st :string k :i64] :string
+  (if (<= k 0) st (rep (ingest st "junk" 0) (- k 1))))
+
+(defn rejects-counted [] :i64
+  (expect-i64 "a hundred bad lines" (reject-count (rep (empty-state) 100)) 100))
+
+(defn main [] :i64
+  (+ (happy-path) (netting) (demo-only) (before-hello) (bad-lines)
+     (half-lists) (new-hello) (staleness) (rejects-counted)))
