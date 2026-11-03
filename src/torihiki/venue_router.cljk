@@ -1,0 +1,188 @@
+(ns torihiki.venue-router
+  "Sends engine orders to a venue without ever sending one twice, and checks
+  that what the venue holds is what we think it holds.
+
+  Design: docs/multi-asset-and-metatrader-design.md, sections 3.3 and 3.4.
+
+  ## Why a timeout is not a failure
+
+  A venue that does not answer may have executed the order. Sending it again
+  on that assumption doubles a position, and a position is money. So an order
+  has a client id (`:cid`) that travels in the venue's order comment, and a
+  record here keyed by it. After a timeout the order is `:unknown`, and it is
+  re-sent only once the venue has been ASKED and shown not to hold an order
+  with that comment. If the venue cannot be asked, the order stays unknown
+  and nothing is sent: waiting costs a delayed order, guessing can cost a
+  doubled one.
+
+  The record is written BEFORE the call (`:pending`), so a crash between the
+  send and the answer leaves the same trace as a timeout and takes the same
+  road on restart.
+
+  ## Kill switch
+
+  `halt!` stops every order that could open or grow exposure. Orders marked
+  `:reduce-only?` still go, and are checked to really reduce: opposite side,
+  no larger than what is held. A halt that also blocked closing would trap
+  the position it was meant to protect.
+
+  The router is a map holding atoms. Its state is the only mutable thing;
+  the venue and the symbol map are passed in."
+  (:require [torihiki.venue :as v]))
+
+(defn make
+  "entries : [{:market 1 :venue-symbol \"EURUSD\" :tick-size .. :lot-size ..}]
+  limits  : {market {:max-order-qty lots :max-position lots}} (optional)
+
+  Binds the symbol map against the venue now; markets that do not check out
+  are disabled (see `torihiki.venue/bind-markets`)."
+  [venue entries limits]
+  {:venue venue
+   :binds (atom (v/bind-markets entries venue))
+   :limits limits
+   :state (atom {:ledger {} :halted? false})})
+
+(defn rebind!
+  "Check the symbol map against the venue again (after a reconnect, or when
+  the broker changes a contract). Returns the new bindings."
+  [router]
+  (let [entries (map :entry (vals @(:binds router)))]
+    (reset! (:binds router) (v/bind-markets entries (:venue router)))))
+
+(defn halt! [router] (swap! (:state router) assoc :halted? true) :halted)
+(defn resume! [router] (swap! (:state router) assoc :halted? false) :running)
+(defn halted? [router] (:halted? @(:state router)))
+
+(defn position
+  "Signed lots held in `market` according to our own record of filled orders."
+  [router market]
+  (reduce (fn [acc {:keys [status market* side qty]}]
+            (if (and (= :filled status) (= market market*))
+              (+ acc (if (= :buy side) qty (- qty)))
+              acc))
+          0 (vals (:ledger @(:state router)))))
+
+(defn- remember! [router cid m]
+  (swap! (:state router) update-in [:ledger cid] merge m))
+
+(defn- find-by-cid
+  "{:ok order-or-nil} once the venue has answered about both its open and its
+  closed orders; {:error ..} if either could not be read. Absence is only
+  proved by a complete answer."
+  [venue symbol cid]
+  (let [o ((:orders venue)) h ((:history venue) nil)]
+    (if (and (contains? o :ok) (contains? h :ok))
+      {:ok (first (filter #(and (= cid (:comment %)) (= symbol (:symbol %)))
+                          (concat (:ok o) (:ok h))))}
+      {:error :venue-unreachable})))
+
+(defn- risk-refusal
+  "A reason to refuse `order`, or nil."
+  [router entry {:keys [market side qty reduce-only?]}]
+  (let [pos (position router market)
+        lim (get (:limits router) market)
+        signed (if (= :buy side) qty (- qty))
+        after (+ pos signed)]
+    (cond
+      reduce-only?
+      (when-not (and (not (zero? pos))
+                     (not= (pos? pos) (pos? signed))
+                     (<= qty (if (neg? pos) (- pos) pos)))
+        :not-reducing)
+
+      (halted? router) :halted
+      (and (:max-order-qty lim) (> qty (:max-order-qty lim))) :over-order-limit
+      (and (:max-position lim)
+           (> (if (neg? after) (- after) after) (:max-position lim)))
+      :over-position-limit)))
+
+(defn place!
+  "Send `order` once. Returns {:status s ...}:
+
+    :filled / :resting   the venue holds it (also on a repeat call: no resend)
+    :rejected            the venue refused it
+    :unknown             sent or maybe sent; the venue could not confirm
+    :refused             we did not send it; :reason says why
+
+  Calling again with the same :cid is always safe."
+  [router {:keys [cid market] :as order}]
+  (let [venue (:venue router)
+        bind (get @(:binds router) market)
+        entry (:entry bind)
+        prior (get-in @(:state router) [:ledger cid])]
+    (cond
+      (not (:enabled? bind))
+      {:status :refused :reason :market-disabled :detail (:reasons bind)}
+
+      (#{:filled :resting :rejected} (:status prior))
+      (assoc (select-keys prior [:status :venue-order-id]) :repeat? true)
+
+      :else
+      (let [req (v/->venue-order entry order)]
+        (if (:error req)
+          {:status :refused :reason (:error req)}
+          (let [resolved
+                (when (#{:pending :unknown} (:status prior))
+                  (find-by-cid venue (:symbol req) cid))]
+            (cond
+              (:error resolved)
+              {:status :unknown :reason :cannot-confirm}
+
+              (:ok resolved)
+              (let [o (:ok resolved)
+                    st (if (= :resting (:status o)) :resting :filled)]
+                (remember! router cid {:status st :venue-order-id (:venue-order-id o)})
+                {:status st :venue-order-id (:venue-order-id o) :recovered? true})
+
+              :else
+              (if-let [why (risk-refusal router entry order)]
+                {:status :refused :reason why}
+                (do
+                  (remember! router cid (assoc (select-keys order [:side :qty])
+                                               :market* market :status :pending))
+                  (let [r ((:place venue) req)]
+                    (cond
+                      (:timeout r)
+                      (do (remember! router cid {:status :unknown})
+                          {:status :unknown :reason :timeout})
+
+                      (:error r)
+                      (do (remember! router cid {:status :rejected :reason (:error r)})
+                          {:status :rejected :reason (:error r)})
+
+                      :else
+                      (let [{:keys [venue-order-id status]} (:ok r)
+                            st (if (= :resting status) :resting :filled)]
+                        (remember! router cid {:status st :venue-order-id venue-order-id})
+                        {:status st :venue-order-id venue-order-id}))))))))))))
+
+(defn reconcile!
+  "Compare what the venue holds with our own record, per market.
+
+  Returns {:ok? bool :diffs [{:market :ours :venue}] :unmapped [symbols]}, or
+  {:ok? false :reason :venue-unreachable}. Any difference, or a position in a
+  symbol we have no entry for, halts the router: a book that disagrees with
+  the venue is not one to add to."
+  [router]
+  (let [r ((:positions (:venue router)))]
+    (if-not (contains? r :ok)
+      (do (halt! router) {:ok? false :reason :venue-unreachable})
+      (let [entries (map :entry (vals @(:binds router)))
+            by-symbol (into {} (map (juxt :venue-symbol identity)) entries)
+            venue-lots (reduce (fn [acc {:keys [symbol volume]}]
+                                 (if-let [e (by-symbol symbol)]
+                                   (assoc acc (:market e)
+                                          {:lots (v/volume->lots volume e)
+                                           :exact? (some? (v/count-of volume (:lot-size e) :exact))})
+                                   (update acc :unmapped (fnil conj []) symbol)))
+                               {} (:ok r))
+            unmapped (:unmapped venue-lots)
+            markets (distinct (concat (map :market entries)))
+            diffs (vec (for [m markets
+                             :let [ours (position router m)
+                                   theirs (get venue-lots m {:lots 0 :exact? true})]
+                             :when (or (not= ours (:lots theirs)) (not (:exact? theirs)))]
+                         {:market m :ours ours :venue (:lots theirs)}))
+            ok? (and (empty? diffs) (empty? unmapped))]
+        (when-not ok? (halt! router))
+        {:ok? ok? :diffs diffs :unmapped (vec unmapped)}))))

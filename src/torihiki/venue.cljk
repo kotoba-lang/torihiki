@@ -1,0 +1,240 @@
+(ns torihiki.venue
+  "The Venue port: what torihiki needs from a broker or terminal, and the
+  boundary where the broker's decimals become the engine's integers.
+
+  Design: docs/multi-asset-and-metatrader-design.md, section 3. P1 scope: a
+  contract, a symbol map, and exact conversion. Nothing here opens a socket,
+  and no adapter for a real venue exists yet.
+
+  ## A venue is a map of functions
+
+  Every function returns `{:ok v}`, `{:error kind}` or `{:timeout true}`. A
+  timeout is NOT an error: the request may have been executed, and the caller
+  must find out before it sends the same thing again
+  (`torihiki.venue-router`).
+
+  ## Numbers
+
+  A venue hands over doubles; the engine holds i53 integers and no float ever
+  enters state. So the boundary speaks decimal STRINGS, parsed here without
+  passing through a float, and an engine value is a COUNT of a declared unit
+  (`:tick-size` for prices, `:lot-size` for quantities):
+
+      price  \"1.08500\" / tick-size \"0.00001\"  =  108500 ticks
+      volume \"0.30\"    / lot-size  \"0.01\"     =  30 lots
+
+  A price that is not a whole number of ticks is REFUSED, never rounded: a
+  silently moved price is a different order. A volume from the venue is cut
+  toward zero, because acting on less than the venue holds is the safe side.
+  Anything that would leave i53 is refused.
+
+  ## The symbol map
+
+  A market is tradable here only while its entry agrees with what the venue
+  reports for the symbol (`check-entry`). A mismatch disables that market and
+  says why; it does not guess.")
+
+(def i53-max 9007199254740991)
+
+(def max-scale
+  "Most fractional digits accepted. Brokers quote 5 (FX) or fewer; more than
+  this is not a price, it is a malformed string."
+  12)
+
+(def max-cid-len
+  "Length of the client order id carried in the venue's order comment. 31 is
+  MetaTrader's comment limit as recalled, NOT verified against current
+  documentation (design doc, section 6); it errs short on purpose."
+  31)
+
+;; ── exact decimals ──────────────────────────────────────────────────────────
+
+(def ^:private digit
+  {\0 0 \1 1 \2 2 \3 3 \4 4 \5 5 \6 6 \7 7 \8 8 \9 9})
+
+(defn- digits->int
+  "A string of ASCII digits as an integer, or nil past i53."
+  [ds]
+  (reduce (fn [acc ch]
+            (let [d (digit ch)]
+              (if (> acc (quot (- i53-max d) 10))
+                (reduced nil)
+                (+ (* acc 10) d))))
+          0 ds))
+
+(defn parse-decimal
+  "\"1.0850\" -> {:units 10850 :scale 4}; \"-0.30\" -> {:units -30 :scale 2}.
+  nil for anything else: exponents, a leading plus, an empty fraction, spaces,
+  more than `max-scale` fractional digits, or a magnitude past i53. Never goes
+  through a float."
+  [s]
+  (when-let [[_ sign ip fp] (and (string? s) (re-matches #"(-?)(\d+)(?:\.(\d+))?" s))]
+    (let [fp (or fp "")]
+      (when (<= (count fp) max-scale)
+        (when-let [n (digits->int (str ip fp))]
+          {:units (if (= sign "-") (- n) n) :scale (count fp)})))))
+
+(defn- abs* [n] (if (neg? n) (- n) n))
+
+(defn- pow10 [k] (reduce * 1 (repeat k 10)))
+
+(defn- align
+  "Both decimals at their larger scale, or nil on overflow."
+  [a b]
+  (let [s (max (:scale a) (:scale b))
+        up (fn [{:keys [units scale]}]
+             (let [m (pow10 (- s scale))]
+               (when (<= (abs* units) (quot i53-max m)) (* units m))))
+        ua (up a) ub (up b)]
+    (when (and ua ub) [ua ub s])))
+
+(defn count-of
+  "How many whole `unit`s are in the decimal string `s`, or nil.
+  `unit` is a decimal string such as \"0.00001\".
+
+  mode :exact  -> nil unless `s` is an exact multiple of `unit`
+  mode :trunc  -> cut toward zero
+
+  nil also for a non-positive unit, a malformed string, or an overflow."
+  [s unit mode]
+  (let [v (parse-decimal s) u (parse-decimal unit)]
+    (when (and v u (pos? (:units u)))
+      (when-let [[uv uu _] (align v u)]
+        (let [q (quot uv uu)]
+          (case mode
+            :exact (when (zero? (rem uv uu)) q)
+            :trunc q
+            nil))))))
+
+(defn string-of
+  "`n` whole `unit`s as a decimal string with exactly the unit's fractional
+  digits (4 x \"0.01\" -> \"0.04\"), or nil on overflow or a bad unit."
+  [n unit]
+  (let [u (parse-decimal unit)]
+    (when (and (integer? n) u (pos? (:units u))
+               (<= (abs* n) (quot i53-max (:units u))))
+      (let [total (* n (:units u))
+            sc (:scale u)
+            neg? (neg? total)
+            ds (str (abs* total))
+            ds (if (<= (count ds) sc)
+                 (str (apply str (repeat (- (inc sc) (count ds)) "0")) ds)
+                 ds)
+            split (- (count ds) sc)
+            body (if (zero? sc) ds (str (subs ds 0 split) "." (subs ds split)))]
+        (str (when neg? "-") body)))))
+
+;; ── the contract ────────────────────────────────────────────────────────────
+
+(def contract
+  "Functions every venue provides, and their argument shapes.
+
+    :symbol-info [symbol]  -> {:digits :volume-step :volume-min :volume-max
+                               :trade-allowed? ...}   all decimals as strings
+    :quote       [symbol]  -> {:bid :ask :ts}
+    :account     []        -> {:balance :equity :margin :free-margin :currency}
+    :positions   []        -> [{:symbol :volume}]     volume signed, string
+    :orders      []        -> [{:venue-order-id :symbol :comment ...}] open
+    :history     [since]   -> [{:venue-order-id :symbol :comment ...}] closed
+    :place       [order]   -> {:venue-order-id :status :filled|:resting}
+    :cancel      [id]      -> {}"
+  [:symbol-info :quote :account :positions :orders :history :place :cancel])
+
+(defn conforms?
+  "A venue is a map with every function in `contract`."
+  [venue]
+  (and (map? venue) (every? #(fn? (get venue %)) contract)))
+
+;; ── symbol map ──────────────────────────────────────────────────────────────
+
+(defn- point-of
+  "The venue's smallest price step for `digits` decimals, as a string."
+  [digits]
+  (when (and (integer? digits) (<= 0 digits max-scale))
+    (if (zero? digits) "1" (str "0." (apply str (repeat (dec digits) "0")) "1"))))
+
+(defn check-entry
+  "Reasons (a vector, empty when none) why `entry` may not be used with what
+  the venue reports in `info`.
+
+  entry : {:market 1 :venue-symbol \"EURUSD\" :tick-size \"0.00001\"
+           :lot-size \"0.01\"}
+  info  : the venue's :symbol-info result"
+  [entry info]
+  (if (nil? info)
+    [:unknown-symbol]
+    (let [tick-ok (parse-decimal (:tick-size entry))
+          lot-ok (parse-decimal (:lot-size entry))
+          point (point-of (:digits info))
+          step (:volume-step info)
+          vmin (:volume-min info)
+          vmax (:volume-max info)]
+      (cond-> []
+        (not (:trade-allowed? info)) (conj :trading-disabled)
+        (nil? tick-ok) (conj :bad-tick-size)
+        (nil? lot-ok) (conj :bad-lot-size)
+        (nil? point) (conj :bad-venue-digits)
+        (nil? (and step (parse-decimal step))) (conj :bad-venue-step)
+        ;; a price step finer than the venue's cannot be placed
+        (and tick-ok point (not (pos? (or (count-of (:tick-size entry) point :exact) 0))))
+        (conj :tick-finer-than-venue)
+        ;; one engine lot must be a whole number of venue steps
+        (and lot-ok step (parse-decimal step)
+             (not (pos? (or (count-of (:lot-size entry) step :exact) 0))))
+        (conj :lot-not-a-venue-step)
+        (and lot-ok vmin (parse-decimal vmin)
+             (zero? (or (count-of (:lot-size entry) vmin :trunc) 0)))
+        (conj :lot-below-venue-minimum)
+        (and lot-ok vmax (parse-decimal vmax)
+             (zero? (or (count-of vmax (:lot-size entry) :trunc) 0)))
+        (conj :lot-above-venue-maximum)))))
+
+(defn bind-markets
+  "{market-id {:enabled? bool :reasons [...] :entry entry}} for every entry,
+  checked against the venue now. An unreachable venue disables everything: a
+  map nobody could verify is not a map."
+  [entries venue]
+  (into {}
+        (map (fn [e]
+               (let [r ((:symbol-info venue) (:venue-symbol e))
+                     reasons (cond
+                               (contains? r :ok) (check-entry e (:ok r))
+                               :else [:venue-unreachable])]
+                 [(:market e) {:enabled? (empty? reasons) :reasons reasons :entry e}])))
+        entries))
+
+;; ── order translation ───────────────────────────────────────────────────────
+
+(defn valid-cid?
+  [cid]
+  (and (string? cid) (<= 1 (count cid) max-cid-len)
+       (boolean (re-matches #"[A-Za-z0-9_-]+" cid))))
+
+(defn ->venue-order
+  "An engine order as the venue's request, or {:error reason}.
+
+  order : {:cid \"t-42\" :market 1 :side :buy|:sell :qty 30 :price 108500|nil
+           :reduce-only? false}   qty in lots, price in ticks, nil = market"
+  [entry {:keys [cid side qty price] :as order}]
+  (cond
+    (not (valid-cid? cid)) {:error :bad-cid}
+    (not (#{:buy :sell} side)) {:error :bad-side}
+    (not (and (integer? qty) (pos? qty))) {:error :bad-qty}
+    (and (some? price) (not (and (integer? price) (pos? price)))) {:error :bad-price}
+    :else
+    (let [vol (string-of qty (:lot-size entry))
+          px (when (some? price) (string-of price (:tick-size entry)))]
+      (cond
+        (nil? vol) {:error :qty-out-of-range}
+        (and (some? price) (nil? px)) {:error :price-out-of-range}
+        :else (cond-> {:symbol (:venue-symbol entry)
+                       :side side
+                       :volume vol
+                       :comment cid
+                       :reduce-only? (boolean (:reduce-only? order))}
+                px (assoc :price px))))))
+
+(defn volume->lots
+  "A venue's signed volume string as engine lots, cut toward zero, or nil."
+  [volume entry]
+  (count-of volume (:lot-size entry) :trunc))
