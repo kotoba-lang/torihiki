@@ -158,3 +158,7 @@ history(since)
   - 検証: `kbb -M:test -n torihiki.venue-test` が 23 テスト 116 アサーションで通る。復旧経路を無効化した負の対照では 8 件失敗することを確認（2026-11-04）。
   - MT のコメント長上限（31）は未検証の想定値（`torihiki.venue/max-cid-len`）。
 - **P2（JUN-814）**: 読み取り専用 MT5 ブリッジのソース・フレーム仕様・純粋アダプタ（`venue_mt.cljk`）まで。仕様は `docs/mt5-readonly-bridge.md`。EA は未コンパイル・未実機、loopback 待受は未実装。P2 の完了条件（デモ口座 24h 突合差分 0）は**未達**。
+- **Kotoba 移植・段 1（JUN-816）**: owner 指示により venue コードは canonical `.kotoba`（Amu selfhost）で持つ。`kotoba/torihiki/venue.kotoba`（十進境界・シンボル対応表・注文変換）と `venue_test.kotoba`、実行は `AMU_HOME=<amu> script/kotoba-venue-test.sh`（JVM・nbb 不使用）。cljk 版（P1/P2）は参照 oracle として残す。
+  - 検証: `amu check` ok、全ケース 0 失敗、CONTROL 変種はちょうど 1 失敗（2026-11-04、amu a4c16e7c4）。cljk 側と同じケースを手で移したもので、機械的な突き合わせではない。
+  - 計測で分かった制約: `string-code-point-at` は UTF-8 **バイト**オフセットを取り、多バイト文字の途中を指すと SIGTRAP で無出力終了する。走査は読んだ文字の幅だけ進める。`result-match-of` + ラムダは `amu run` が EABI で拒否するため option と番兵で書いた。
+  - 段 2 以降（MT フレーム reducer の行テキスト化、router/fake、loopback 待受）は未着手。

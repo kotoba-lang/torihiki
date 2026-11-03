@@ -1,0 +1,146 @@
+(ns torihiki.venue-test (:export [main]))
+
+;; Cases for kotoba/torihiki/venue.kotoba, the same ones test/torihiki/
+;; venue_test.cljk runs against src/torihiki/venue.cljk. No venue, no network.
+;; script/kotoba-venue-test.sh joins venue.kotoba (without its ns line) and
+;; this file (without its ns line) under one ns, runs it with `amu run`, and
+;; requires the printed answer to be 0. main answers the number of failed
+;; cases and prints one FAIL line for each.
+;;
+;; CONTROL 1 swaps one expected answer for a wrong one; the script builds that
+;; variant as well and requires exactly one failure, so a harness that cannot
+;; fail cannot pass.
+
+(def CONTROL 0)
+
+(defn say [s :string] :i64
+  (let [x (typed-cap-call :io/write :string :string (string-concat s "\n"))] 0))
+
+(defn fail [what :string got :string want :string] :i64
+  (let [x (say (string-concat "FAIL " (string-concat what (string-concat " => " (string-concat got (string-concat " ; want " want))))))] 1))
+
+(defn expect-i64 [what :string got :i64 want :i64] :i64
+  (if (= got want) 0 (fail what (string-from-i64 got) (string-from-i64 want))))
+
+(defn expect-str [what :string got :string want :string] :i64
+  (if (string=? got want) 0 (fail what got want)))
+
+(defn expect-true [what :string got :bool] :i64
+  (if got 0 (fail what "false" "true")))
+
+(defn expect-false [what :string got :bool] :i64
+  (if got (fail what "true" "false") 0))
+
+(defn ce [s :string unit :string mode :i64] :i64 (count-or s unit mode NOPE))
+
+;; ── exact decimals ──────────────────────────────────────────────────────────
+
+(defn decimals [] :i64
+  (+ (expect-i64 "units 1.08500" (dec-units "1.08500") 108500)
+     (expect-i64 "scale 1.08500" (dec-scale "1.08500") 5)
+     (expect-i64 "units -0.30" (dec-units "-0.30") -30)
+     (expect-i64 "scale -0.30" (dec-scale "-0.30") 2)
+     (expect-i64 "units integer" (dec-units "42") 42)
+     (expect-i64 "scale integer" (dec-scale "42") 0)
+     (expect-false "empty" (dec-ok? ""))
+     (expect-false "1." (dec-ok? "1."))
+     (expect-false ".5" (dec-ok? ".5"))
+     (expect-false "+1" (dec-ok? "+1"))
+     (expect-false "1e3" (dec-ok? "1e3"))
+     (expect-false "1,5" (dec-ok? "1,5"))
+     (expect-false "leading space" (dec-ok? " 1"))
+     (expect-false "trailing space" (dec-ok? "1 "))
+     (expect-false "NaN" (dec-ok? "NaN"))
+     (expect-false "0x10" (dec-ok? "0x10"))
+     (expect-false "two dots" (dec-ok? "1.2.3"))
+     (expect-false "lone minus" (dec-ok? "-"))
+     (expect-false "13 fractional digits" (dec-ok? "0.1234567890123"))
+     (expect-true "12 fractional digits" (dec-ok? "0.123456789012"))
+     (expect-false "past i53" (dec-ok? "9007199254740992"))
+     (expect-true "i53 max" (dec-ok? "9007199254740991"))
+     (expect-false "non-ascii digit" (dec-ok? "１"))
+     (expect-false "non-ascii after a digit" (dec-ok? "1１"))
+     (expect-false "non-ascii after a dot" (dec-ok? "1.日"))
+     (expect-false "non-ascii only" (dec-ok? "日本"))
+     (expect-false "4-byte character" (dec-ok? "1.𝟏"))))
+
+(defn counts [] :i64
+  (+ (expect-i64 "price ticks" (ce "1.08500" "0.00001" EXACT) (if (= CONTROL 1) 108501 108500))
+     (expect-i64 "volume lots" (ce "0.30" "0.01" EXACT) 30)
+     (expect-i64 "off the grid is refused" (ce "1.085005" "0.00001" EXACT) NOPE)
+     (expect-i64 "trunc positive" (ce "0.309" "0.01" TRUNC) 30)
+     (expect-i64 "trunc negative" (ce "-0.309" "0.01" TRUNC) -30)
+     (expect-i64 "zero unit" (ce "1" "0" EXACT) NOPE)
+     (expect-i64 "bad string" (ce "abc" "0.01" EXACT) NOPE)
+     (expect-i64 "unknown mode" (ce "1" "1" 7) NOPE)
+     (expect-i64 "exact negative" (ce "-0.30" "0.01" EXACT) -30)))
+
+(defn rt [n :i64 unit :string] :i64
+  (ce (string-of n unit) unit EXACT))
+
+(defn strings [] :i64
+  (+ (expect-i64 "round trip 108500" (rt 108500 "0.00001") 108500)
+     (expect-i64 "round trip 30" (rt 30 "0.01") 30)
+     (expect-i64 "round trip -30" (rt -30 "0.01") -30)
+     (expect-i64 "round trip 5 x 1" (rt 5 "1") 5)
+     (expect-i64 "round trip 1 x 0.001" (rt 1 "0.001") 1)
+     (expect-i64 "round trip 0" (rt 0 "0.01") 0)
+     (expect-str "4 x 0.01" (string-of 4 "0.01") "0.04")
+     (expect-str "-30 x 0.01" (string-of -30 "0.01") "-0.30")
+     (expect-str "108500 x 0.00001" (string-of 108500 "0.00001") "1.08500")
+     (expect-str "overflow is refused" (string-of 9007199254740991 "0.10") "")
+     (expect-str "bad unit" (string-of 5 "x") "")
+     (expect-i64 "compare lt" (compare-decimals "1.0850" "1.08500001") -1)
+     (expect-i64 "compare eq" (compare-decimals "1.0850" "1.08500") 0)
+     (expect-i64 "compare gt" (compare-decimals "2" "1.99999") 1)
+     (expect-i64 "compare bad" (compare-decimals "x" "1") 2)))
+
+;; ── symbol map ──────────────────────────────────────────────────────────────
+
+;; EURUSD as the fake venue reports it: 5 digits, step 0.01, min 0.01, max 100.
+(defn eur [tick :string lot :string trade :bool step :string vmin :string vmax :string] :string
+  (check-entry tick lot true trade 5 step vmin vmax))
+
+(defn symbol-map [] :i64
+  (+ (expect-str "matching entry" (eur "0.00001" "0.01" true "0.01" "0.01" "100") "")
+     (expect-str "unknown symbol" (check-entry "0.00001" "0.01" false false 5 "" "" "") "unknown-symbol")
+     (expect-str "trading disabled" (eur "0.00001" "0.01" false "0.01" "0.01" "100") "trading-disabled")
+     (expect-str "tick finer than venue" (eur "0.000001" "0.01" true "0.01" "0.01" "100") "tick-finer-than-venue")
+     (expect-str "lot not a step" (eur "0.00001" "0.015" true "0.01" "0.01" "100") "lot-not-a-venue-step")
+     (expect-str "lot below minimum" (eur "0.00001" "0.001" true "0.001" "0.01" "100") "lot-below-venue-minimum")
+     (expect-str "lot above maximum" (eur "0.00001" "1000" true "1" "0.01" "100") "lot-above-venue-maximum")
+     (expect-str "bad tick size" (eur "abc" "0.01" true "0.01" "0.01" "100") "bad-tick-size")
+     (expect-str "several reasons, in order"
+                 (eur "abc" "0.01" false "0.01" "0.01" "100") "trading-disabled,bad-tick-size")
+     (expect-str "digits out of range" (check-entry "0.00001" "0.01" true true 13 "0.01" "0.01" "100")
+                 "bad-venue-digits")
+     (expect-str "point of 5" (point-of 5) "0.00001")
+     (expect-str "point of 0" (point-of 0) "1")))
+
+;; ── order translation ───────────────────────────────────────────────────────
+
+(defn order [cid :string side :string qty :i64 has-price :bool price :i64 reduce :bool] :string
+  (venue-order-line "EURUSD" "0.00001" "0.01" cid side qty has-price price reduce))
+
+(defn orders [] :i64
+  (+ (expect-str "limit buy" (order "t-1" "buy" 30 true 108500 false)
+                 "ORDER EURUSD buy 0.30 1.08500 t-1 0")
+     (expect-str "market sell, reduce-only" (order "t-1" "sell" 1 false 0 true)
+                 "ORDER EURUSD sell 0.01 - t-1 1")
+     (expect-str "empty cid" (order "" "buy" 1 false 0 false) "ERR bad-cid")
+     (expect-str "32-char cid" (order "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" "buy" 1 false 0 false) "ERR bad-cid")
+     (expect-str "31-char cid ok" (order "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" "buy" 1 false 0 false)
+                 "ORDER EURUSD buy 0.01 - xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 0")
+     (expect-str "cid with space" (order "a b" "buy" 1 false 0 false) "ERR bad-cid")
+     (expect-str "bad side" (order "a" "hold" 1 false 0 false) "ERR bad-side")
+     (expect-str "zero qty" (order "a" "buy" 0 false 0 false) "ERR bad-qty")
+     (expect-str "zero price" (order "a" "buy" 1 true 0 false) "ERR bad-price")
+     (expect-str "qty out of range" (venue-order-line "EURUSD" "0.00001" "0.10" "a" "buy" 9007199254740991 false 0 false) "ERR qty-out-of-range")
+     (expect-str "qty at the edge is fine" (order "a" "buy" 9007199254740991 false 0 false)
+                 "ORDER EURUSD buy 90071992547409.91 - a 0")
+     (expect-i64 "volume to lots" (volume->lots "0.309" "0.01") 30)
+     (expect-i64 "volume to lots, short" (volume->lots "-0.30" "0.01") -30)
+     (expect-i64 "volume to lots, bad" (volume->lots "x" "0.01") NOPE)))
+
+(defn main [] :i64
+  (+ (decimals) (counts) (strings) (symbol-map) (orders)))
