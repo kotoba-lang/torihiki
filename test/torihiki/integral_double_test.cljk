@@ -154,7 +154,7 @@
 
 (deftest out-of-domain-and-fractional-values-are-refused-at-both-doors
   (let [ex (funded)]
-    (doseq [[label slot v door reason]
+    (doseq [[label slot v door reason & [base]]
             [["order qty out-of-domain" :qty ood-double api/order-tx-shape :bad-quantity]
              ["order qty fractional" :qty frac api/order-tx-shape :bad-quantity]
              ["order level out-of-domain" :level ood-double api/order-tx-shape :bad-price-level]
@@ -172,17 +172,23 @@
              ["scale step fractional" :step frac api/scale-tx-shape :missing-field]
              ["twap slices fractional" :slices frac api/twap-tx-shape :missing-field]
              ["twap slices out-of-domain" :slices ood-double api/twap-tx-shape :missing-field]
-             ;; :withdraw amount rows, not :deposit — the :deposit engine door
-             ;; judges account/credit only (the 22:2x finding 2 residual; the
-             ;; suite must not pin it as fixed). The :withdraw door DOES judge
-             ;; :amount, at both doors.
+             ;; :deposit amount rows — the 22:2x finding 2 residual is FIXED:
+             ;; the engine door judges :amount exactly as `validate` does, so
+             ;; the rows run both doors. The base transaction is explicit
+             ;; because "amount" also names the :withdraw rows below.
+             ["deposit amount out-of-domain" :amount ood-double api/store-tx-shape :bad-amount
+              {:tx :deposit :account 1}]
+             ["deposit amount fractional" :amount frac api/store-tx-shape :bad-amount
+              {:tx :deposit :account 1}]
+             ["deposit amount non-positive" :amount -3 api/store-tx-shape :bad-amount
+              {:tx :deposit :account 1}]
              ["withdraw amount out-of-domain" :amount ood-double api/store-tx-shape :bad-amount]
              ["withdraw amount fractional" :amount frac api/store-tx-shape :bad-amount]
              ["set-leverage out-of-domain" :leverage ood-double api/store-tx-shape :missing-field]
              ["set-leverage fractional" :leverage frac api/store-tx-shape :missing-field]
              ["withdraw-cancel claim fractional" :claim frac api/store-tx-shape :missing-field]
              ["cancel-twap id fractional" :id frac api/market-tx-shape :missing-field]]]
-      (let [tx (-> (case (name slot)
+      (let [tx (-> (or base (case (name slot)
                      "trigger-price" {:tx :trigger :account 1 :market 1 :direction :above
                                       :order {:side 0 :level 10 :qty 5}}
                      "count*" {:tx :scale :account 1 :market 1 :side 0 :qty 2 :level 10 :step 5}
@@ -199,7 +205,7 @@
                      "oid" (if (= door api/amend-tx-shape)
                              {:tx :amend :account 1 :market 1 :qty 5 :level 10}
                              {:tx :cancel :account 1 :market 1})
-                     {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5})
+                     {:tx :order :account 1 :market 1 :side 0 :level 10 :qty 5}))
                    (assoc slot v))]
         (is (= reason (shaped door ex tx)) (str label " — the shape door"))
         (is (= reason (shaped api/validate ex tx)) (str label " — validate"))))))
@@ -249,10 +255,16 @@
 ;; ── VALUE: refused garbage lands nothing at the engine ─────────────────────
 
 (deftest refused-garbage-lands-nothing
-  ;; :withdraw amount rows, not :deposit — the :deposit engine door judges
-  ;; account/credit only (the 22:2x finding 2 residual; this suite must not
-  ;; pin it as fixed). The :withdraw door DOES judge :amount, at both doors.
-  (doseq [[label tx] [["out-of-domain amount" {:tx :withdraw :account 1 :amount ood-double}]
+  ;; :deposit AND :withdraw amount rows — the :deposit engine door now judges
+  ;; :amount at both doors (the 22:2x finding 2 residual, FIXED). This is the
+  ;; VALUE half of the refusal pin: whatever the door drops whole lands
+  ;; nothing — collateral stays exactly at the one funded deposit, whatever
+  ;; the garbage amount would have credited. (`cl/deposit`'s own total gate
+  ;; refused these before the door did; the rows keep both honest.)
+  (doseq [[label tx] [["out-of-domain deposit amount" {:tx :deposit :account 1 :amount ood-double}]
+                      ["fractional deposit amount" {:tx :deposit :account 1 :amount frac}]
+                      ["non-positive deposit amount" {:tx :deposit :account 1 :amount -3}]
+                      ["out-of-domain amount" {:tx :withdraw :account 1 :amount ood-double}]
                       ["fractional amount" {:tx :withdraw :account 1 :amount frac}]
                       ["out-of-domain qty" {:tx :order :account 1 :market 1 :side 0
                                             :level 10 :qty ood-double}]
