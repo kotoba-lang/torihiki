@@ -83,8 +83,15 @@
         res (r/place! router {:cid "x1" :market 1 :side :buy :qty 1})]
     (is (= :rejected (:status res)))
     (is (= :read-only (:reason res)))
-    (doseq [f [:place :cancel :orders :history]]
-      (is (= {:error :read-only} ((get venue f) {})) (str f)))))
+    ;; Knocked at exactly the arities torihiki.venue/contract documents
+    ;; (:place [order], :cancel [id], :orders [], :history [since]), each
+    ;; pinned to the :read-only literal. The arity is part of the pin: this
+    ;; row used to knock every handler with one argument, which kbb/SCI
+    ;; silently accepted while the JVM leg died with ArityException on the
+    ;; 0-arity :orders — the extra argument is invisible on one runtime and
+    ;; fatal on the other, so the call shape must follow the contract.
+    (doseq [[f args] [[:place [{}]] [:cancel ["x1"]] [:orders []] [:history [nil]]]]
+      (is (= {:error :read-only} (apply (get venue f) args)) (str f)))))
 
 ;; ── refusals ────────────────────────────────────────────────────────────────
 
