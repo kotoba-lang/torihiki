@@ -75,7 +75,9 @@
             [torihiki.state-test]
             [torihiki.store-totality-test]
             [torihiki.trigger-test]
-            [torihiki.validators-test]))
+            [torihiki.validators-test]
+            [torihiki.venue-mt-test]
+            [torihiki.venue-test]))
 
 ;; The floor. A classpath that resolves `cljs.test` but none of the test
 ;; namespaces would run zero tests and report zero failures, and this script
@@ -167,7 +169,16 @@
 ;; #87) left, and 36 is that suite plus the 5.0-is-5 admission/refusal/VALUE
 ;; pins. The constant stays hard so a classpath that drops more namespaces
 ;; still exits 2.
-(def ^:private expected-namespaces 36)
+;; The floor is 38, not 36: `torihiki.venue-test` and `torihiki.venue-mt-test`
+;; joined the suite — they were in the test tree since PRs #91/#92 but in NEITHER
+;; list here, so the leg passed its floor over the suite MINUS the venue
+;; namespaces (measured 2026-11-04: 609 tests / 5274 assertions over 36/36 here
+;; against 644 / 5460 on `kbb -M:test` and script/jvm-test.sh). A floor that
+;; counts the namespaces actually listed is only as honest as the list: the
+;; list is now every `test/torihiki/*_test.cljk`, and 38 is the count that
+;; equality demands. The constant stays hard so a classpath that drops more
+;; namespaces still exits 2.
+(def ^:private expected-namespaces 38)
 (defonce ^:private ns-seen (atom 0))
 
 (defmethod ct/report [::ct/default :begin-test-ns] [_] (swap! ns-seen inc))
@@ -227,4 +238,6 @@
               'torihiki.state-test
               'torihiki.store-totality-test
               'torihiki.trigger-test
-              'torihiki.validators-test)
+              'torihiki.validators-test
+              'torihiki.venue-mt-test
+              'torihiki.venue-test)
