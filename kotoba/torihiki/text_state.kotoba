@@ -1,0 +1,133 @@
+(ns torihiki.text-state)
+
+;; Small text-state toolkit shared by the Kotoba venue modules (JUN-816). A
+;; state is a string, one record per line, every line ending in a newline; a
+;; record is found by the prefix it starts with. ASCII only: every scan steps by
+;; one byte, which is safe because the callers admit only printable ASCII
+;; (`line-shaped?` in venue_mt.kotoba), and a scan stops at the first non-ASCII
+;; byte it meets rather than stepping into it.
+;;
+;; Moved out of venue_mt.kotoba unchanged, plus drop-first and out/head-of/tail-of.
+
+(def NO-ROW "")
+
+;; ── text helpers (ASCII only; every scan steps by one byte) ────────────────
+
+(defn ascii-line? [s :string i :i64 n :i64] :bool
+  (if (>= i n)
+    true
+    (let [c (string-code-point-at s i)]
+      (if (and (>= c 32) (<= c 126)) (ascii-line? s (+ i 1) n) false))))
+
+;; no leading or trailing space, no two in a row
+(defn spaced? [s :string i :i64 n :i64] :bool
+  (cond
+    (>= i n) true
+    (and (= (string-code-point-at s i) 32)
+         (or (= i 0) (= i (- n 1)) (= (string-code-point-at s (- i 1)) 32))) false
+    :else (spaced? s (+ i 1) n)))
+
+(defn line-shaped? [s :string] :bool
+  (let [n (string-length s)]
+    (if (and (> n 0) (ascii-line? s 0 n) (spaced? s 0 n)) true false)))
+
+(defn skip-sp [s :string i :i64 n :i64] :i64
+  (if (and (< i n) (= (string-code-point-at s i) 32)) (skip-sp s (+ i 1) n) i))
+
+(defn skip-word [s :string i :i64 n :i64] :i64
+  (if (and (< i n) (not (= (string-code-point-at s i) 32))) (skip-word s (+ i 1) n) i))
+
+(defn tok-pos [s :string k :i64 i :i64 n :i64] :i64
+  (let [j (skip-sp s i n)]
+    (cond
+      (>= j n) -1
+      (= k 0) j
+      :else (tok-pos s (- k 1) (skip-word s j n) n))))
+
+(defn tok [s :string k :i64] :string
+  (let [n (string-length s)
+        p (tok-pos s k 0 n)]
+    (if (< p 0) "" (string-substring s p (skip-word s p n)))))
+
+(defn ntok-from [s :string i :i64 n :i64 acc :i64] :i64
+  (let [j (skip-sp s i n)]
+    (if (>= j n) acc (ntok-from s (skip-word s j n) n (+ acc 1)))))
+
+(defn ntok [s :string] :i64 (ntok-from s 0 (string-length s) 0))
+
+;; ── state as lines ─────────────────────────────────────────────────────────
+
+(defn line-end [s :string i :i64 n :i64] :i64
+  (cond
+    (>= i n) n
+    (= (string-code-point-at s i) 10) i
+    :else (line-end s (+ i 1) n)))
+
+(defn starts-at? [s :string i :i64 prefix :string] :bool
+  (let [pl (string-length prefix)]
+    (if (<= (+ i pl) (string-length s))
+      (string=? (string-substring s i (+ i pl)) prefix)
+      false)))
+
+(defn find-from [st :string prefix :string i :i64 n :i64] :string
+  (if (>= i n)
+    NO-ROW
+    (let [e (line-end st i n)]
+      (if (starts-at? st i prefix)
+        (string-substring st i e)
+        (find-from st prefix (+ e 1) n)))))
+
+;; the first line starting with `prefix`, without its newline; "" if none
+(defn row [st :string prefix :string] :string
+  (find-from st prefix 0 (string-length st)))
+
+(defn keep-from [st :string prefix :string i :i64 n :i64 acc :string keep :bool] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end st i n)
+          ln (string-concat (string-substring st i e) "\n")
+          m (starts-at? st i prefix)]
+      (keep-from st prefix (+ e 1) n
+                 (if (if keep m (not m)) (string-concat acc ln) acc)
+                 keep))))
+
+;; every line EXCEPT those starting with prefix / ONLY those
+(defn without [st :string prefix :string] :string
+  (keep-from st prefix 0 (string-length st) "" false))
+
+(defn only [st :string prefix :string] :string
+  (keep-from st prefix 0 (string-length st) "" true))
+
+(defn put [st :string prefix :string line :string] :string
+  (string-concat (without st prefix) (string-concat line "\n")))
+
+(defn add [st :string line :string] :string
+  (string-concat st (string-concat line "\n")))
+
+(defn sp [a :string b :string] :string
+  (string-concat a (string-concat " " b)))
+
+;; Remove only the FIRST line starting with prefix (a queue of faults, say).
+(defn drop-first-go [st :string prefix :string i :i64 n :i64 acc :string done :bool] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end st i n)
+          ln (string-concat (string-substring st i e) "\n")
+          m (if done false (starts-at? st i prefix))]
+      (drop-first-go st prefix (+ e 1) n (if m acc (string-concat acc ln)) (if m true done)))))
+
+(defn drop-first [st :string prefix :string] :string
+  (drop-first-go st prefix 0 (string-length st) "" false))
+
+;; A function that must hand back both an answer and the next state returns
+;; "answer\nstate": head-of / tail-of take it apart.
+(defn out [answer :string st :string] :string
+  (string-concat answer (string-concat "\n" st)))
+
+(defn head-of [o :string] :string
+  (string-substring o 0 (line-end o 0 (string-length o))))
+
+(defn tail-of [o :string] :string
+  (let [n (string-length o)
+        e (line-end o 0 n)]
+    (if (>= (+ e 1) n) "" (string-substring o (+ e 1) n))))

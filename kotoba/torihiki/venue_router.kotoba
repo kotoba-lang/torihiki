@@ -1,0 +1,235 @@
+(ns torihiki.venue-router)
+
+;; Sends engine orders to a venue without ever sending one twice, and checks
+;; that what the venue holds is what we think it holds. Kotoba port (JUN-816
+;; stage 3); src/torihiki/venue_router.cljk is the oracle and stays. The
+;; reasoning is the cljk's, repeated here because it is the point:
+;;
+;;   A venue that does not answer may have executed the order. Sending it again
+;;   on that assumption doubles a position. So an order has a client id (cid)
+;;   that travels in the venue's order comment, and a record here keyed by it.
+;;   After a timeout the order is `unknown`, and it is re-sent only once the
+;;   venue has been ASKED and shown not to hold an order with that comment. If
+;;   the venue cannot be asked, the order stays unknown and nothing is sent.
+;;   The record is written BEFORE the call (`pending`), so a crash between the
+;;   send and the answer leaves the same trace as a timeout.
+;;
+;; Kill switch: `halt` stops every order that could open or grow exposure;
+;; reduce-only orders still go and are checked to really reduce.
+;;
+;; SANS-IO. Kotoba has no atom and no function value to hold a venue in, so the
+;; router never calls the venue. It is a state machine the caller drives:
+;;
+;;   r-plan      decide; on SEND, the returned state already holds `pending`
+;;   (caller sends the request to the venue)
+;;   r-sent      record the venue's answer to the send
+;;   r-found     record the venue's answer to a LOOKUP
+;;   r-reconcile compare the venue's positions with ours
+;;
+;; That is also the shape the loopback listener (stage 4) needs: it owns the
+;; socket, the router owns the decisions. Each function returns "answer\nstate"
+;; (see `out`). The write-before-send invariant is kept because `r-plan` is the
+;; only way to obtain a SEND, and it returns the state with `pending` in it;
+;; `r-sent` refuses an order that is not pending.
+;;
+;; State lines (prefixes distinct from venue_fake's, so tests share one string):
+;;   G running|halted
+;;   M market enabled(1|0) venue-symbol tick-size lot-size
+;;   L market max-order-qty max-position
+;;   O cid status market side qty venue-order-id|- reason|-
+;;       status: pending | unknown | filled | resting | rejected
+;;
+;; Needs torihiki.venue and torihiki.text-state in the same unit.
+
+(defn r-new [] :string "G running\n")
+
+(defn r-halt [st :string] :string (put st "G " "G halted"))
+(defn r-resume [st :string] :string (put st "G " "G running"))
+(defn r-halted? [st :string] :bool (string=? (tok (row st "G ") 1) "halted"))
+
+(defn m-key [market :i64] :string (sp "M" (sp (string-from-i64 market) "")))
+(defn l-key [market :i64] :string (sp "L" (sp (string-from-i64 market) "")))
+(defn o-key [cid :string] :string (sp "O" (sp cid "")))
+
+;; Bind a market to a venue symbol. `reasons` is what the symbol-map check
+;; returned (torihiki.venue/check-entry or venue_mt's entry-reasons); anything
+;; but "" disables the market.
+(defn r-bind [st :string market :i64 venue-symbol :string tick :string lot :string reasons :string] :string
+  (put st (m-key market)
+       (sp "M" (sp (string-from-i64 market)
+                (sp (if (string=? reasons "") "1" "0") (sp venue-symbol (sp tick lot)))))))
+
+(defn r-limit [st :string market :i64 max-order-qty :i64 max-position :i64] :string
+  (put st (l-key market)
+       (sp "L" (sp (string-from-i64 market)
+                (sp (string-from-i64 max-order-qty) (string-from-i64 max-position))))))
+
+;; signed lots held in `market` by our own record of filled orders
+(defn pos-go [os :string market :string i :i64 n :i64 acc :i64] :i64
+  (if (>= i n)
+    acc
+    (let [e (line-end os i n)
+          ln (string-substring os i e)]
+      (pos-go os market (+ e 1) n
+              (if (and (string=? (tok ln 2) "filled") (string=? (tok ln 3) market))
+                (+ acc (if (string=? (tok ln 4) "buy") (dec-units (tok ln 5)) (- 0 (dec-units (tok ln 5)))))
+                acc)))))
+
+(defn r-position [st :string market :i64] :i64
+  (let [os (only st "O ")]
+    (pos-go os (string-from-i64 market) 0 (string-length os) 0)))
+
+(defn opposite? [a :i64 b :i64] :bool
+  (if (or (and (> a 0) (< b 0)) (and (< a 0) (> b 0))) true false))
+
+;; a reason to refuse, or ""
+(defn risk [st :string market :i64 side :string qty :i64 reduce :bool] :string
+  (let [pos (r-position st market)
+        signed (if (string=? side "buy") qty (- 0 qty))
+        after (abs* (+ pos signed))
+        l (row st (l-key market))
+        limited (not (string=? l ""))]
+    (cond
+      reduce (if (and (not (= pos 0)) (opposite? pos signed) (<= qty (abs* pos))) "" "not-reducing")
+      (r-halted? st) "halted"
+      (and limited (> qty (dec-units (tok l 2)))) "over-order-limit"
+      (and limited (> after (dec-units (tok l 3)))) "over-position-limit"
+      :else "")))
+
+(defn terminal? [status :string] :bool
+  (if (or (string=? status "filled") (string=? status "resting") (string=? status "rejected")) true false))
+
+(defn o-line [cid :string status :string market :string side :string qty :string id :string reason :string] :string
+  (sp "O" (sp cid (sp status (sp market (sp side (sp qty (sp id reason))))))))
+
+;; Decide what to do with an order. Answers:
+;;   REFUSED <reason>        not sent
+;;   REPEAT <status> <id>    already settled; nothing to send
+;;   LOOKUP <venue-symbol>   an earlier attempt is pending/unknown: ask the venue
+;;                           for an order with this cid (r-found next)
+;;   SEND <request line>     the state returned holds `pending`; send it, then r-sent
+(defn r-plan [st :string cid :string market :i64 side :string qty :i64
+              has-price :bool price :i64 reduce :bool] :string
+  (let [m (row st (m-key market))
+        o (row st (o-key cid))
+        prior (tok o 2)]
+    (cond
+      (not (string=? (tok m 2) "1")) (out "REFUSED market-disabled" st)
+      (terminal? prior) (out (sp "REPEAT" (sp prior (tok o 6))) st)
+      :else
+      (let [line (venue-order-line (tok m 3) (tok m 4) (tok m 5) cid side qty has-price price reduce)]
+        (cond
+          (starts-at? line 0 "ERR ") (out (sp "REFUSED" (string-substring line 4 (string-length line))) st)
+          (or (string=? prior "pending") (string=? prior "unknown")) (out (sp "LOOKUP" (tok m 3)) st)
+          :else
+          (let [why (risk st market side qty reduce)]
+            (if (string=? why "")
+              (out (sp "SEND" line)
+                   (put st (o-key cid)
+                        (o-line cid "pending" (string-from-i64 market) side (string-from-i64 qty) "-" "-")))
+              (out (sp "REFUSED" why) st))))))))
+
+(defn set-o [st :string cid :string status :string id :string reason :string] :string
+  (let [o (row st (o-key cid))]
+    (put st (o-key cid) (o-line cid status (tok o 3) (tok o 4) (tok o 5) id reason))))
+
+;; The venue's answer to a LOOKUP: UNREACHABLE | NONE | FOUND id resting|filled
+;;   UNKNOWN cannot-confirm  nothing is sent; ask again later
+;;   RECOVERED <status> <id> the venue holds it; recorded, not resent
+;;   ABSENT                  the venue was asked and does not hold it; the
+;;                           record is dropped, call r-plan again
+(defn r-found [st :string cid :string lookup :string] :string
+  (let [k (tok lookup 0)]
+    (cond
+      (string=? k "FOUND")
+      (let [status (if (string=? (tok lookup 2) "resting") "resting" "filled")]
+        (out (sp "RECOVERED" (sp status (tok lookup 1)))
+             (set-o st cid status (tok lookup 1) "-")))
+      (string=? k "NONE") (out "ABSENT" (without st (o-key cid)))
+      :else (out "UNKNOWN cannot-confirm" st))))
+
+;; The venue's answer to the send: OK id filled|resting | ERR reason | TIMEOUT
+;;   FILLED id | RESTING id | REJECTED reason | UNKNOWN timeout
+;;   REFUSED not-pending     the order was not planned (no SEND was obtained)
+(defn r-sent [st :string cid :string result :string] :string
+  (let [o (row st (o-key cid))
+        k (tok result 0)]
+    (cond
+      (not (string=? (tok o 2) "pending")) (out "REFUSED not-pending" st)
+      (string=? k "TIMEOUT") (out "UNKNOWN timeout" (set-o st cid "unknown" "-" "-"))
+      (string=? k "ERR") (out (sp "REJECTED" (tok result 1)) (set-o st cid "rejected" "-" (tok result 1)))
+      (string=? k "OK")
+      (if (string=? (tok result 2) "resting")
+        (out (sp "RESTING" (tok result 1)) (set-o st cid "resting" (tok result 1) "-"))
+        (out (sp "FILLED" (tok result 1)) (set-o st cid "filled" (tok result 1) "-")))
+      :else (out "UNKNOWN timeout" (set-o st cid "unknown" "-" "-")))))
+
+;; ── reconciliation ─────────────────────────────────────────────────────────
+
+(defn colon-at [s :string i :i64 n :i64] :i64
+  (cond (>= i n) -1
+        (= (string-code-point-at s i) 58) i
+        :else (colon-at s (+ i 1) n)))
+
+;; the volume text the venue reports for `sym` in "OK SYM:VOL ...", "" if absent
+(defn vp-vol [vp :string sym :string k :i64 nt :i64] :string
+  (if (>= k nt)
+    ""
+    (let [t (tok vp k)
+          c (colon-at t 0 (string-length t))]
+      (if (and (> c 0) (string=? (string-substring t 0 c) sym))
+        (string-substring t (+ c 1) (string-length t))
+        (vp-vol vp sym (+ k 1) nt)))))
+
+;; is a venue symbol bound to some market?
+(defn m-has-symbol [ms :string sym :string i :i64 n :i64] :bool
+  (if (>= i n)
+    false
+    (let [e (line-end ms i n)
+          ln (string-substring ms i e)]
+      (if (string=? (tok ln 3) sym) true (m-has-symbol ms sym (+ e 1) n)))))
+
+(defn vp-unmapped [vp :string ms :string k :i64 nt :i64 acc :string] :string
+  (if (>= k nt)
+    acc
+    (let [t (tok vp k)
+          c (colon-at t 0 (string-length t))
+          sym (if (> c 0) (string-substring t 0 c) t)]
+      (vp-unmapped vp ms (+ k 1) nt
+                   (if (m-has-symbol ms sym 0 (string-length ms))
+                     acc
+                     (sp acc (string-concat "unmapped:" sym)))))))
+
+(defn m-diffs [st :string vp :string ms :string i :i64 n :i64 nt :i64 acc :string] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end ms i n)
+          ln (string-substring ms i e)
+          market (dec-units (tok ln 1))
+          vol (vp-vol vp (tok ln 3) 1 nt)
+          ours (r-position st market)
+          theirs (if (string=? vol "") 0 (volume->lots vol (tok ln 5)))
+          exact (if (string=? vol "") true (> (count-or vol (tok ln 5) EXACT NOPE) NOPE))]
+      (m-diffs st vp ms (+ e 1) n nt
+               (if (and (= ours theirs) exact)
+                 acc
+                 (sp acc (string-concat (string-from-i64 market)
+                           (string-concat ":" (string-concat (string-from-i64 ours)
+                             (string-concat ":" (string-from-i64 theirs)))))))))))
+
+;; `venue-positions` is the venue's positions answer: "OK SYM:VOL ..." or an ERR.
+;;   OK                      the venue holds what we think it holds
+;;   DIFF m:ours:venue ...   and/or unmapped:SYM; the router is halted
+;;   UNREACHABLE             could not be read; the router is halted
+;; A book that disagrees with the venue, or cannot be checked, is not one to add to.
+(defn r-reconcile [st :string venue-positions :string] :string
+  (if (not (string=? (tok venue-positions 0) "OK"))
+    (out "UNREACHABLE" (r-halt st))
+    (let [ms (only st "M ")
+          nt (ntok venue-positions)
+          d (m-diffs st venue-positions ms 0 (string-length ms) nt "")
+          u (vp-unmapped venue-positions ms 1 nt "")
+          all (string-concat d u)]
+      (if (string=? all "")
+        (out "OK" st)
+        (out (string-concat "DIFF" all) (r-halt st))))))
