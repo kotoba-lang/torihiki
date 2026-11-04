@@ -7,6 +7,11 @@
   `torihiki.venue-router`, and a fake that quietly protected it would let a
   broken router pass.
 
+  A request the fake cannot execute is refused WHOLE at the :place door —
+  `{:error :bad-side|:unknown-symbol|:bad-volume|:bad-price}` — before the
+  fault machinery (a request never sent triggers no terminal fault), and
+  nothing a refusal refuses is ever recorded, coerced or filled.
+
   Faults are queued per function and consumed one call at a time:
 
     :timeout-after-accept   the order is executed, the reply is lost
@@ -80,16 +85,31 @@
                  (guard :history
                         #(do {:ok (vec (remove (comp #{:resting} :status) (:orders @state)))})))
       :place (fn [req]
-               (let [f (pop-fault! :place)]
-                 (case f
-                   :unreachable {:error :unreachable}
-                   :reject {:error :rejected}
-                   :timeout-before-accept {:timeout true}
-                   :timeout-after-accept (do (execute! req) {:timeout true})
-                   (if-not (get-in @state [:symbols (:symbol req)])
-                     {:error :unknown-symbol}
-                     (let [o (execute! req)]
-                       {:ok (select-keys o [:venue-order-id :status])})))))
+               ;; The door: a request the fake cannot execute is refused whole,
+               ;; before the fault machinery — a request never sent triggers no
+               ;; terminal fault. `count-of` and `parse-decimal` are total, so
+               ;; the door itself cannot throw, and nothing here coerces: the
+               ;; request is judged at the contract's shape or it does not
+               ;; exist.
+               (let [{:keys [symbol side volume price]} req
+                     n (v/count-of volume (step-of symbol) :exact)]
+                 (cond
+                   (not (#{:buy :sell} side)) {:error :bad-side}
+                   (not (get-in @state [:symbols symbol])) {:error :unknown-symbol}
+                   (not (and n (pos? n))) {:error :bad-volume}
+                   (and (some? price)
+                        (let [p (v/parse-decimal price)]
+                          (not (and p (pos? (:units p))))))
+                   {:error :bad-price}
+                   :else
+                   (let [f (pop-fault! :place)]
+                     (case f
+                       :unreachable {:error :unreachable}
+                       :reject {:error :rejected}
+                       :timeout-before-accept {:timeout true}
+                       :timeout-after-accept (do (execute! req) {:timeout true})
+                       (let [o (execute! req)]
+                         {:ok (select-keys o [:venue-order-id :status])}))))))
       :cancel (fn [id]
                 (guard :cancel
                        #(do (swap! state update :orders

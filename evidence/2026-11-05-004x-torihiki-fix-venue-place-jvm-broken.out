@@ -1,0 +1,662 @@
+
+Running tests in #{"test"}
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.integral-double-test
+
+Testing torihiki.leverage-doors-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Testing torihiki.venue-mt-test
+
+Testing torihiki.venue-test
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :volume "0.30", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-side} {:ok {:venue-order-id "V1", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -30}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side :hold, :volume "0.30", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-side} {:ok {:venue-order-id "V2", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :hold, :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :hold, :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -60}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side "buy", :volume "0.30", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-side} {:ok {:venue-order-id "V3", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side "buy", :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side "buy", :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "GBPUSD", :side :buy, :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "GBPUSD", :side :buy, :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+ERROR in (a-request-the-fake-cannot-execute-is-refused-whole) (Numbers.java:1099)
+{:symbol "EURUSD", :side :buy, :volume "0.015", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: java.lang.NullPointerException: Cannot invoke "Object.getClass()" because "x" is null
+ at clojure.lang.Numbers.ops (Numbers.java:1099)
+    clojure.lang.Numbers.add (Numbers.java:155)
+    clojure.core$_PLUS_.invokeStatic (core.clj:994)
+    clojure.core$_PLUS_.invoke (core.clj:986)
+    clojure.core$fnil$fn__6990.invoke (core.clj:6646)
+    clojure.lang.AFn.applyToHelper (AFn.java:156)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.core$update_in$up__6945.invoke (core.clj:6248)
+    clojure.core$update_in$up__6945.invoke (core.clj:6247)
+    clojure.core$update_in.invokeStatic (core.clj:6249)
+    clojure.core$update_in.doInvoke (core.clj:6235)
+    clojure.lang.RestFn.invoke (RestFn.java:470)
+    torihiki.venue_fake$make$execute_BANG___21168$fn__21170.invoke (venue_fake.cljc:51)
+    clojure.lang.Atom.swap (Atom.java:37)
+    clojure.core$swap_BANG_.invokeStatic (core.clj:2369)
+    clojure.core$swap_BANG_.invoke (core.clj:2362)
+    torihiki.venue_fake$make$execute_BANG___21168.invoke (venue_fake.cljc:48)
+    torihiki.venue_fake$make$fn__21220.invoke (venue_fake.cljc:91)
+    torihiki.venue_test$fn__21416$fn__21424.invoke (venue_test.cljc:121)
+    torihiki.venue_test$fn__21416.invokeStatic (venue_test.cljc:121)
+    torihiki.venue_test/fn (venue_test.cljc:103)
+    clojure.test$test_var$fn__9894.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9920$fn__9925.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9920.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5954.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:89)
+    clojure.lang.LazySeq.seq (LazySeq.java:106)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5470.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.invoke (RestFn.java:400)
+    clojure.lang.AFn.applyToHelper (AFn.java:152)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.015", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.015", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+ERROR in (a-request-the-fake-cannot-execute-is-refused-whole) (Numbers.java:1099)
+{:symbol "EURUSD", :side :buy, :volume nil, :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: java.lang.NullPointerException: Cannot invoke "Object.getClass()" because "x" is null
+ at clojure.lang.Numbers.ops (Numbers.java:1099)
+    clojure.lang.Numbers.add (Numbers.java:155)
+    clojure.core$_PLUS_.invokeStatic (core.clj:994)
+    clojure.core$_PLUS_.invoke (core.clj:986)
+    clojure.core$fnil$fn__6990.invoke (core.clj:6646)
+    clojure.lang.AFn.applyToHelper (AFn.java:156)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.core$update_in$up__6945.invoke (core.clj:6248)
+    clojure.core$update_in$up__6945.invoke (core.clj:6247)
+    clojure.core$update_in.invokeStatic (core.clj:6249)
+    clojure.core$update_in.doInvoke (core.clj:6235)
+    clojure.lang.RestFn.invoke (RestFn.java:470)
+    torihiki.venue_fake$make$execute_BANG___21168$fn__21170.invoke (venue_fake.cljc:51)
+    clojure.lang.Atom.swap (Atom.java:37)
+    clojure.core$swap_BANG_.invokeStatic (core.clj:2369)
+    clojure.core$swap_BANG_.invoke (core.clj:2362)
+    torihiki.venue_fake$make$execute_BANG___21168.invoke (venue_fake.cljc:48)
+    torihiki.venue_fake$make$fn__21220.invoke (venue_fake.cljc:91)
+    torihiki.venue_test$fn__21416$fn__21424.invoke (venue_test.cljc:121)
+    torihiki.venue_test$fn__21416.invokeStatic (venue_test.cljc:121)
+    torihiki.venue_test/fn (venue_test.cljc:103)
+    clojure.test$test_var$fn__9894.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9920$fn__9925.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9920.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5954.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:89)
+    clojure.lang.LazySeq.seq (LazySeq.java:106)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5470.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.invoke (RestFn.java:400)
+    clojure.lang.AFn.applyToHelper (AFn.java:152)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume nil, :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume nil, :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+ERROR in (a-request-the-fake-cannot-execute-is-refused-whole) (Numbers.java:1099)
+{:symbol "EURUSD", :side :buy, :volume 0.3, :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: java.lang.NullPointerException: Cannot invoke "Object.getClass()" because "x" is null
+ at clojure.lang.Numbers.ops (Numbers.java:1099)
+    clojure.lang.Numbers.add (Numbers.java:155)
+    clojure.core$_PLUS_.invokeStatic (core.clj:994)
+    clojure.core$_PLUS_.invoke (core.clj:986)
+    clojure.core$fnil$fn__6990.invoke (core.clj:6646)
+    clojure.lang.AFn.applyToHelper (AFn.java:156)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.core$update_in$up__6945.invoke (core.clj:6248)
+    clojure.core$update_in$up__6945.invoke (core.clj:6247)
+    clojure.core$update_in.invokeStatic (core.clj:6249)
+    clojure.core$update_in.doInvoke (core.clj:6235)
+    clojure.lang.RestFn.invoke (RestFn.java:470)
+    torihiki.venue_fake$make$execute_BANG___21168$fn__21170.invoke (venue_fake.cljc:51)
+    clojure.lang.Atom.swap (Atom.java:37)
+    clojure.core$swap_BANG_.invokeStatic (core.clj:2369)
+    clojure.core$swap_BANG_.invoke (core.clj:2362)
+    torihiki.venue_fake$make$execute_BANG___21168.invoke (venue_fake.cljc:48)
+    torihiki.venue_fake$make$fn__21220.invoke (venue_fake.cljc:91)
+    torihiki.venue_test$fn__21416$fn__21424.invoke (venue_test.cljc:121)
+    torihiki.venue_test$fn__21416.invokeStatic (venue_test.cljc:121)
+    torihiki.venue_test/fn (venue_test.cljc:103)
+    clojure.test$test_var$fn__9894.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9920$fn__9925.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9920.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5954.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:89)
+    clojure.lang.LazySeq.seq (LazySeq.java:106)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5470.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.invoke (RestFn.java:400)
+    clojure.lang.AFn.applyToHelper (AFn.java:152)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume 0.3, :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume 0.3, :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+ERROR in (a-request-the-fake-cannot-execute-is-refused-whole) (Numbers.java:1099)
+{:symbol "EURUSD", :side :buy, :volume "1e2", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: java.lang.NullPointerException: Cannot invoke "Object.getClass()" because "x" is null
+ at clojure.lang.Numbers.ops (Numbers.java:1099)
+    clojure.lang.Numbers.add (Numbers.java:155)
+    clojure.core$_PLUS_.invokeStatic (core.clj:994)
+    clojure.core$_PLUS_.invoke (core.clj:986)
+    clojure.core$fnil$fn__6990.invoke (core.clj:6646)
+    clojure.lang.AFn.applyToHelper (AFn.java:156)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.core$update_in$up__6945.invoke (core.clj:6248)
+    clojure.core$update_in$up__6945.invoke (core.clj:6247)
+    clojure.core$update_in.invokeStatic (core.clj:6249)
+    clojure.core$update_in.doInvoke (core.clj:6235)
+    clojure.lang.RestFn.invoke (RestFn.java:470)
+    torihiki.venue_fake$make$execute_BANG___21168$fn__21170.invoke (venue_fake.cljc:51)
+    clojure.lang.Atom.swap (Atom.java:37)
+    clojure.core$swap_BANG_.invokeStatic (core.clj:2369)
+    clojure.core$swap_BANG_.invoke (core.clj:2362)
+    torihiki.venue_fake$make$execute_BANG___21168.invoke (venue_fake.cljc:48)
+    torihiki.venue_fake$make$fn__21220.invoke (venue_fake.cljc:91)
+    torihiki.venue_test$fn__21416$fn__21424.invoke (venue_test.cljc:121)
+    torihiki.venue_test$fn__21416.invokeStatic (venue_test.cljc:121)
+    torihiki.venue_test/fn (venue_test.cljc:103)
+    clojure.test$test_var$fn__9894.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9920$fn__9925.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9920.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5954.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:89)
+    clojure.lang.LazySeq.seq (LazySeq.java:106)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5470.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.invoke (RestFn.java:400)
+    clojure.lang.AFn.applyToHelper (AFn.java:152)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "1e2", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "1e2", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side :buy, :volume "-0.10", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V8", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "-0.10", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "-0.10", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side :buy, :volume "0.00", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V9", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.00", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.00", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+ERROR in (a-request-the-fake-cannot-execute-is-refused-whole) (Numbers.java:1099)
+{:symbol "EURUSD", :side :buy, :volume "9007199254740992", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: java.lang.NullPointerException: Cannot invoke "Object.getClass()" because "x" is null
+ at clojure.lang.Numbers.ops (Numbers.java:1099)
+    clojure.lang.Numbers.add (Numbers.java:155)
+    clojure.core$_PLUS_.invokeStatic (core.clj:994)
+    clojure.core$_PLUS_.invoke (core.clj:986)
+    clojure.core$fnil$fn__6990.invoke (core.clj:6646)
+    clojure.lang.AFn.applyToHelper (AFn.java:156)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.core$update_in$up__6945.invoke (core.clj:6248)
+    clojure.core$update_in$up__6945.invoke (core.clj:6247)
+    clojure.core$update_in.invokeStatic (core.clj:6249)
+    clojure.core$update_in.doInvoke (core.clj:6235)
+    clojure.lang.RestFn.invoke (RestFn.java:470)
+    torihiki.venue_fake$make$execute_BANG___21168$fn__21170.invoke (venue_fake.cljc:51)
+    clojure.lang.Atom.swap (Atom.java:37)
+    clojure.core$swap_BANG_.invokeStatic (core.clj:2369)
+    clojure.core$swap_BANG_.invoke (core.clj:2362)
+    torihiki.venue_fake$make$execute_BANG___21168.invoke (venue_fake.cljc:48)
+    torihiki.venue_fake$make$fn__21220.invoke (venue_fake.cljc:91)
+    torihiki.venue_test$fn__21416$fn__21424.invoke (venue_test.cljc:121)
+    torihiki.venue_test$fn__21416.invokeStatic (venue_test.cljc:121)
+    torihiki.venue_test/fn (venue_test.cljc:103)
+    clojure.test$test_var$fn__9894.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9920$fn__9925.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9920.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5954.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:89)
+    clojure.lang.LazySeq.seq (LazySeq.java:106)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5470.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.invoke (RestFn.java:400)
+    clojure.lang.AFn.applyToHelper (AFn.java:152)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "9007199254740992", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "9007199254740992", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "abc"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-price} {:ok {:venue-order-id "V11", :status :resting}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "abc"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V11", :symbol "EURUSD", :side :buy, :volume "0.30", :price "abc", :comment "g1", :status :resting}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "abc"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "0.00"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-price} {:ok {:venue-order-id "V12", :status :resting}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "0.00"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V11", :symbol "EURUSD", :side :buy, :volume "0.30", :price "abc", :comment "g1", :status :resting} {:venue-order-id "V12", :symbol "EURUSD", :side :buy, :volume "0.30", :price "0.00", :comment "g1", :status :resting}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "0.00"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:121)
+{:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "-1.08500"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-price} {:ok {:venue-order-id "V13", :status :resting}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "-1.08500"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V11", :symbol "EURUSD", :side :buy, :volume "0.30", :price "abc", :comment "g1", :status :resting} {:venue-order-id "V12", :symbol "EURUSD", :side :buy, :volume "0.30", :price "0.00", :comment "g1", :status :resting} {:venue-order-id "V13", :symbol "EURUSD", :side :buy, :volume "0.30", :price "-1.08500", :comment "g1", :status :resting}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "-1.08500"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:125)
+the door still opens — and no refused request consumed a seq number
+expected: (= {:ok {:venue-order-id "V1", :status :filled}} (place good))
+  actual: (not (= {:ok {:venue-order-id "V1", :status :filled}} {:ok {:venue-order-id "V14", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:126)
+the door still opens — and no refused request consumed a seq number
+expected: (= {"EURUSD" 30} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {"EURUSD" 30} {"EURUSD" -70}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:131)
+a request never sent triggers no terminal fault
+the refusal comes from the door, before the fault machinery
+expected: (= {:error :bad-side} (place {:symbol "EURUSD", :side :hold, :volume "0.30"}))
+  actual: (not (= {:error :bad-side} {:error :unreachable}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:136)
+a request never sent triggers no terminal fault the queued fault still fires for the request actually sent
+expected: (= {:error :unreachable} (place {:symbol "EURUSD", :side :buy, :volume "0.30"}))
+  actual: (not (= {:error :unreachable} {:ok {:venue-order-id "V1", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:137)
+a request never sent triggers no terminal fault the queued fault still fires for the request actually sent
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side :buy, :volume "0.30", :price nil, :comment nil, :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (venue_test.cljc:138)
+a request never sent triggers no terminal fault the queued fault still fires for the request actually sent
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" 30}))
+
+Ran 645 tests containing 5510 assertions.
+42 failures, 5 errors.
