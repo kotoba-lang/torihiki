@@ -603,12 +603,20 @@
 
 (defn- reprice!
   "Recompute the derived mark for `market` from the book and the oracle.
-  Called after anything that can move either — a fill or an oracle update."
+  Called after anything that can move either — a fill or an oracle update.
+  When the mark VALUE moves, the resting-order sums are rekeyed at it — one
+  canonical fold per (acct, mkt) entry per move (#50), so `market-requirement`
+  never reads a loss computed against a mark that is gone."
   [ex market]
   (let [book (get-in ex [:books market])
         oracle (get-in ex [:oracle market] 0)
-        oracle (if (pos? oracle) oracle (get-in ex [:last market] 0))]
-    (assoc-in ex [:marks market] (mk/mark-price book oracle (:mark-params ex)))))
+        oracle (if (pos? oracle) oracle (get-in ex [:last market] 0))
+        mark (mk/mark-price book oracle (:mark-params ex))]
+    (if (= mark (get-in ex [:marks market] 0))
+      ex
+      (-> ex
+          (assoc-in [:marks market] mark)
+          (update :open-orders om/rekey market mark)))))
 
 (declare fire-triggers apply-tx-order apply-tx-spot-order spot?)
 
@@ -844,12 +852,13 @@
         ex (record-fills ex market fills)
         mkt (get-in ex [:markets market])
         h (:height ex 0)
+        mark (get-in ex [:marks market] 0)
         ;; The resting quantities follow the book: the makers' orders this
-        ;; took, and whatever of this one rested.
+        ;; took, and whatever of this one rested. The sums are kept at `mark`.
         ex (update-oo ex
-                      (fn [oo] (cond-> (om/take-consumed oo market side takes)
+                      (fn [oo] (cond-> (om/take-consumed oo market side takes mark)
                                  (not (neg? oid))
-                                 (om/adjust account market side level (:qty (bk/order-of book oid))))))]
+                                 (om/adjust account market side level (:qty (bk/order-of book oid)) mark))))]
     ;; Both sides of every fill are credited here, and in fill order. Crediting
     ;; only the taker and reconciling makers later would let an account's
     ;; margin be evaluated against a position it already holds but has not
@@ -1492,7 +1501,7 @@
       (let [ex (assoc-in ex [:markets market] (merge cur (dissoc spec :id :tick :lot)))
             ;; `:kind` can change here, and the resting-order cache covers
             ;; perp books only, so it is derived again.
-            oo (om/rebuild (:books ex) (:markets ex))]
+            oo (om/rebuild (:books ex) (:markets ex) (:marks ex))]
         (if (= oo (or (:open-orders ex) {})) ex (assoc ex :open-orders oo)))))))
 
 (defmethod apply-tx* :authorize-agent
@@ -1599,7 +1608,7 @@
         (let [removed (bk/reduce-to! book oid account qty)]
           (cond
             (not (spot? ex market))
-            (update-oo ex om/adjust account market (:side cur) level (- removed))
+            (update-oo ex om/adjust account market (:side cur) level (- removed) (get-in ex [:marks market] 0))
             ;; From version 4 the part removed gives its reservation back.
             (>= (gov/active-version ex) spot-version)
             (let [[asset amount] (spot-backing ex market (:side cur) level removed)]
@@ -1617,7 +1626,7 @@
             ex
             (apply-tx (cond
                         (not (spot? ex market))
-                        (update-oo ex om/adjust account market (:side cur) (:level cur) (- cancelled))
+                        (update-oo ex om/adjust account market (:side cur) (:level cur) (- cancelled) (get-in ex [:marks market] 0))
                         ;; From version 4 the cancelled order's reservation comes
                         ;; back before the new one takes its own.
                         (>= (gov/active-version ex) spot-version)
@@ -1649,7 +1658,7 @@
         (spot? ex market)
         (let [[asset amount] (spot-backing ex market (:side o) (:level o) cancelled)]
           (update ex :clearing cl/release-spot account asset amount))
-        :else (update-oo ex om/adjust account market (:side o) (:level o) (- cancelled))))))
+        :else (update-oo ex om/adjust account market (:side o) (:level o) (- cancelled) (get-in ex [:marks market] 0))))))
 
 ;; Set the oracle directly. Only permitted when no publisher set is configured
 ;; (see torihiki.api/validate). A devnet with one operator uses this; a market
@@ -1910,7 +1919,7 @@
            []
            (liq/scan (:clearing ex) market (:marks ex) (:markets ex))))
         ;; The liquidator's slices took makers' resting orders.
-        (as-> e (reduce (fn [e [side takes]] (update-oo e om/take-consumed market side takes))
+        (as-> e (reduce (fn [e [side takes]] (update-oo e om/take-consumed market side takes (get-in e [:marks market] 0)))
                         e @taken))
         ;; And they are fills: into the block's fill view, like any order's.
         (as-> e (record-fills e market (if v3?
@@ -1990,7 +1999,7 @@
                             (and (< before om/version) (om/active? e))
                             (-> ;; Derived afresh before it is first read, so
                                 ;; nothing kept under version 1 is trusted.
-                                (assoc :open-orders (om/rebuild (:books e) (:markets e)))
+                                (assoc :open-orders (om/rebuild (:books e) (:markets e) (:marks e)))
                                 cancel-unbacked-orders))))
                 ;; For `:equivocation-evidence` only, and removed before the
                 ;; block returns: a function is not state.

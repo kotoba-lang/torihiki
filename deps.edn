@@ -91,6 +91,11 @@
   :bench {:extra-paths ["bench"]
           :jvm-opts ["-Xmx4g" "-XX:+UseParallelGC"]
           :main-opts ["-m" "torihiki.bench"]}
+  ;; Acceptance 3 for #50: the O(1) order-margin query against the pure
+  ;; fold, and the honest cost of a mark move. Prints numbers, asserts
+  ;; nothing — like :bench, it never gates CI.
+  :bench-om {:extra-paths ["bench"]
+             :main-opts ["-m" "torihiki.order-margin-bench"]}
   ;; The Hyperliquid comparison: the whole state machine (validation, margin,
   ;; fees, liquidation sweep), then signatures, then the state root, each timed
   ;; per block and set beside the figures in bench/torihiki/hyperliquid-reference.edn.

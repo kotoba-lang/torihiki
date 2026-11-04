@@ -994,7 +994,7 @@
           (zero? level) :bad-price-level
           (and (= level (:level cur)) (< qty (:qty cur))) nil
           (not (om/order-allowed?
-                ex (om/adjust (:open-orders ex) account market (:side cur) (:level cur) (- (:qty cur)))
+                ex (om/adjust (:open-orders ex) account market (:side cur) (:level cur) (- (:qty cur)) (get-in ex [:marks market] 0))
                 account market (:side cur) level qty 0))
           :insufficient-margin)))))
 

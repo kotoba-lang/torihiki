@@ -37,7 +37,11 @@
 (defn- rejected [ex] (set (map :reason (:rejected ex))))
 (defn- resting [ex side level] (bk/level-qty (get-in ex [:books 1]) side level))
 (defn- size [ex a] (:size (cl/position (:clearing ex) a 1)))
-(defn- in-sync? [ex] (= (om/rebuild (:books ex) (:markets ex)) (or (:open-orders ex) {})))
+(defn- in-sync?
+  "The cache equals a rebuild at the CURRENT marks — quantities AND the
+  mark-keyed `:sums`, which is the stronger property the running-sums
+  package (#50) adds: a stale sum cannot hide behind equal quantities."
+  [ex] (= (om/rebuild (:books ex) (:markets ex) (:marks ex)) (or (:open-orders ex) {})))
 
 ;; ── version 1 ───────────────────────────────────────────────────────────────
 
@@ -124,7 +128,11 @@
 
 (deftest resting-orders-add-up-on-one-side-not-across-sides
   (let [ex (block (funded 2) 2 [(order 1 bk/bid 100 300)])]
-    (is (= {:bids {100 300}} (get-in ex [:open-orders 1 1])))
+    ;; The entry shape, pinned: quantities per level, and the mark-keyed
+    ;; running sums (#50). The bid at the mark 100 carries no loss.
+    (is (= {:bids {100 300}
+            :sums {:mark 100 :bids {:q 300 :lq 30000 :loss 0 :sat? false}}}
+           (get-in ex [:open-orders 1 1])))
     (is (= :insufficient-margin (api/validate ex (order 1 bk/bid 90 120)))
         "300 + 120 bids could all fill: 42,000 at the mark")
     (is (nil? (api/validate ex (order 1 bk/ask 110 300)))
@@ -316,3 +324,74 @@
               ex (block ex h txs)]
           (is (in-sync? ex) (str "version " version ", ev-cap " ev-cap ", height " h ", after " (pr-str txs)))
           (recur ex (inc h) r))))))
+
+;; ── the running sums (#50) ──────────────────────────────────────────────────
+;;
+;; The sums answer the same numbers the fold answers — pinned by VALUE at the
+;; entry's own mark and at a moved mark — and a clamped sum never keeps a
+;; hidden excess when the level map shrinks. Every fold here is fx/acc +
+;; fx/pmul: total, no throw on the apply path.
+
+(deftest the-sums-answer-what-the-fold-answers
+  ;; bids 3x110 + 5x95 against mark 100: bq 8, lq 805, loss-b 30
+  ;; (110 - 100) x 3.  IM(800) = 20 at the 40x rate, so requirement 50.
+  (let [ex (block (funded 2) 2 [(order 1 bk/bid 110 3) (order 1 bk/bid 95 5)])]
+    (is (= {:mark 100 :bids {:q 8 :lq 805 :loss 30 :sat? false}}
+           (get-in ex [:open-orders 1 1 :sums])))
+    (is (= 50 (om/requirement (:clearing ex) (:open-orders ex) 1 (:marks ex) (:markets ex)))
+        "VALUE pin at the entry's own mark")
+    (is (= 50 (om/requirement (:clearing ex) {1 {1 {:bids {110 3 95 5}}}} 1 {1 100} (:markets ex)))
+        "the pure fallback over the levels — the sums agree with the fold")
+    ;; The mark moves to 80: loss-b becomes (110-80)x3 + (95-80)x5 = 165,
+    ;; IM(640) = 16, requirement 181. The mark move REKEYS the sums.
+    (let [ex (block ex 3 [{:tx :oracle :market 1 :price 80}])]
+      (is (= {:mark 80 :bids {:q 8 :lq 805 :loss 165 :sat? false}}
+             (get-in ex [:open-orders 1 1 :sums]))
+          ":q and :lq are mark-independent; :loss is recomputed at the new mark")
+      (is (= 181 (om/requirement (:clearing ex) (:open-orders ex) 1 (:marks ex) (:markets ex)))
+          "VALUE pin at the moved mark, through the sums")
+      (is (= 181 (om/requirement (:clearing ex) {1 {1 {:bids {110 3 95 5}}}} 1 {1 80} (:markets ex)))
+          "and the same moved mark through the pure fallback"))))
+
+(deftest the-sums-keep-step-through-every-book-change
+  (let [ex (block (funded 2) 2 [(order 1 bk/bid 110 3) (order 1 bk/bid 95 5)])
+        ;; a fill: account 2 sells 2 lots into the bid at 95
+        ex (block ex 3 [(order 2 bk/ask 95 2)])
+        ;; a mark move under the entry: rekeyed, not stale
+        ex (block ex 4 [{:tx :oracle :market 1 :price 80}])
+        oid (:oid (first (bk/level-orders (get-in ex [:books 1]) bk/bid 95)))
+        ;; a cancel takes the whole remaining level
+        ex (block ex 5 [{:tx :cancel :account 1 :market 1 :oid oid}])
+        oid2 (:oid (first (bk/level-orders (get-in ex [:books 1]) bk/bid 110)))
+        ;; an amend shrinks the other level in place
+        ex (block ex 6 [{:tx :amend :account 1 :market 1 :oid oid2 :level 110 :qty 2}])
+        back (snap/restore (snap/capture ex))]
+    (is (in-sync? ex) "place, fill, mark move, cancel, amend — the sums track the levels")
+    (is (= (:open-orders ex) (:open-orders back)) "and a restore rebuilds them identically")))
+
+(deftest a-clamped-sum-recomputes-on-a-negative-delta
+  ;; mark 100, bids at level 150: each +6e13 adds 3e15 of loss
+  ;; (50 x 6e13). Four of them cross 2^53 and the sum CLAMPS — VALUE pin.
+  (let [q 60000000000000
+        oo (reduce (fn [oo _] (om/adjust oo 1 1 bk/bid 150 q 100)) {} (range 4))
+        sums (get-in oo [1 1 :sums])]
+    (is (= fx/i53-max (:loss (:bids sums))) "VALUE pin: the sum clamps at the domain edge")
+    (is (= 240000000000000 (:q (:bids sums))) "the quantity sum is still exact")
+    (is (true? (:sat? (:bids sums))) "the clamp is recorded, not silent")
+    ;; One lot out: a NEGATIVE delta while clamped must recompute canonically
+    ;; from the levels — 50 x 1.8e14 = 9e15 — instead of subtracting from the
+    ;; clamped edge (which would leave 6007199254740991, hidden excess and a
+    ;; cache that no longer equals a rebuild).
+    (let [sums (get-in (om/adjust oo 1 1 bk/bid 150 (- q) 100) [1 1 :sums])]
+      (is (= 9000000000000000 (:loss (:bids sums)))
+          "VALUE pin: 3 x 3e15, recomputed from the levels")
+      (is (= 180000000000000 (:q (:bids sums)))))))
+
+(deftest adjust-is-total-when-a-delta-leaves-the-domain
+  ;; Only constructible without the validate notional cap (level x qty = 2 x
+  ;; i53-max is refused at the door): the fold CLAMPS — VALUE pin — and never
+  ;; throws into apply-block (the #41 no-halt guarantee).
+  (let [sums (get-in (om/adjust {} 1 1 bk/bid fx/i53-max 2 100) [1 1 :sums])]
+    (is (= fx/i53-max (:lq (:bids sums))) "VALUE pin: the level product clamps")
+    (is (= fx/i53-max (:loss (:bids sums))) "VALUE pin: and so does the loss term")
+    (is (true? (:sat? (:bids sums))))))
