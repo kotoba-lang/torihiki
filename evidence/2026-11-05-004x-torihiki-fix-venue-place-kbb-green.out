@@ -1,0 +1,89 @@
+kbb: io.github.kotoba-lang/spec is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/spec
+kbb: io.github.kotoba-lang/coll is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/coll
+kbb: io.github.kotoba-lang/fs is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/fs
+kbb: io.github.kotoba-lang/process is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/process
+kbb: io.github.kotoba-lang/json is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/json
+kbb: io.github.kotoba-lang/http is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/http
+kbb: io.github.kotoba-lang/error is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/error
+kbb: 2 dep(s) are not :local/root and are NOT on the classpath (kbb resolves :local/root and :git/sha coordinates, not Maven; a jar cannot load on this engine): org.clojure/tools.namespace, org.clojure/tools.cli
+kbb: test runner substitution: running 38 namespace(s) under ("test") with cljs.test (the JVM runner named by the alias does not exist on this engine)
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.integral-double-test
+
+Testing torihiki.leverage-doors-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Testing torihiki.venue-mt-test
+
+Testing torihiki.venue-test
+
+Ran 645 tests containing 5510 assertions.
+0 failures, 0 errors.
+kbb test: 645 test(s), 5510 pass, 0 fail, 0 error

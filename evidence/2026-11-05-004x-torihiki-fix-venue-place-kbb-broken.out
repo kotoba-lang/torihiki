@@ -1,0 +1,325 @@
+kbb: io.github.kotoba-lang/spec is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/spec
+kbb: io.github.kotoba-lang/coll is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/coll
+kbb: io.github.kotoba-lang/fs is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/fs
+kbb: io.github.kotoba-lang/process is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/process
+kbb: io.github.kotoba-lang/json is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/json
+kbb: io.github.kotoba-lang/http is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/http
+kbb: io.github.kotoba-lang/error is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/error
+kbb: 2 dep(s) are not :local/root and are NOT on the classpath (kbb resolves :local/root and :git/sha coordinates, not Maven; a jar cannot load on this engine): org.clojure/tools.namespace, org.clojure/tools.cli
+kbb: test runner substitution: running 38 namespace(s) under ("test") with cljs.test (the JVM runner named by the alias does not exist on this engine)
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+Testing torihiki.evm-interp-test
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.integral-double-test
+
+Testing torihiki.leverage-doors-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Testing torihiki.venue-mt-test
+
+Testing torihiki.venue-test
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :volume "0.30", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-side} {:ok {:venue-order-id "V1", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -30}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :hold, :volume "0.30", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-side} {:ok {:venue-order-id "V2", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :hold, :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :hold, :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -60}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side "buy", :volume "0.30", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-side} {:ok {:venue-order-id "V3", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side "buy", :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side "buy", :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "GBPUSD", :side :buy, :volume "0.30", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "GBPUSD", :side :buy, :volume "0.30", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "0.015", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V4", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.015", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.015", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume nil, :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V5", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume nil, :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume nil, :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume 0.3, :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V6", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume 0.3, :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume 0.3, :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "1e2", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V7", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "1e2", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "1e2", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -90}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "-0.10", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V8", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "-0.10", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "-0.10", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "0.00", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V9", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.00", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.00", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "9007199254740992", :comment "g1"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-volume} {:ok {:venue-order-id "V10", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "9007199254740992", :comment "g1"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V10", :symbol "EURUSD", :side :buy, :volume "9007199254740992", :price nil, :comment "g1", :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "9007199254740992", :comment "g1"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "abc"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-price} {:ok {:venue-order-id "V11", :status :resting}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "abc"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V10", :symbol "EURUSD", :side :buy, :volume "9007199254740992", :price nil, :comment "g1", :status :filled} {:venue-order-id "V11", :symbol "EURUSD", :side :buy, :volume "0.30", :price "abc", :comment "g1", :status :resting}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "abc"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "0.00"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-price} {:ok {:venue-order-id "V12", :status :resting}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "0.00"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V10", :symbol "EURUSD", :side :buy, :volume "9007199254740992", :price nil, :comment "g1", :status :filled} {:venue-order-id "V11", :symbol "EURUSD", :side :buy, :volume "0.30", :price "abc", :comment "g1", :status :resting} {:venue-order-id "V12", :symbol "EURUSD", :side :buy, :volume "0.30", :price "0.00", :comment "g1", :status :resting}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "0.00"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:121)
+{:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "-1.08500"}
+expected: (= {:error why} (place req))
+  actual: (not (= {:error :bad-price} {:ok {:venue-order-id "V13", :status :resting}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:122)
+nothing landed: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "-1.08500"}
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side nil, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V2", :symbol "EURUSD", :side :hold, :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V3", :symbol "EURUSD", :side "buy", :volume "0.30", :price nil, :comment "g1", :status :filled} {:venue-order-id "V4", :symbol "EURUSD", :side :buy, :volume "0.015", :price nil, :comment "g1", :status :filled} {:venue-order-id "V5", :symbol "EURUSD", :side :buy, :volume nil, :price nil, :comment "g1", :status :filled} {:venue-order-id "V6", :symbol "EURUSD", :side :buy, :volume 0.3, :price nil, :comment "g1", :status :filled} {:venue-order-id "V7", :symbol "EURUSD", :side :buy, :volume "1e2", :price nil, :comment "g1", :status :filled} {:venue-order-id "V8", :symbol "EURUSD", :side :buy, :volume "-0.10", :price nil, :comment "g1", :status :filled} {:venue-order-id "V9", :symbol "EURUSD", :side :buy, :volume "0.00", :price nil, :comment "g1", :status :filled} {:venue-order-id "V10", :symbol "EURUSD", :side :buy, :volume "9007199254740992", :price nil, :comment "g1", :status :filled} {:venue-order-id "V11", :symbol "EURUSD", :side :buy, :volume "0.30", :price "abc", :comment "g1", :status :resting} {:venue-order-id "V12", :symbol "EURUSD", :side :buy, :volume "0.30", :price "0.00", :comment "g1", :status :resting} {:venue-order-id "V13", :symbol "EURUSD", :side :buy, :volume "0.30", :price "-1.08500", :comment "g1", :status :resting}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:123)
+no position: {:symbol "EURUSD", :side :buy, :volume "0.30", :comment "g1", :price "-1.08500"}
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" -100}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:125)
+the door still opens — and no refused request consumed a seq number
+expected: (= {:ok {:venue-order-id "V1", :status :filled}} (place good))
+  actual: (not (= {:ok {:venue-order-id "V1", :status :filled}} {:ok {:venue-order-id "V14", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:126)
+the door still opens — and no refused request consumed a seq number
+expected: (= {"EURUSD" 30} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {"EURUSD" 30} {"EURUSD" -70}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:131)
+a request never sent triggers no terminal fault
+the refusal comes from the door, before the fault machinery
+expected: (= {:error :bad-side} (place {:symbol "EURUSD", :side :hold, :volume "0.30"}))
+  actual: (not (= {:error :bad-side} {:error :unreachable}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:136)
+a request never sent triggers no terminal fault the queued fault still fires for the request actually sent
+expected: (= {:error :unreachable} (place {:symbol "EURUSD", :side :buy, :volume "0.30"}))
+  actual: (not (= {:error :unreachable} {:ok {:venue-order-id "V1", :status :filled}}))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:137)
+a request never sent triggers no terminal fault the queued fault still fires for the request actually sent
+expected: (= [] (:orders (clojure.core/deref (:state f))))
+  actual: (not (= [] [{:venue-order-id "V1", :symbol "EURUSD", :side :buy, :volume "0.30", :price nil, :comment nil, :status :filled}]))
+
+FAIL in (a-request-the-fake-cannot-execute-is-refused-whole) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-71036.cljk:138)
+a request never sent triggers no terminal fault the queued fault still fires for the request actually sent
+expected: (= {} (:positions (clojure.core/deref (:state f))))
+  actual: (not (= {} {"EURUSD" 30}))
+
+Ran 645 tests containing 5510 assertions.
+47 failures, 0 errors.
+kbb test: 645 test(s), 5463 pass, 47 fail, 0 error

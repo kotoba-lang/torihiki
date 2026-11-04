@@ -98,6 +98,45 @@
                      [{:cid "a" :side :buy :qty 1 :price 0} :bad-price]]]
     (is (= {:error why} (v/->venue-order entry bad)) (pr-str bad))))
 
+;; ── the fake's :place door ─────────────────────────────────────────────────
+
+(deftest a-request-the-fake-cannot-execute-is-refused-whole
+  (let [f (fake/make {"EURUSD" eurusd} {"EURUSD" {:bid "1.08490" :ask "1.08500"}})
+        place (:place (:venue f))
+        good {:symbol "EURUSD" :side :buy :volume "0.30" :comment "g1"}]
+    (doseq [[req why] [[(dissoc good :side) :bad-side]                       ; missing side
+                       [(assoc good :side :hold) :bad-side]                  ; over the set
+                       [(assoc good :side "buy") :bad-side]                  ; not even a keyword
+                       [(assoc good :symbol "GBPUSD") :unknown-symbol]       ; kept, moved into the door
+                       [(assoc good :volume "0.015") :bad-volume]            ; off the step grid
+                       [(assoc good :volume nil) :bad-volume]
+                       [(assoc good :volume 0.3) :bad-volume]                ; not a string
+                       [(assoc good :volume "1e2") :bad-volume]              ; exponent notation
+                       [(assoc good :volume "-0.10") :bad-volume]            ; negative
+                       [(assoc good :volume "0.00") :bad-volume]             ; zero
+                       [(assoc good :volume "9007199254740992") :bad-volume] ; past i53
+                       [(assoc good :price "abc") :bad-price]                ; not a decimal
+                       [(assoc good :price "0.00") :bad-price]               ; not positive
+                       [(assoc good :price "-1.08500") :bad-price]]]         ; negative
+      (is (= {:error why} (place req)) (pr-str req))
+      (is (= [] (:orders @(:state f))) (str "nothing landed: " (pr-str req)))
+      (is (= {} (:positions @(:state f))) (str "no position: " (pr-str req))))
+    (testing "the door still opens — and no refused request consumed a seq number"
+      (is (= {:ok {:venue-order-id "V1" :status :filled}} (place good)))
+      (is (= {"EURUSD" 30} (:positions @(:state f))))))
+  (testing "a request never sent triggers no terminal fault"
+    (let [f (fake/make {"EURUSD" eurusd} {"EURUSD" {:bid "1.08490" :ask "1.08500"}})
+          place (:place (:venue f))]
+      (fake/fault! f :place :unreachable)
+      (is (= {:error :bad-side} (place {:symbol "EURUSD" :side :hold :volume "0.30"}))
+          "the refusal comes from the door, before the fault machinery")
+      (is (= [] (:orders @(:state f))))
+      (is (= {} (:positions @(:state f))))
+      (testing "the queued fault still fires for the request actually sent"
+        (is (= {:error :unreachable} (place {:symbol "EURUSD" :side :buy :volume "0.30"})))
+        (is (= [] (:orders @(:state f))))
+        (is (= {} (:positions @(:state f))))))))
+
 ;; ── idempotency ─────────────────────────────────────────────────────────────
 
 (deftest the-fake-itself-does-not-deduplicate
