@@ -1,0 +1,88 @@
+(ns torihiki.order-margin-bench
+  "Acceptance 3 for #50: the O(1) query claim, MEASURED.
+
+  One account rests N one-lot bids at distinct levels (1..N, mark 100) — on
+  the book and in the `:open-orders` cache with its running sums. The clock
+  runs only the query: `om/order-allowed?`, the ~4-requirement-calls-per-order
+  path, with STABLE marks. The claim is that the per-order cost is flat in N
+  (the sums answer in O(1)), against the pure fold over the levels, which is
+  what the pre-#50 code paid every query and what the fallback path still
+  pays when the mark has moved. The mark-move scenario is reported separately
+  and honestly: one canonical O(L) rekey per (acct, mkt) entry per move.
+
+  Deterministic throughout — no randomness anywhere; the book and cache are
+  built before the clock starts, and each figure is the best of 5 timed runs
+  of a fixed query count. It prints numbers and asserts nothing, like
+  `torihiki.bench`."
+  (:require [torihiki.book :as bk]
+            [torihiki.order-margin :as om]))
+
+(defn- now-ns []
+  #?(:clj (System/nanoTime)
+     :cljs (* 1000000 (.now js/Date))))
+
+(defn- best-of
+  "The fastest of `reps` timed runs of `(f)` — the usual floor for a
+  measurement on a shared machine."
+  [reps f]
+  (loop [i 0 best nil]
+    (if (= i reps)
+      best
+      (let [t0 (now-ns)]
+        (f)
+        (recur (inc i) (let [d (- (now-ns) t0)] (if best (min best d) d)))))))
+
+(defn- resting
+  "`n` one-lot bids at levels 1..n folded into the cache at mark 100 — the
+  shape the incremental path keeps."
+  [n]
+  (reduce (fn [oo l] (om/adjust oo 1 1 bk/bid l 1 100)) {} (range 1 (inc n))))
+
+(defn- no-sums
+  "The same cache with `:sums` stripped — the pre-#50 shape, so the same
+  query path folds over the levels exactly as it did before."
+  [oo]
+  (into {} (map (fn [[a m]] [a (into {} (map (fn [[k e]] [k (dissoc e :sums)])) m)])) oo))
+
+(defn- ex-with
+  "The state the query needs, with the cache's levels also resting on the
+  book so `consume` reads the real shape. Built once, outside every clock."
+  [oo]
+  (let [b (bk/new-book {:n-levels 65536 :cap 4096})]
+    (doseq [l (keys (get-in oo [1 1 :bids]))]
+      (bk/place! b bk/bid l 1 0 1))
+    {:clearing {:accounts {1 {:collateral 1000000000000 :positions {}}}}
+     :marks {1 100}
+     :markets {1 {:id 1 :tick 1 :lot 1 :max-leverage 40
+                  :initial-margin-rate 25000000 :maintenance-margin-rate 12500000
+                  :taker-fee-rate 0 :maker-fee-rate 0}}
+     :books {1 b}
+     :open-orders oo}))
+
+;; The query below is a bid at level 5000 that takes nothing (no asks rest)
+;; and rests — the common case the ~4 calls per order exist for.
+(def ^:private q-k 20000)
+(def ^:private reps 5)
+
+(defn- query-ns [ex oo]
+  (best-of reps #(dotimes [_ q-k] (om/order-allowed? ex oo 1 1 bk/bid 5000 1 0))))
+
+(defn- per-op [ns] (/ (double ns) q-k))
+
+(defn -main [& _]
+  (let [oo8 (resting 8)
+        oo2k (resting 2000)
+        oo2k-flat (no-sums oo2k)
+        t8 (query-ns (ex-with oo8) oo8)
+        t2k (query-ns (ex-with oo2k) oo2k)
+        t2k-flat (query-ns (ex-with oo2k-flat) oo2k-flat)
+        trekey (best-of reps #(dotimes [_ 2000] (om/rekey oo2k 1 101)))]
+    (println (str "order-margin #50 bench: order-allowed? per query, stable marks, "
+                  "best-of-" reps " of " q-k " queries"))
+    (println (str "  levels=  8, sums        : " (per-op t8) " ns/query"))
+    (println (str "  levels=2000, sums        : " (per-op t2k) " ns/query"))
+    (println (str "  levels=2000, pure fold   : " (per-op t2k-flat) " ns/query  (pre-#50 path / mark-moved fallback)"))
+    (println (str "  mark move, rekey L=2000  : " (/ (double trekey) 2000) " ns/move  (one canonical fold per entry)"))
+    (println (str "  flatness sums(2000/8): " (/ (per-op t2k) (per-op t8))
+                  "x — the sums answer O(1); the fold answers "
+                  (/ (per-op t2k-flat) (per-op t2k)) "x what the sums answer"))))

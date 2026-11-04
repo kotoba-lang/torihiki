@@ -102,12 +102,16 @@
         t (if f (fx/pmul f qty) 0)
         loss (fx/acc (:loss s 0) t)]
     {:q q :lq lq :loss loss
-     :sat? (or (:sat? s)
-               (not= (+ q0 qty) q)
-               (not= (+ (:lq s 0) lp) lq)
-               (not= (+ (:loss s 0) t) loss)
-               (not= (* level qty) lp)
-               (and f (not= (* f qty) t)))}))
+     ;; `boolean`, not the `or` chain itself: with no clamp anywhere and no
+     ;; loss term (`f` nil) the chain ENDS in nil, and a `:sat?` of nil is
+     ;; falsy — it would silently disable the sat?-on-negative recompute.
+     :sat? (boolean
+            (or (:sat? s)
+                (not= (+ q0 qty) q)
+                (not= (+ (:lq s 0) lp) lq)
+                (not= (+ (:loss s 0) t) loss)
+                (not= (* level qty) lp)
+                (and f (not= (* f qty) t))))}))
 
 (defn- side-view
   "The canonical sums of one side's level map at `mark` — the single
@@ -160,6 +164,13 @@
                     acct mkt)
           sums (get-in oo [acct mkt :sums])]
       (cond
+        ;; `prune` dropped the entry whole — the delta removed its last
+        ;; level. There is nothing left to keep sums on; writing them here
+        ;; would re-create the entry as a ghost `{:sums {:mark m}}` that a
+        ;; rebuild from the books can never produce.
+        (nil? (get-in oo [acct mkt]))
+        oo
+
         ;; Built, or rekeyed, from the levels at `mark`.
         (or (nil? sums) (not= mark (:mark sums)))
         (assoc-in oo [acct mkt :sums] (entry-sums (get-in oo [acct mkt]) mark))
