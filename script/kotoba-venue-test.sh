@@ -35,4 +35,5 @@ run_unit() {  # NAME MODULE...
   echo "ok: $name passes; its control variant fails exactly once"
 }
 run_unit venue venue
-run_unit venue_mt venue venue_mt
+run_unit venue_mt venue text_state venue_mt
+run_unit venue_router venue text_state venue_fake venue_router

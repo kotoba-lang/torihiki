@@ -1,0 +1,145 @@
+(ns torihiki.venue-fake)
+
+;; An in-memory venue for tests, in Kotoba (JUN-816 stage 3). The cljk
+;; (src/torihiki/venue_fake.cljk) is the oracle and stays.
+;;
+;; It behaves like a terminal, not like a well-designed exchange: it does NOT
+;; deduplicate by order comment, so a caller that sends the same order twice
+;; gets two orders. That is deliberate; idempotency has to live in the router.
+;;
+;; State is text, merged with the router's in tests (distinct line prefixes):
+;;   V <seq>                              Y sym digits step min max allowed
+;;   X id sym side vol price cid status   N sym <signed position in steps>
+;;   F fn kind                            (queued faults, oldest first)
+;;
+;; Needs torihiki.venue and torihiki.text-state in the same unit.
+;;
+;; Faults, consumed one call at a time, per function ("place", "orders",
+;; "history", "positions"):
+;;   timeout-after-accept   the order is executed, the reply is lost
+;;   timeout-before-accept  the request is lost, nothing happened
+;;   reject                 the venue refuses it
+;;   unreachable            the call fails outright
+;;
+;; A function that changes the state returns "answer\nstate" (see `out`).
+
+(defn f-new [] :string "V 0\n")
+
+(defn f-symbol [st :string sym :string digits :i64 step :string vmin :string vmax :string allowed :bool] :string
+  (put st (sp "Y" (sp sym ""))
+       (sp "Y" (sp sym (sp (string-from-i64 digits) (sp step (sp vmin (sp vmax (if allowed "1" "0")))))))))
+
+;; the symbol as the venue reports it: OK digits step min max allowed | OK -
+(defn f-info [st :string sym :string] :string
+  (let [r (row st (sp "Y" (sp sym "")))]
+    (if (string=? r "")
+      "OK -"
+      (sp "OK" (sp (tok r 2) (sp (tok r 3) (sp (tok r 4) (sp (tok r 5) (tok r 6)))))))))
+
+(defn f-fault [st :string fn :string kind :string] :string
+  (add st (sp "F" (sp fn kind))))
+
+;; the oldest queued fault for `fn` ("" if none) and the state without it
+(defn pop-fault [st :string fn :string] :string
+  (let [pre (sp "F" (sp fn ""))
+        r (row st pre)]
+    (out (tok r 2) (if (string=? r "") st (drop-first st pre)))))
+
+(defn n-of [st :string sym :string] :i64
+  (dec-units (tok (row st (sp "N" (sp sym ""))) 2)))
+
+(defn set-n [st :string sym :string v :i64] :string
+  (put st (sp "N" (sp sym "")) (sp "N" (sp sym (string-from-i64 v)))))
+
+;; test manipulation: the venue holds something the router did not send
+(defn f-poke [st :string sym :string delta :i64] :string
+  (set-n st sym (+ (n-of st sym) delta)))
+
+;; ORDER sym side vol price|- cid reduce  ->  "OK id filled|resting" + state
+(defn f-exec [st :string req :string] :string
+  (let [seq (+ 1 (dec-units (tok (row st "V ") 1)))
+        id (string-concat "V" (string-from-i64 seq))
+        sym (tok req 1) side (tok req 2) vol (tok req 3) px (tok req 4) cid (tok req 5)
+        y (row st (sp "Y" (sp sym "")))
+        step (tok y 3)
+        n (count-or vol step EXACT 0)
+        market (string=? px "-")
+        status (if market "filled" "resting")
+        s1 (put st "V " (sp "V" (string-from-i64 seq)))
+        s2 (add s1 (sp "X" (sp id (sp sym (sp side (sp vol (sp px (sp cid status))))))))
+        s3 (if market (set-n s2 sym (+ (n-of s2 sym) (if (string=? side "buy") n (- 0 n)))) s2)]
+    (out (sp "OK" (sp id status)) s3)))
+
+(defn f-place [st :string req :string] :string
+  (let [pf (pop-fault st "place")
+        kind (head-of pf)
+        s1 (tail-of pf)]
+    (cond
+      (string=? kind "unreachable") (out "ERR unreachable" s1)
+      (string=? kind "reject") (out "ERR rejected" s1)
+      (string=? kind "timeout-before-accept") (out "TIMEOUT" s1)
+      (string=? kind "timeout-after-accept") (out "TIMEOUT" (tail-of (f-exec s1 req)))
+      (string=? (row s1 (sp "Y" (sp (tok req 1) ""))) "") (out "ERR unknown-symbol" s1)
+      :else (f-exec s1 req))))
+
+(defn x-find [xs :string cid :string sym :string i :i64 n :i64] :string
+  (if (>= i n)
+    ""
+    (let [e (line-end xs i n)
+          ln (string-substring xs i e)]
+      (if (and (string=? (tok ln 6) cid) (string=? (tok ln 2) sym))
+        ln
+        (x-find xs cid sym (+ e 1) n)))))
+
+;; The router's question after a timeout: does the venue hold an order with
+;; this comment? Asks both the open and the closed orders, as the real calls
+;; would, so a fault on either makes the answer UNREACHABLE.
+;;   UNREACHABLE | NONE | FOUND id resting|filled
+(defn f-lookup [st :string cid :string sym :string] :string
+  (let [o (pop-fault st "orders")
+        s1 (tail-of o)
+        h (pop-fault s1 "history")
+        s2 (tail-of h)]
+    (if (or (string=? (head-of o) "unreachable") (string=? (head-of h) "unreachable"))
+      (out "UNREACHABLE" s2)
+      (let [xs (only s2 "X ")
+            r (x-find xs cid sym 0 (string-length xs))]
+        (if (string=? r "")
+          (out "NONE" s2)
+          (out (sp "FOUND" (sp (tok r 1) (if (string=? (tok r 7) "resting") "resting" "filled"))) s2))))))
+
+(defn step-of-y [st :string sym :string] :string
+  (tok (row st (sp "Y" (sp sym ""))) 3))
+
+(defn n-list [ns :string i :i64 n :i64 st :string acc :string] :string
+  (if (>= i n)
+    acc
+    (let [e (line-end ns i n)
+          ln (string-substring ns i e)
+          k (dec-units (tok ln 2))
+          sym (tok ln 1)]
+      (n-list ns (+ e 1) n st
+              (if (= k 0)
+                acc
+                (sp acc (string-concat sym (string-concat ":" (string-of k (step-of-y st sym))))))))))
+
+;; OK SYM:VOL ... (signed volume strings), the shape venue_mt's q-positions answers in
+(defn f-positions [st :string] :string
+  (let [pf (pop-fault st "positions")
+        s1 (tail-of pf)]
+    (if (string=? (head-of pf) "unreachable")
+      (out "ERR unreachable" s1)
+      (let [ns (only s1 "N ")]
+        (out (n-list ns 0 (string-length ns) s1 "OK") s1)))))
+
+(defn count-cid [xs :string cid :string i :i64 n :i64 acc :i64] :i64
+  (if (>= i n)
+    acc
+    (let [e (line-end xs i n)
+          ln (string-substring xs i e)]
+      (count-cid xs cid (+ e 1) n (if (string=? (tok ln 6) cid) (+ acc 1) acc)))))
+
+;; test oracle: how many orders the venue holds with this comment, in any state
+(defn f-count-cid [st :string cid :string] :i64
+  (let [xs (only st "X ")]
+    (count-cid xs cid 0 (string-length xs) 0)))

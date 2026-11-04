@@ -1,0 +1,225 @@
+(ns torihiki.venue-router-test (:export [main]))
+
+;; Cases for venue_router.kotoba against venue_fake.kotoba, ported by hand from
+;; the router tests in test/torihiki/venue_test.cljk. The router is sans-IO, so
+;; `drive` plays the part the loopback listener will play: it carries the
+;; router's requests to the fake and the fake's answers back. Router and fake
+;; share one string (their line prefixes are disjoint), called the world.
+
+(defn buy-args [] :string "buy")
+
+;; place one order through router and fake, to completion.
+;; -> "verdict\nworld"
+(defn drive [w :string cid :string market :i64 side :string qty :i64
+             has-price :bool price :i64 reduce :bool depth :i64] :string
+  (let [p (r-plan w cid market side qty has-price price reduce)
+        act (head-of p)
+        w1 (tail-of p)
+        verb (tok act 0)]
+    (cond
+      (string=? verb "LOOKUP")
+      (let [lk (f-lookup w1 cid (tok act 1))
+            fo (r-found (tail-of lk) cid (head-of lk))
+            fa (head-of fo)
+            w3 (tail-of fo)]
+        (if (and (string=? fa "ABSENT") (< depth 3))
+          (drive w3 cid market side qty has-price price reduce (+ depth 1))
+          (out fa w3)))
+      (string=? verb "SEND")
+      (let [fr (f-place w1 (string-substring act 5 (string-length act)))]
+        (r-sent (tail-of fr) cid (head-of fr)))
+      :else (out act w1))))
+
+(defn place [w :string cid :string qty :i64] :string
+  (drive w cid 1 "buy" qty false 0 false 0))
+
+(defn place-px [w :string cid :string qty :i64 px :i64] :string
+  (drive w cid 1 "buy" qty true px false 0))
+
+(defn sell [w :string cid :string qty :i64 reduce :bool] :string
+  (drive w cid 1 "sell" qty false 0 reduce 0))
+
+(defn v [o :string] :string (head-of o))
+(defn w [o :string] :string (tail-of o))
+
+;; the fake venue lists EURUSD with these properties; market 1 is bound to it
+(defn world [] :string
+  (let [f (f-symbol (f-new) "EURUSD" 5 "0.01" "0.01" "100" true)
+        w0 (string-concat (r-new) f)]
+    (r-bind w0 1 "EURUSD" "0.00001" "0.01"
+            (check-entry "0.00001" "0.01" true true 5 "0.01" "0.01" "100"))))
+
+;; ── the fake itself ────────────────────────────────────────────────────────
+
+(defn fake-does-not-dedupe [] :i64
+  (let [req "ORDER EURUSD buy 0.05 - dup 0"
+        a (tail-of (f-place (world) req))
+        b (tail-of (f-place a req))]
+    (expect-i64 "the fake holds two orders for one comment" (f-count-cid b "dup") 2)))
+
+;; ── idempotency ────────────────────────────────────────────────────────────
+
+(defn twice [] :i64
+  (let [a (place (world) "o1" 5)
+        b (place (w a) "o1" 5)]
+    (+ (expect-str "first" (v a) (if (= CONTROL 1) "FILLED V9" "FILLED V1"))
+       (expect-str "second is a repeat" (v b) "REPEAT filled V1")
+       (expect-i64 "one order at the venue" (f-count-cid (w b) "o1") 1)
+       (expect-i64 "position" (r-position (w b) 1) 5))))
+
+(defn lost-reply [] :i64
+  (let [w0 (f-fault (world) "place" "timeout-after-accept")
+        a (place w0 "o2" 5)
+        b (place (w a) "o2" 5)]
+    (+ (expect-str "unknown after the lost reply" (v a) "UNKNOWN timeout")
+       (expect-i64 "it did execute" (f-count-cid (w a) "o2") 1)
+       (expect-str "recovered, not resent" (v b) "RECOVERED filled V1")
+       (expect-i64 "still one order" (f-count-cid (w b) "o2") 1)
+       (expect-i64 "position" (r-position (w b) 1) 5))))
+
+(defn lost-request [] :i64
+  (let [w0 (f-fault (world) "place" "timeout-before-accept")
+        a (place w0 "o3" 5)
+        b (place (w a) "o3" 5)]
+    (+ (expect-str "unknown" (v a) "UNKNOWN timeout")
+       (expect-i64 "nothing happened" (f-count-cid (w a) "o3") 0)
+       (expect-str "resent once the venue shows it never arrived" (v b) "FILLED V1")
+       (expect-i64 "one order" (f-count-cid (w b) "o3") 1))))
+
+(defn cannot-be-asked [] :i64
+  (let [w0 (f-fault (world) "place" "timeout-after-accept")
+        a (place w0 "o4" 5)
+        w1 (f-fault (w a) "orders" "unreachable")
+        b (place w1 "o4" 5)
+        w2 (f-fault (w b) "history" "unreachable")
+        c (place w2 "o4" 5)
+        d (place (w c) "o4" 5)]
+    (+ (expect-str "orders unreachable" (v b) "UNKNOWN cannot-confirm")
+       (expect-i64 "no second order" (f-count-cid (w b) "o4") 1)
+       (expect-str "history unreachable is just as unconfirmed" (v c) "UNKNOWN cannot-confirm")
+       (expect-i64 "still no second order" (f-count-cid (w c) "o4") 1)
+       (expect-str "once it can be asked, the order is found" (v d) "RECOVERED filled V1")
+       (expect-i64 "and there is still one" (f-count-cid (w d) "o4") 1))))
+
+(defn rejection-remembered [] :i64
+  (let [w0 (f-fault (world) "place" "reject")
+        a (place w0 "o5" 5)
+        b (place (w a) "o5" 5)]
+    (+ (expect-str "rejected" (v a) "REJECTED rejected")
+       (expect-str "the same cid does not quietly retry a refusal" (v b) "REPEAT rejected -")
+       (expect-i64 "nothing at the venue" (f-count-cid (w b) "o5") 0))))
+
+(defn resting-no-position [] :i64
+  (let [a (place-px (world) "l1" 5 108000)]
+    (+ (expect-str "resting" (v a) "RESTING V1")
+       (expect-i64 "a resting order is not a position" (r-position (w a) 1) 0))))
+
+(defn pending-without-plan [] :i64
+  (expect-str "r-sent refuses an order that was never planned"
+              (head-of (r-sent (world) "ghost" "OK V1 filled")) "REFUSED not-pending"))
+
+;; ── kill switch and limits ─────────────────────────────────────────────────
+
+(defn halt-and-reduce [] :i64
+  (let [a (place (world) "h1" 10)
+        w1 (r-halt (w a))
+        b (place w1 "h2" 1)
+        c (sell w1 "h3" 1 false)
+        d (sell w1 "h4" 4 true)
+        e (drive (w d) "h5" 1 "buy" 1 false 0 true 0)
+        f (sell (w d) "h6" 7 true)
+        g (place (r-resume (w f)) "h7" 1)]
+    (+ (expect-str "halt blocks a buy" (v b) "REFUSED halted")
+       (expect-str "halt blocks a sell that is not reduce-only" (v c) "REFUSED halted")
+       (expect-str "a reduce-only close goes through" (v d) "FILLED V2")
+       (expect-i64 "position after the close" (r-position (w d) 1) 6)
+       (expect-str "reduce-only must reduce: same side" (v e) "REFUSED not-reducing")
+       (expect-str "reduce-only must reduce: too large" (v f) "REFUSED not-reducing")
+       (expect-i64 "nothing was sent for the refused" (f-count-cid (w f) "h2") 0)
+       (expect-str "resumed" (v g) "FILLED V3"))))
+
+(defn limits [] :i64
+  (let [w0 (r-limit (world) 1 10 15)
+        a (place w0 "m1" 11)
+        b (place (w a) "m2" 10)
+        c (place (w b) "m3" 6)
+        d (place (w c) "m4" 5)
+        e (sell (w d) "m5" 10 false)
+        f (sell (w e) "m6" 10 false)
+        g (sell (w f) "m7" 10 false)
+        h (sell (w g) "m8" 1 false)]
+    (+ (expect-str "over the order limit" (v a) "REFUSED over-order-limit")
+       (expect-str "within" (v b) "FILLED V1")
+       (expect-str "over the position limit" (v c) "REFUSED over-position-limit")
+       (expect-str "to the limit" (v d) "FILLED V2")
+       (expect-str "down to 5" (v e) "FILLED V3")
+       (expect-str "to -5" (v f) "FILLED V4")
+       (expect-str "to -15" (v g) "FILLED V5")
+       (expect-i64 "short position" (r-position (w g) 1) -15)
+       (expect-str "the short side is bounded the same way" (v h) "REFUSED over-position-limit")
+       (expect-i64 "refused orders never reached the venue"
+                   (+ (f-count-cid (w h) "m1") (f-count-cid (w h) "m3") (f-count-cid (w h) "m8")) 0))))
+
+;; ── symbol map ─────────────────────────────────────────────────────────────
+
+(defn symbol-map [] :i64
+  (let [a (place (world) "a1" 5)
+        ;; the broker changes the contract: volume step 0.10
+        f2 (f-symbol (w a) "EURUSD" 5 "0.10" "0.10" "100" true)
+        w2 (r-bind f2 1 "EURUSD" "0.00001" "0.01"
+                   (check-entry "0.00001" "0.01" true true 5 "0.10" "0.10" "100"))
+        b (place w2 "a2" 5)
+        ;; an unreachable symbol map disables everything
+        w3 (r-bind (world) 1 "EURUSD" "0.00001" "0.01" "venue-unreachable")
+        c (place w3 "a3" 5)
+        d (drive (world) "a4" 2 "buy" 5 false 0 false 0)]
+    (+ (expect-str "before" (v a) "FILLED V1")
+       (expect-str "after the venue changed the contract, the market is disabled" (v b) "REFUSED market-disabled")
+       (expect-str "unverifiable map" (v c) "REFUSED market-disabled")
+       (expect-str "an unbound market" (v d) "REFUSED market-disabled"))))
+
+(defn translation-refusals [] :i64
+  (+ (expect-str "bad cid" (v (place (world) "" 5)) "REFUSED bad-cid")
+     (expect-str "bad cid, space" (v (place (world) "a b" 5)) "REFUSED bad-cid")
+     (expect-str "bad qty" (v (place (world) "q" 0)) "REFUSED bad-qty")
+     (expect-str "bad side" (v (drive (world) "s" 1 "hold" 1 false 0 false 0)) "REFUSED bad-side")
+     (expect-str "bad price" (v (place-px (world) "p" 1 0)) "REFUSED bad-price")))
+
+;; ── reconciliation ─────────────────────────────────────────────────────────
+
+(defn rec [w :string] :string
+  (r-reconcile w (head-of (f-positions w))))
+
+(defn reconciliation [] :i64
+  (let [a (place (world) "r1" 7)
+        agree (rec (w a))
+        poked (f-poke (w a) "EURUSD" 3)
+        diff (rec poked)
+        t0 (f-fault (world) "place" "timeout-after-accept")
+        t (place t0 "r3" 5)
+        unconfirmed (rec (w t))
+        mapped (f-symbol (w a) "GBPUSD" 5 "0.01" "0.01" "100" true)
+        unm (rec (f-poke mapped "GBPUSD" 1))
+        unread (rec (f-fault (w a) "positions" "unreachable"))]
+    (+ (expect-str "agreement" (head-of agree) "OK")
+       (expect-true "agreement does not halt" (not (r-halted? (tail-of agree))))
+       (expect-str "the venue holds something we did not send" (head-of diff) "DIFF 1:7:10")
+       (expect-true "and the router halts" (r-halted? (tail-of diff)))
+       (expect-str "an unconfirmed order shows up as a difference" (head-of unconfirmed) "DIFF 1:0:5")
+       (expect-true "and halts" (r-halted? (tail-of unconfirmed)))
+       (expect-str "a position in an unmapped symbol" (head-of unm) "DIFF unmapped:GBPUSD")
+       (expect-true "halts" (r-halted? (tail-of unm)))
+       (expect-str "an unreadable venue" (head-of unread) "UNREACHABLE")
+       (expect-true "halts too" (r-halted? (tail-of unread))))))
+
+(defn short-reconciles [] :i64
+  (let [a (sell (world) "s1" 4 false)]
+    (+ (expect-i64 "short position" (r-position (w a) 1) -4)
+       (expect-str "the venue reports it signed" (head-of (f-positions (w a))) "OK EURUSD:-0.04")
+       (expect-str "and it agrees" (head-of (rec (w a))) "OK"))))
+
+(defn main [] :i64
+  (+ (fake-does-not-dedupe) (twice) (lost-reply) (lost-request) (cannot-be-asked)
+     (rejection-remembered) (resting-no-position) (pending-without-plan)
+     (halt-and-reduce) (limits) (symbol-map) (translation-refusals)
+     (reconciliation) (short-reconciles)))
