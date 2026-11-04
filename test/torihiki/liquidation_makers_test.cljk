@@ -44,7 +44,7 @@
     (is (= 300 (size ex 3)) "the maker holds the other side")
     (is (zero? (resting ex bk/bid 97)) "its order was taken")
     (is (open-interest-balances? ex) "every long has a short")
-    (is (= (om/rebuild (:books ex) (:markets ex)) (or (:open-orders ex) {})))))
+    (is (= (om/rebuild (:books ex) (:markets ex) (:marks ex)) (or (:open-orders ex) {})))))
 
 (deftest stage-2-leaves-the-book-alone
   ;; The only bid is at 50, far past bankruptcy: the slice goes to the vault
@@ -103,7 +103,7 @@
               liqs (+ liqs (count (filter #(and (not (zero? (or (size ex %) 0))) (zero? (or (size ex' %) 0))) [1 2 3])))]
           (is (open-interest-balances? ex') (str "ev-cap " ev-cap " height " h))
           (is (= (money ex) (money ex')) (str "money at " h " after " (pr-str txs)))
-          (is (= (om/rebuild (:books ex') (:markets ex')) (or (:open-orders ex') {})) (str "cache at " h))
+          (is (= (om/rebuild (:books ex') (:markets ex') (:marks ex')) (or (:open-orders ex') {})) (str "cache at " h))
           (recur ex' (inc h) r liqs))
         (is (pos? liqs) "the run exercised liquidations")))))
 

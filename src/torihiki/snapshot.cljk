@@ -104,7 +104,7 @@
         (dissoc :snapshot/version)
         (update :rejected #(vec (or % [])))
         (update :books (fn [bs] (into {} (map (fn [[m s]] [m (bk/restore s)])) bs)))
-        (as-> ex (assoc ex :open-orders (om/rebuild (:books ex) (:markets ex)))))))
+        (as-> ex (assoc ex :open-orders (om/rebuild (:books ex) (:markets ex) (:marks ex)))))))
 
 (defn write-string
   "Snapshot → EDN string. `pr-str` with `*print-length*` and `*print-level*`

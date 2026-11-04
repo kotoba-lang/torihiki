@@ -64,14 +64,75 @@
   (let [k (:kind market)] (or (= :spot k) (= "spot" k))))
 
 ;; ── the cache ───────────────────────────────────────────────────────────────
+;;
+;; `[:open-orders acct mkt]` carries the quantities `{:bids {level qty} :asks
+;; {level qty}}` and, per entry, the mark-keyed running sums
+;; `:sums {:mark m :bids {:q :lq :loss :sat?} :asks {...}}` that answer
+;; `market-requirement` in O(1) (#50): `:q` = Σq, `:lq` = Σ level·q (the
+;; no-mark branch), `:loss` = the mark-split loss AT `:mark`. Every fold goes
+;; through `torihiki.fixed` — total, never throws. Exact whenever the true sum
+;; is in the domain; a clamp is recorded in `:sat?`, and a negative delta on a
+;; clamped side RECOMPUTES it from the levels, so a hidden excess can never
+;; survive a subtraction and desync the cache from a rebuild.
 
 (defn- side-key [side] (if (= side bk/bid) :bids :asks))
+
+(defn- empty-side [] {:q 0 :lq 0 :loss 0 :sat? false})
+
+(defn- loss-factor
+  "What a lot at `level` loses against `mark` on side `k` (0 at or through the
+  mark), or nil when the term is not part of the side's loss at all."
+  [k level mark]
+  (if (= k :bids)
+    (when (> level mark) (- level mark))
+    (when (< level mark) (- mark level))))
+
+(defn- fold-one
+  "Side sums `s` with one `(level, qty)` delta folded at `mark` — per order on
+  the incremental path, per level in `side-view`. Products and sums saturate
+  (`fx/pmul` / `fx/acc`), and any clamp folds `:sat?` true; the raw product and
+  raw sum decide the same way on both runtimes (an exact comparison against
+  the clamped result), so `:sat?` is set on the same inputs everywhere."
+  [s k level qty mark]
+  (let [q0 (:q s 0)
+        q (fx/acc q0 qty)
+        lp (fx/pmul level qty)
+        lq (fx/acc (:lq s 0) lp)
+        f (loss-factor k level mark)
+        t (if f (fx/pmul f qty) 0)
+        loss (fx/acc (:loss s 0) t)]
+    {:q q :lq lq :loss loss
+     :sat? (or (:sat? s)
+               (not= (+ q0 qty) q)
+               (not= (+ (:lq s 0) lp) lq)
+               (not= (+ (:loss s 0) t) loss)
+               (not= (* level qty) lp)
+               (and f (not= (* f qty) t)))}))
+
+(defn- side-view
+  "The canonical sums of one side's level map at `mark` — the single
+  definition every recompute rebuilds to, sorted by level. All terms are
+  sign-fixed (the level map holds positive quantities), so the saturated
+  result is `min(i53-max, true)` regardless of fold order."
+  [levels k mark]
+  (reduce (fn [s [l q]] (fold-one s k l q mark))
+          (empty-side)
+          (sort-by key levels)))
+
+(defn- entry-sums
+  "The `:sums` of entry `e` recomputed at `mark`, sides kept in step with the
+  level maps (a side's sums exist exactly while the side has levels)."
+  [e mark]
+  (cond-> {:mark mark}
+    (seq (:bids e)) (assoc :bids (side-view (:bids e) :bids mark))
+    (seq (:asks e)) (assoc :asks (side-view (:asks e) :asks mark))))
 
 (defn- prune [oo acct mkt]
   (let [e (get-in oo [acct mkt])
         e (cond-> e
-            (empty? (:bids e)) (dissoc :bids)
-            (empty? (:asks e)) (dissoc :asks))]
+            (empty? (:bids e)) (-> (dissoc :bids) (update :sums dissoc :bids))
+            (empty? (:asks e)) (-> (dissoc :asks) (update :sums dissoc :asks)))
+        e (cond-> e (empty? (dissoc e :sums)) (dissoc :sums))]
     (if (empty? e)
       (let [m (dissoc (get oo acct) mkt)]
         (if (empty? m) (dissoc oo acct) (assoc oo acct m)))
@@ -79,16 +140,40 @@
 
 (defn adjust
   "`oo` with `qty` lots added to (negative: taken from) `acct`'s resting
-  `side` at `level` on `mkt`. Quantities only: nothing here can overflow."
-  [oo acct mkt side level qty]
+  `side` at `level` on `mkt`, keeping the entry's running sums at `mark` —
+  the market's mark at the time, `(get-in ex [:marks mkt] 0)`. Quantities
+  and sums only: every fold saturates, nothing here can overflow or throw.
+
+  The sums are delta-folded in O(1). When the entry's `:mark` is not `mark`
+  (the mark moved since the entry last saw one) the sums are REKEYED — one
+  canonical fold per entry per mark move. A negative delta on a side whose
+  sums are clamped (`:sat?`) recomputes that side canonically from the
+  levels: a saturated sum cannot hide an excess through a subtraction."
+  [oo acct mkt side level qty mark]
   (if (zero? qty)
     oo
     (let [k (side-key side)
-          q (+ (get-in oo [acct mkt k level] 0) qty)]
-      (prune (if (pos? q)
-               (assoc-in oo [acct mkt k level] q)
-               (update-in oo [acct mkt k] dissoc level))
-             acct mkt))))
+          q (+ (get-in oo [acct mkt k level] 0) qty)
+          oo (prune (if (pos? q)
+                      (assoc-in oo [acct mkt k level] q)
+                      (update-in oo [acct mkt k] dissoc level))
+                    acct mkt)
+          sums (get-in oo [acct mkt :sums])]
+      (cond
+        ;; Built, or rekeyed, from the levels at `mark`.
+        (or (nil? sums) (not= mark (:mark sums)))
+        (assoc-in oo [acct mkt :sums] (entry-sums (get-in oo [acct mkt]) mark))
+
+        ;; The side is empty again: `prune` already dropped its sums.
+        (empty? (get-in oo [acct mkt k]))
+        oo
+
+        :else
+        (let [s (get sums k (empty-side))
+              s (if (and (neg? qty) (:sat? s))
+                  (side-view (get-in oo [acct mkt k]) k mark)
+                  (fold-one s k level qty mark))]
+          (assoc-in oo [acct mkt :sums] (assoc sums k s)))))))
 
 (defn clear
   "`oo` with nothing resting for `acct` on `mkt` (after a cancel-all)."
@@ -98,39 +183,66 @@
     (let [m (dissoc (get oo acct) mkt)]
       (if (empty? m) (dissoc oo acct) (assoc oo acct m)))))
 
+(defn rekey
+  "Every entry resting on `mkt`, with its sums recomputed at `mark`. What a
+  mark move costs: one canonical fold per (acct, mkt) entry, once per move —
+  the alternative is every query silently reading a stale loss."
+  [oo mkt mark]
+  (reduce (fn [oo [acct es]]
+            (if (get es mkt)
+              (assoc-in oo [acct mkt :sums] (entry-sums (get es mkt) mark))
+              oo))
+          oo oo))
+
 (defn rebuild
-  "The resting quantities of every perp book, from the books themselves."
-  [books markets]
-  (reduce
-   (fn [oo [mkt book]]
-     (if (spot-market? (get markets mkt))
-       oo
-       (reduce (fn [oo side]
-                 (loop [l (bk/best book side) oo oo]
-                   (if (neg? l)
-                     oo
-                     (recur (bk/next-occupied book side l)
-                            (reduce (fn [oo {:keys [owner qty]}] (adjust oo owner mkt side l qty))
-                                    oo (bk/level-orders book side l))))))
-               oo [bk/bid bk/ask])))
-   {} (sort-by key books)))
+  "The resting quantities of every perp book, from the books themselves —
+  sums included, keyed at `(get marks mkt 0)`. Folding `adjust` from empty is
+  the same definition the incremental path keeps (per-order terms against the
+  same canonical fold), so a rebuilt cache equals a running one."
+  ([books markets] (rebuild books markets {}))
+  ([books markets marks]
+   (reduce
+    (fn [oo [mkt book]]
+      (if (spot-market? (get markets mkt))
+        oo
+        (reduce (fn [oo side]
+                  (loop [l (bk/best book side) oo oo]
+                    (if (neg? l)
+                      oo
+                      (recur (bk/next-occupied book side l)
+                             (reduce (fn [oo {:keys [owner qty]}]
+                                       (adjust oo owner mkt side l qty (get marks mkt 0)))
+                                     oo (bk/level-orders book side l))))))
+                oo [bk/bid bk/ask])))
+    {} (sort-by key books))))
 
 (defn- market-requirement
-  [clearing acct mkt market mark size {:keys [bids asks]}]
+  [clearing acct mkt market mark size entry]
   (let [im (fn [v] (let [v (fx/abs* v)]
-                     (fx/mul-rate v (cl/initial-margin-rate-for clearing acct mkt market v))))]
+                     (fx/mul-rate v (cl/initial-margin-rate-for clearing acct mkt market v))))
+        ;; The sums answer only at their own mark; at any other mark the
+        ;; pure fold over the levels is the answer, at today's cost.
+        sums (let [s (:sums entry)] (when (= mark (:mark s)) s))
+        bid-q (fn [] (if sums (get-in sums [:bids :q] 0) (reduce fx/acc 0 (vals (:bids entry)))))
+        ask-q (fn [] (if sums (get-in sums [:asks :q] 0) (reduce fx/acc 0 (vals (:asks entry)))))]
     (if (pos? mark)
-      (let [bq (reduce fx/acc 0 (vals bids))
-            aq (reduce fx/acc 0 (vals asks))
-            loss-b (reduce fx/acc 0 (for [[l q] bids :when (> l mark)] (fx/notional (- l mark) q)))
-            loss-a (reduce fx/acc 0 (for [[l q] asks :when (< l mark)] (fx/notional (- mark l) q)))]
+      (let [bq (bid-q)
+            aq (ask-q)
+            loss-b (if sums (get-in sums [:bids :loss] 0)
+                       (reduce fx/acc 0 (for [[l q] (:bids entry) :when (> l mark)] (fx/notional (- l mark) q))))
+            loss-a (if sums (get-in sums [:asks :loss] 0)
+                       (reduce fx/acc 0 (for [[l q] (:asks entry) :when (< l mark)] (fx/notional (- mark l) q))))]
         (max (fx/sadd (im (fx/notional mark (fx/sadd size bq))) loss-b)
              (fx/sadd (im (fx/notional mark (fx/sadd size (- aq)))) loss-a)))
       ;; No mark yet (a market before its first price): nothing to lose
       ;; against and no position worth anything, so each side's orders are
-      ;; margined at their own limits.
-      (max (im (reduce fx/acc 0 (for [[l q] bids] (fx/notional l q))))
-           (im (reduce fx/acc 0 (for [[l q] asks] (fx/notional l q))))))))
+      ;; margined at their own limits. `:lq` is mark-independent and is the
+      ;; fold over the levels exactly; `:loss` must NOT be read here — at
+      ;; mark 0 the loss split answers 0 for asks, not Σ level·q.
+      (max (im (if sums (get-in sums [:bids :lq] 0)
+                   (reduce fx/acc 0 (for [[l q] (:bids entry)] (fx/notional l q)))))
+           (im (if sums (get-in sums [:asks :lq] 0)
+                   (reduce fx/acc 0 (for [[l q] (:asks entry)] (fx/notional l q)))))))))
 
 (defn- cross-size [clearing acct mkt]
   (let [p (cl/position clearing acct mkt)]
@@ -204,10 +316,11 @@
   "`oo` with what `consume` said an order took removed from the makers'
   resting quantities. Read from the book BEFORE placing, not from
   `bk/fills`: the fill buffer is shared by the whole block and stops
-  recording at `ev-cap`."
-  [oo mkt side takes]
+  recording at `ev-cap`. `mark` is the market's mark at the time, kept in
+  the sums like `adjust` does."
+  [oo mkt side takes mark]
   (let [opp (if (= side bk/bid) bk/ask bk/bid)]
-    (reduce (fn [oo {:keys [owner level qty]}] (adjust oo owner mkt opp level (- qty))) oo takes)))
+    (reduce (fn [oo {:keys [owner level qty]}] (adjust oo owner mkt opp level (- qty) mark)) oo takes)))
 
 (defn- shortfall [c oo acct marks markets sizes avail]
   (- (requirement c oo acct marks markets sizes) avail))
@@ -254,8 +367,8 @@
                                             (fx/sadd (fx/notional mark filled) (- cost))
                                             (fx/sadd cost (- (fx/notional mark filled)))))
                                   (update :delta fx/acc (- (fx/mul-rate cost rate)))
-                                  (update :oo' take-consumed mkt side mine)
-                                  (update :oo' adjust acct mkt side level rest)))
+                                  (update :oo' take-consumed mkt side mine mark)
+                                  (update :oo' adjust acct mkt side level rest mark)))
                             acc))
                         {:signed 0 :delta 0 :oo' oo} orders)
                 avail (available c acct marks)
