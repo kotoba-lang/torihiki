@@ -533,6 +533,11 @@
     :deposit
     (cond
       (not (account-ok? account)) :bad-account
+      ;; The amount is the arithmetic `cl/deposit` enters — judged exactly as
+      ;; `validate`'s `:deposit` clause judges it (same `int-in?`, same
+      ;; keyword, same order). `cl/deposit` is total and refuses garbage on
+      ;; its own; the door judges it so one shape rule answers at both doors.
+      (not (int-in? (:amount t) 1 fx/i53-max)) :bad-amount
       ;; `credit` when the bridge is paying somebody: it becomes the
       ;; :accounts KEY the credit lands under.
       (and (some? (:credit t)) (not (account-ok? (:credit t)))) :bad-account
