@@ -74,6 +74,10 @@ cljk 版との違い：拒否は件数と直近の理由だけ保持（cljk は�
 - 許可リストがソケットの `ホスト:ポート` 単位か、ホスト単位か、`127.0.0.1` が使えるかは**未確認**。
 - ヘッジ口座で同一銘柄に複数ポジションが立つ挙動、ネッティング口座の符号の扱いは実機で確認する。
 - 銘柄名のブローカー固有接尾辞（`EURUSD.m` 等）は `sym?` の文字種（英数字と `._#-`）で通る前提。
-- **loopback TCP の待受は未実装。** 実装は Kotoba（Amu selfhost）で書く方針。Kotoba のプログラムはホストのファイル・プロセス権限を持たないので、ソケットを扱える capability があるかを先に確認する（JUN-816 段 4）。アダプタは「1 行を受け取って新しい状態を返す」関数なので、待受側は行を読んで `ingest` に渡すだけでよい。
+- **loopback TCP の待受は未実装。調査結果（JUN-816 段 4、2026-11-04、amu a4c16e7c4）：Kotoba で書ける経路は、いまの macOS には無い。**
+  - Kotoba には TCP の仕組みがある：`:net/listen` `:net/accept` `:net/dial` `:net/read` `:net/write`（wire 43〜47）。要求は `"<ipv4>:<port>"` などの 1 行文字列、IPv4 の**完全一致**で listen/dial を別々に許可、ハンドル 16、1 回の入出力 16 KiB（`amu/docs/native-tcp-spawn-integration-20261023.md`）。ただし実装されているのは **Linux の静的ランタイム（AArch64 / x86_64）** で、`seed/X86_64-LINUX-ABI` 経由。
+  - **macOS では使えない（実測）**：`:net/listen` を呼ぶ最小の guest は `amu check` を通る（コンパイラは許可する）が、`amu run` も `amu compile` で作ったバイナリも終了コード 133（トラップ）で落ちる。`:io/read`（標準入力）も同じく 133。`:io/write` と `:cli/args` は動く。公式文書どおり、Mac の guest が得る権限は CLI 引数と stdout/stderr だけ（`native-public-entry.md`）。さらに `amu run` は guest を 5 秒で打ち切るので、常駐もできない。
+  - 候補：(1) **Linux 上で動かす**（Wine で MT5 と Kotoba の待受を同じ Linux に置き、`127.0.0.1:<port>` を完全一致で許可）。EA の loopback 限定を保てる。**Linux の静的ランタイムは今回の環境では実行しておらず未検証**（TCP の 29 件の実行時ケースは amu の証跡にあるのみ）。(2) Mac の `:cli/args` だけで 1 フレームずつ処理する step コマンドにして、外側の OS ツールで駆動する。状態を引数と stdout で受け渡し、起動コストと 5 秒制限がかかる。外側の駆動役は Kotoba ではない。(3) Mac のランタイムに TCP を足す（amu 側の作業）。(4) Node 等の小さな待受（JVM/nbb/Node を実装の閉包に入れない方針に反するので採らない）。
+  - 現状の整理：router は sans-IO なので、どの経路でも待受は「行を読む → `ingest` / `r-plan` に渡す → 返事を書く」だけでよい。
 - 受け入れ基準「デモ口座で 24 時間、突合差分 0／切断復帰試験」は**未実施**。
 - EA の配布・利用規約（MQL5 Market 以外で自分で使う限りの扱い）は未確認。
