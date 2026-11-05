@@ -18,7 +18,8 @@
     :timeout-before-accept  the request is lost, nothing happened
     :reject                 the venue refuses it
     :unreachable            (any function) the call fails outright"
-  (:require [torihiki.venue :as v]))
+  (:require [torihiki.fixed :as fx]
+            [torihiki.venue :as v]))
 
 (defn make
   "{:venue <map of functions> :state <atom> :faults <atom>}.
@@ -53,7 +54,7 @@
             (swap! state
                    (fn [s]
                      (cond-> (update s :orders conj order)
-                       market? (update-in [:positions symbol] (fnil + 0)
+                       market? (update-in [:positions symbol] fx/acc
                                           (signed side n)))))
             order))]
     {:state state

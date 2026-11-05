@@ -28,7 +28,8 @@
 
   The router is a map holding atoms. Its state is the only mutable thing;
   the venue and the symbol map are passed in."
-  (:require [torihiki.venue :as v]))
+  (:require [torihiki.fixed :as fx]
+            [torihiki.venue :as v]))
 
 (defn make
   "entries : [{:market 1 :venue-symbol \"EURUSD\" :tick-size .. :lot-size ..}]
@@ -54,13 +55,19 @@
 (defn halted? [router] (:halted? @(:state router)))
 
 (defn position
-  "Signed lots held in `market` according to our own record of filled orders."
+  "Signed lots held in `market` according to our own record of filled orders.
+
+  The fold goes through `torihiki.fixed/acc` and walks the ledger in cid
+  order: a saturating fold must have one order to have one answer, on both
+  runtimes (mixed signs and a clamp make fold order observable)."
   [router market]
-  (reduce (fn [acc {:keys [status market* side qty]}]
-            (if (and (= :filled status) (= market market*))
-              (+ acc (if (= :buy side) qty (- qty)))
-              acc))
-          0 (vals (:ledger @(:state router)))))
+  (let [ledger (:ledger @(:state router))]
+    (reduce (fn [acc cid]
+              (let [{:keys [status market* side qty]} (get ledger cid)]
+                (if (and (= :filled status) (= market market*))
+                  (fx/acc acc (if (= :buy side) qty (- qty)))
+                  acc)))
+            0 (sort (keys ledger)))))
 
 (defn- remember! [router cid m]
   (swap! (:state router) update-in [:ledger cid] merge m))
@@ -82,7 +89,7 @@
   (let [pos (position router market)
         lim (get (:limits router) market)
         signed (if (= :buy side) qty (- qty))
-        after (+ pos signed)]
+        after (fx/sadd pos signed)]
     (cond
       reduce-only?
       (when-not (and (not (zero? pos))
@@ -182,7 +189,7 @@
                                                (let [old (or old {:lots 0 :exact? true})]
                                                  {:lots (if (or (nil? lots) (nil? (:lots old)))
                                                           nil
-                                                          (+ (:lots old) lots))
+                                                          (fx/acc (:lots old) lots))
                                                   :exact? (and (:exact? old) exact?)}))))
                                    (update acc :unmapped (fnil conj []) symbol)))
                                {} (:ok r))
