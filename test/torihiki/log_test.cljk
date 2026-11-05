@@ -466,3 +466,97 @@
            (log/signing-payload 1 100 "root-a" nil
                                 [(log/wire->tx (log/tx->wire tx))]))
         (str "payload survives the wire round trip: " (:tx tx)))))
+
+;; ── the key-collision canon: one decoded canon form, one key ───────────────
+;; Measured 2026-11-06 (probe ground truth in the tick record): distinct map
+;; keys with ONE decoded canon form (5 vs 5.0 — both bare 5 on the wire) TIE
+;; the fold's sort (a sort with ties is no sort: the pair order falls back to
+;; hash iteration — the determinism failure the enc-val docstring warns
+;; about) and MERGE silently at every decode (`into`): the round trip LOSES
+;; an entry, `(= tx (wire->tx (tx->wire tx)))` is false, no throw anywhere.
+;; Same class as the NaN refusal: the wire cannot distinguish the entries,
+;; so the codec refuses loudly rather than mangle. One criterion at every
+;; door: two keys/elements collide iff their DECODED CANON FORMS are `=`
+;; (`(= (dec-val (enc-val a)) (dec-val (enc-val b)))`). It subsumes
+;; identical encodings (5 vs 5.0), decode-merge across wire forms (bare 5 vs
+;; ["u" "5"] — different wire bytes, one decoded integer) and the re-encode
+;; collision (["d" "5.0"] decodes to a 5.0 that is `=`-distinct from 5 on
+;; the JVM yet canonizes to the same bare form).
+
+(def ^:private collide-map
+  "A map with two DISTINCT keys sharing one canon form. Constructed, never
+  literal — `#?(:clj {5 :a 5.0 :b} ...)` died at READ time on the SCI leg
+  (\"Map literal contains duplicate key: 5\": the reader's duplicate check
+  fires even in the skipped branch, measured this tick) — and the
+  constructible pair differs per runtime: the JVM keeps 5/5.0 apart (5/5N
+  merges at construction) while JS merges 5/5.0 at construction
+  (`(= 5 5n)` is FALSE on SCI, so 5/(js/BigInt 5) is the SCI-constructible
+  pair)."
+  #?(:clj (into {} [[5 :a] [5.0 :b]])
+     :cljs (into {} [[5 :a] [(js/BigInt 5) :b]])))
+
+(def ^:private collide-set
+  "The set twin of `collide-map`. Never a set literal: `#{5 5.0}` is a cljs
+  READER error (\"Set literal contains duplicate key: 5\")."
+  #?(:clj (conj #{5} 5.0)
+     :cljs (conj #{5} (js/BigInt 5))))
+
+(defn- ex-msg
+  "The ex-message `f` raises, or nil when it returns normally. kotoba.test's
+  `is` has no `thrown-with-msg?` (see its README), so the REASON literal is
+  pinned as a VALUE."
+  [f]
+  (try (f) nil (catch #?(:clj Exception :cljs :default) e (ex-message e))))
+
+(deftest map-keys-that-collide-under-the-canon-are-refused
+  (is (= "torihiki.log: map keys collide under the wire canon"
+         (ex-msg #(log/tx->wire {:tx :t :flags collide-map})))
+      "REASON literal — a nested map folds its colliding keys silently today")
+  (is (= "torihiki.log: map keys collide under the wire canon"
+         (ex-msg #(log/tx->wire (assoc collide-map :tx :t))))
+      "REASON literal — a tx is a map: its entry keys are judged at the same door"))
+
+(deftest set-elements-that-collide-under-the-canon-are-refused
+  (is (= "torihiki.log: set elements collide under the wire canon"
+         (ex-msg #(log/tx->wire {:tx :t :flags collide-set})))
+      "REASON literal — the set folds its colliding elements silently today"))
+
+(deftest wire-map-keys-that-collide-are-refused
+  (is (= "torihiki.log: wire map keys collide"
+         (ex-msg #(log/wire->tx {"tx" "t" "flags" ["m" [[5 "x"] [5 "y"]]]})))
+      "REASON literal — same-form twin merges at `into` today")
+  (is (= "torihiki.log: wire map keys collide"
+         (ex-msg #(log/wire->tx {"tx" "t" "flags" ["m" [[5 "x"] [["u" "5"] "y"]]]})))
+      "REASON literal — cross-form twin: bare 5 and \"u\" 5 decode to one integer")
+  (is (= "torihiki.log: wire map keys collide"
+         (ex-msg #(log/wire->tx {"tx" "t" "flags" ["m" [[5 "x"] [["d" "5.0"] "y"]]]})))
+      "REASON literal — re-encode twin: 5 and 5.0 are distinct keys on the JVM and canonize to one form")
+  (is (= "torihiki.log: wire map keys collide"
+         (ex-msg #(log/wire->tx {"tx" "t" "_pairs" [[["k" "tx"] "x"]]})))
+      "REASON literal — a crafted pairs key :tx overwrites the kind slot today")
+  (is (= "torihiki.log: wire map keys collide"
+         (ex-msg #(log/wire->tx {"tx" "t" "a" 5 "_pairs" [[["k" "a"] 6]]})))
+      "REASON literal — flat key :a and pairs key :a merge today"))
+
+(deftest wire-set-elements-that-collide-are-refused
+  (is (= "torihiki.log: wire set elements collide"
+         (ex-msg #(log/wire->tx {"tx" "t" "flags" ["set" [5 5]]})))
+      "REASON literal — the decoded set loses one 5 today"))
+
+(deftest keys-with-distinct-canon-forms-still-round-trip
+  ;; Over-refusal guard: 5 and "5" share no canon form and must not be
+  ;; touched; the single-key 5.0 ≡ 5 normalization the canon DECLARES stays —
+  ;; only entries that would MERGE are refused.
+  (let [m {5 :a "5" :b}]
+    (is (= m (:flags (log/wire->tx (log/tx->wire {:tx :t :flags m}))))
+        "5 and \"5\" share no canon form — both entries survive"))
+  (is (= {"tx" "t" "flags" ["m" [[1 ["k" "a"]] [2 ["k" "b"]]]]}
+         (log/tx->wire (log/wire->tx {"tx" "t" "flags"
+                                      ["m" [[1 ["k" "a"]] [2 ["k" "b"]]]]})))
+      "wire idempotence for distinct map keys")
+  (is (= {"tx" "t" "flags" ["set" [1 2]]}
+         (log/tx->wire (log/wire->tx {"tx" "t" "flags" ["set" [1 2]]})))
+      "wire idempotence for distinct set elements")
+  (is (= ["m" [[5 ["k" "a"]]]]
+         (get (log/tx->wire {:tx :t :flags {5.0 :a}}) "flags"))
+      "single-key {5.0 :a} keeps its wire — 5.0 ≡ 5 is the canon's own normalization"))
