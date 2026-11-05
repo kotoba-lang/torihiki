@@ -251,3 +251,50 @@
 (deftest the-rejection-log-is-bounded
   (let [st (feed (mt/empty-state) (repeat 100 {"t" "x" "n" 1}) 0)]
     (is (= 20 (count (:rejects st))))))
+
+;; ── the integer canon at the frame door: integers however typed ─────────────
+;;
+;; `integer?` is a TYPE test on the JVM (a Double is never an integer,
+;; however whole) and a VALUE test on JS (every whole number is one) —
+;; measured 2026-11-05 by evidence/probe-venue-integer-canon.cljk on both
+;; runtimes: the SAME frame with "n" 3.0 was rejected :bad-seq on the JVM
+;; and accepted with :n 3 on the JS leg, and "digits" 3.0 met the same
+;; fork at the sym door (:bad-sym vs :digits 3). The engine's canon is
+;; torihiki.venue/int-like? (provenance: api/int-like?, kotoba.spec.int-
+;; like): an integer however typed, whole-ness by arithmetic, finiteness
+;; guarded before rem. The door judges the canon and stores the long. A
+;; frame number past the i53 domain is refused at the door — nothing out
+;; of domain is ever stored (the falsify-8 class: a value a double cannot
+;; hold exactly is a fork waiting for its next arithmetic).
+
+(deftest a-frame-number-is-judged-as-its-integer-however-typed
+  (let [st (atom (mt/empty-state))]
+    (swap! st feed [hello (tick 3.0 "1.08490" "1.08500")] 1000)
+    (is (= [] (mapv :reason (:rejects @st))) "a whole double IS its integer")
+    (is (= 3 (:n @st)) "the state holds the long, not the double")
+    (testing "and the walk continues — the next whole double lands too"
+      (swap! st feed [(tick 4.0 "1.08490" "1.08500")] 1000)
+      (is (= [] (mapv :reason (:rejects @st))))
+      (is (= 4 (:n @st))))
+    (testing "a fractional frame number is refused :bad-seq (REASON pin)"
+      (swap! st feed [(tick 5.5 "1.08490" "1.08500")] 1000)
+      (is (= [:bad-seq] (mapv :reason (:rejects @st))))
+      (is (= 4 (:n @st)) "a refusal records nothing"))))
+
+(deftest a-frame-number-past-the-domain-is-refused-at-the-door
+  ;; 2^53 = 9007199254740992 is exactly representable on both runtimes —
+  ;; the literal reads as the same value in both readers — and it is one
+  ;; past i53-max = 2^53 − 1.
+  (let [st (atom (mt/empty-state))]
+    (swap! st feed [hello (tick 9007199254740992 "1.08490" "1.08500")] 1000)
+    (is (= [:bad-seq] (mapv :reason (:rejects @st))) "REASON pin")
+    (is (= 0 (:n @st)) "VALUE pin: nothing out of domain is stored")))
+
+(deftest a-digit-count-is-judged-as-its-integer-however-typed
+  (let [st (atom (mt/empty-state))]
+    (swap! st feed [hello (assoc sym-eurusd "digits" 3.0)] 1000)
+    (is (= [] (mapv :reason (:rejects @st))) "a whole double IS its integer")
+    (is (= 3 (get-in @st [:syms "EURUSD" :digits])) "the state holds the long")
+    (testing "a fractional digit count is refused :bad-sym (REASON pin)"
+      (swap! st feed [(assoc sym-eurusd "digits" 3.5 "n" 2)] 1000)
+      (is (= [:bad-sym] (mapv :reason (:rejects @st)))))))

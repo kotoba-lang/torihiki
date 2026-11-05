@@ -389,3 +389,37 @@
         (is (:ok? res))
         (is (= [] (:diffs res)))
         (is (not (r/halted? router)))))))
+
+;; ── the integer canon at the boundary: integers however typed ───────────────
+;;
+;; `integer?` is a TYPE test on the JVM (a Double is never an integer,
+;; however whole) and a VALUE test on JS (every whole number is one) —
+;; measured 2026-11-05 by evidence/probe-venue-integer-canon.cljk: the
+;; SAME request with qty 3.0 was refused :bad-qty on the JVM and sent as
+;; volume "0.03" on the JS leg, and price 3.0 met the same fork (:bad-
+;; price vs "0.00003" sent). A request one runtime sends and the other
+;; does not is two ledgers. The boundary judges torihiki.venue/int-like?
+;; (provenance: api/int-like?, kotoba.spec.int-like) and computes on the
+;; long — the same shape rule as every other door in the engine.
+
+(deftest a-whole-double-qty-and-price-are-their-integers
+  (is (= {:symbol "EURUSD" :side :buy :volume "0.03" :price "1.08500"
+          :comment "t-1" :reduce-only? false}
+         (v/->venue-order entry {:cid "t-1" :side :buy :qty 3.0 :price 108500}))
+      "VALUE pin: qty 3.0 is 3 lots")
+  (is (= "0.00003"
+         (:price (v/->venue-order entry {:cid "t-1" :side :buy :qty 30 :price 3.0})))
+      "VALUE pin: price 3.0 is 3 ticks")
+  (testing "a fractional qty or price is refused whole (REASON pins)"
+    (is (= {:error :bad-qty}
+           (v/->venue-order entry {:cid "t-1" :side :buy :qty 2.5 :price 108500})))
+    (is (= {:error :bad-price}
+           (v/->venue-order entry {:cid "t-1" :side :buy :qty 30 :price 2.5})))))
+
+(deftest the-value-guards-judge-whole-doubles-as-integers
+  (is (= "0.03" (v/string-of 3.0 "0.01")) "VALUE pin: 3.0 whole units of 0.01")
+  (is (= [] (v/check-entry {:market 1 :venue-symbol "EURUSD"
+                            :tick-size "0.001" :lot-size "0.01"}
+                           {:digits 3.0 :volume-step "0.01" :volume-min "0.01"
+                            :volume-max "100.00" :trade-allowed? true}))
+      "VALUE pin: digits 3.0 is a working digit count"))
