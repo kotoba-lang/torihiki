@@ -1,6 +1,7 @@
 (ns torihiki.venue-test
   "The Venue port against the in-memory fake. No network, no real venue."
   (:require [kotoba.test :refer [deftest is testing]]
+            [torihiki.fixed :as fx]
             [torihiki.venue :as v]
             [torihiki.venue-fake :as fake]
             [torihiki.venue-router :as r]))
@@ -328,3 +329,63 @@
 (deftest the-fake-conforms-to-the-contract
   (is (v/conforms? (:venue (:fake (rig)))))
   (is (not (v/conforms? (dissoc (:venue (:fake (rig))) :cancel)))))
+
+;; ── the sums: every accumulator saturates at the domain edge ────────────────
+;;
+;; falsify-8's class, one port upstream. A raw `+` in an accumulator walks the
+;; sum past 2^53 and the runtimes then hold different numbers (JVM exact, JS
+;; rounded) with no throw anywhere — and these sums answer refusals and halt
+;; the router. Every fold here goes through `torihiki.fixed/acc`: total, never
+;; throws, one verdict at the edge on both runtimes. `position` folds the
+;; ledger in cid order (the determinism contract's sorted fold) because a
+;; saturating fold must have one order to have one answer.
+
+(deftest the-fakes-position-sum-never-leaves-the-domain
+  ;; one honest fill past the seeded edge lands on 2^53 + 1 — the falsify-13
+  ;; crossing value, an odd number no double holds.
+  (let [f (fake/make {"EURUSD" eurusd} {})
+        place (:place (:venue f))]
+    (swap! (:state f) assoc-in [:positions "EURUSD"] (- fx/i53-max 1))
+    (is (= {:ok {:venue-order-id "V1" :status :filled}}
+           (place {:symbol "EURUSD" :side :buy :volume "0.03" :comment "z1"})))
+    (is (= fx/i53-max (get-in @(:state f) [:positions "EURUSD"])))
+    (testing "the negative edge clamps the same way"
+      (swap! (:state f) assoc-in [:positions "EURUSD"] (inc fx/i53-min))
+      (place {:symbol "EURUSD" :side :sell :volume "0.03" :comment "z2"})
+      (is (= fx/i53-min (get-in @(:state f) [:positions "EURUSD"]))))))
+
+(deftest the-routers-position-sum-never-leaves-the-domain
+  (testing "the long side clamps at the top edge (the true sum is 2^53 + 3)"
+    (let [{:keys [router]} (rig)]
+      (is (= :filled (:status (r/place! router (buy "z3" fx/i53-max)))))
+      (is (= :filled (:status (r/place! router (buy "z4" 4)))))
+      (is (= fx/i53-max (r/position router 1)))))
+  (testing "the short side clamps at the bottom edge (the true sum is -(2^53 + 3))"
+    (let [{:keys [router]} (rig)]
+      (is (= :filled (:status (r/place! router {:cid "z5" :market 1 :side :sell
+                                                :qty fx/i53-max}))))
+      (is (= :filled (:status (r/place! router {:cid "z6" :market 1 :side :sell
+                                                :qty 4}))))
+      (is (= fx/i53-min (r/position router 1))))))
+
+(deftest the-position-limit-door-sees-the-saturated-position
+  ;; the refusal the clamp changes: at the edge `after` clamps, and the order
+  ;; is judged against the bound the caller set — not against a sum the two
+  ;; runtimes compute differently.
+  (let [{:keys [router]} (rig {1 {:max-position fx/i53-max}})]
+    (is (= :filled (:status (r/place! router (buy "z8" fx/i53-max)))))
+    (is (= :filled (:status (r/place! router (buy "z9" 4)))))
+    (is (= fx/i53-max (r/position router 1)))))
+
+(deftest the-reconcile-sum-never-leaves-the-domain
+  ;; two venue records whose sum crosses the edge: their SUM is compared
+  ;; against ours, so both sides of the comparison fold through acc.
+  (let [multi (fn [& vols]
+                (fn [] {:ok (mapv (fn [v] {:symbol "EURUSD" :volume v}) vols)}))]
+    (let [{:keys [router]} (rig)]
+      (is (= :filled (:status (r/place! router (buy "z10" fx/i53-max)))))
+      (let [res (r/reconcile! (assoc-in router [:venue :positions]
+                                        (multi "90071992547409.91" "0.04")))]
+        (is (:ok? res))
+        (is (= [] (:diffs res)))
+        (is (not (r/halted? router)))))))
