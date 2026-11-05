@@ -389,7 +389,14 @@
               "state-root=root-a\n"
               "prev=genesis\n"
               "ntx=1\n"
-              "trigger:1:::::::::" ";trigger-price=500" "\n")
+              ;; re-derived from the encoding rules (green leg 2026-11-06
+              ;; 02:5x): ten fields joined by NINE colons — the empty-tx pin
+              ;; "a/y:::::::::" carries all nine and the measured quote
+              ;; "trigger:1:2:::::::" carries nine with two fields spent;
+              ;; filling :account spends one colon on ":1", so eight
+              ;; colons follow. The first pin here counted ten; the
+              ;; implementation renders nine (every named-only pin unchanged).
+              "trigger:1::::::::" ";trigger-price=500" "\n")
          (log/signing-payload 1 100 "root-a" nil
                               [{:tx :trigger :account 1 :trigger-price 500}])))
   (is (not= (log/signing-payload 1 100 "root-a" nil
