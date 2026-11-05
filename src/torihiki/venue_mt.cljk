@@ -74,20 +74,24 @@
 
       (:locked st) st
       (not (:hello? st)) (reject st :no-hello frame)
-      (not (and (integer? n) (> n (:n st)))) (reject st :bad-seq frame)
+      ;; the frame number is judged by the canon (an integer however
+      ;; typed) and bounded to the i53 domain — nothing a double cannot
+      ;; hold exactly is ever stored here (the falsify-8 class), and the
+      ;; stored value is the long, so both runtimes walk the same seq.
+      (not (and (v/int-in? n 0 v/i53-max) (> n (:n st)))) (reject st :bad-seq frame)
 
       :else
-      (let [st (assoc st :n n)]
+      (let [st (assoc st :n (long n))]
         (case t
           "sym"
           (let [s (get frame "s")]
             (if (and (sym? s)
-                     (integer? (get frame "digits")) (<= 0 (get frame "digits") v/max-scale)
+                     (v/int-in? (get frame "digits") 0 v/max-scale)
                      (pos-dec? (get frame "step")) (pos-dec? (get frame "min"))
                      (pos-dec? (get frame "max")) (pos-dec? (get frame "tick"))
                      (contains? trade-modes (get frame "trade")))
               (assoc-in st [:syms s]
-                        {:digits (get frame "digits")
+                        {:digits (long (get frame "digits"))
                          :volume-step (get frame "step")
                          :volume-min (get frame "min")
                          :volume-max (get frame "max")

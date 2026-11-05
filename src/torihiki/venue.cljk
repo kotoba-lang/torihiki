@@ -36,6 +36,43 @@
 
 (def i53-max 9007199254740991)
 
+;; ── the integral-number canon ───────────────────────────────────────────────
+;;
+;; `integer?` is a TYPE test on the JVM (a Double is never an integer,
+;; however whole) and a VALUE test on JS (every whole number is one): the
+;; same frame with "n" 3.0 was rejected `:bad-seq` on the JVM and accepted
+;; with :n 3 on the JS leg, and qty 3.0 was refused `:bad-qty` on one
+;; runtime and sent as volume "0.03" on the other (measured 2026-11-05,
+;; evidence/probe-venue-integer-canon.cljk). A request one runtime sends
+;; and the other does not is two ledgers. One canon answers for all of
+;; them: an integer however typed.
+
+(defn int-like?
+  "Whether `v` is an INTEGER however it is typed: a true integer, or a whole
+  number held in a double (5.0 is 5; 2.5 is nothing). Provenance: the
+  `kotoba.spec.int-like` predicate / `torihiki.api/int-like?`, re-implemented
+  here because the venue layer is a leaf — it must not require the engine
+  surface to judge a number.
+
+  Whole-ness is `(== v (- v (rem v 1)))` — arithmetic, not `Math/floor`, so
+  the same words compile on both runtimes. NaN and the infinities are
+  answered BEFORE `rem`, because `rem` is not portable there: the JVM's
+  remainder is BigDecimal-backed and THROWS on them while JS lands on NaN
+  (the wire-number-canon finding). `(== (- v v) 0)` is false exactly for
+  the non-finites and true for every finite number, so it is the portable
+  finiteness guard. A huge whole double (1e300) is int-like but out of
+  every domain below, where the bounded doors refuse it."
+  [v]
+  (or (integer? v)
+      (and (number? v) (== (- v v) 0) (== v (- v (rem v 1))))))
+
+(defn int-in?
+  "Whether `v` is an integer however typed (see `int-like?`) within
+  lo..hi inclusive — the bounded doors' one judgment. The caller stores
+  the long: `(long v)` is exact for a whole in-bounds value."
+  [v lo hi]
+  (and (int-like? v) (<= lo v) (<= v hi)))
+
 (def max-scale
   "Most fractional digits accepted. Brokers quote 5 (FX) or fewer; more than
   this is not a price, it is a malformed string."
@@ -117,12 +154,13 @@
 
 (defn string-of
   "`n` whole `unit`s as a decimal string with exactly the unit's fractional
-  digits (4 x \"0.01\" -> \"0.04\"), or nil on overflow or a bad unit."
+  digits (4 x \"0.01\" -> \"0.04\"), or nil on overflow or a bad unit.
+  `n` is judged by `int-like?` and computed as its long."
   [n unit]
   (let [u (parse-decimal unit)]
-    (when (and (integer? n) u (pos? (:units u))
+    (when (and (int-like? n) u (pos? (:units u))
                (<= (abs* n) (quot i53-max (:units u))))
-      (let [total (* n (:units u))
+      (let [total (* (long n) (:units u))
             sc (:scale u)
             neg? (neg? total)
             ds (str (abs* total))
@@ -159,8 +197,9 @@
 (defn- point-of
   "The venue's smallest price step for `digits` decimals, as a string."
   [digits]
-  (when (and (integer? digits) (<= 0 digits max-scale))
-    (if (zero? digits) "1" (str "0." (apply str (repeat (dec digits) "0")) "1"))))
+  (when (int-in? digits 0 max-scale)
+    (let [d (long digits)]
+      (if (zero? d) "1" (str "0." (apply str (repeat (dec d) "0")) "1")))))
 
 (defn check-entry
   "Reasons (a vector, empty when none) why `entry` may not be used with what
@@ -228,8 +267,8 @@
   (cond
     (not (valid-cid? cid)) {:error :bad-cid}
     (not (#{:buy :sell} side)) {:error :bad-side}
-    (not (and (integer? qty) (pos? qty))) {:error :bad-qty}
-    (and (some? price) (not (and (integer? price) (pos? price)))) {:error :bad-price}
+    (not (and (int-like? qty) (pos? qty))) {:error :bad-qty}
+    (and (some? price) (not (and (int-like? price) (pos? price)))) {:error :bad-price}
     :else
     (let [vol (string-of qty (:lot-size entry))
           px (when (some? price) (string-of price (:tick-size entry)))]
