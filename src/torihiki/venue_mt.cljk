@@ -22,7 +22,9 @@
     good frame always parses.
   - **A half-sent position list.** Positions arrive between `pos-begin` and
     `pos-end` and replace the previous list only at `pos-end`, after every
-    volume checked out against the symbol's volume step. A connection that
+    volume checked out against the symbol's volume step and the net folded
+    exactly inside the i53 domain — a netting that leaves the domain, or
+    that the wire cannot state, is refused whole. A connection that
     dies mid-list leaves the last complete list in place, then ages out.
   - **Old data.** Quotes, account and positions are stamped with the time the
     adapter RECEIVED them (the terminal's clock and the host's differ by a
@@ -31,7 +33,8 @@
   - **Replays.** Within a connection, frame numbers `n` must increase.
 
   Not verified against a running MT5 — see the doc."
-  (:require [torihiki.venue :as v]))
+  (:require [torihiki.fixed :as fx]
+            [torihiki.venue :as v]))
 
 (def default-opts {:max-age-ms 5000})
 
@@ -122,16 +125,46 @@
           "pos-end"
           (if (nil? (:pending st))
             (reject st :pos-end-without-begin frame)
-            ;; net per symbol, in whole volume steps, exactly
-            (let [net (reduce
-                       (fn [acc {:keys [symbol type vol]}]
-                         (let [step (get-in st [:syms symbol :volume-step])
-                               k (when step (v/count-of vol step :exact))]
-                           (if k
-                             (update acc symbol (fnil + 0) (if (= type "buy") k (- k)))
-                             (reduced :bad))))
-                       {} (:pending st))]
-              (if (= :bad net)
+            ;; net per symbol, in whole volume steps, exactly — a netting
+            ;; that cannot be held exactly is refused whole (below).
+            (let [by-sym (reduce
+                          (fn [acc {:keys [symbol type vol]}]
+                            (let [step (get-in st [:syms symbol :volume-step])
+                                  k (when step (v/count-of vol step :exact))]
+                              (if k
+                                (update acc symbol (fnil conj []) (if (= type "buy") k (- k)))
+                                (reduced :bad))))
+                          {} (:pending st))
+                  net (if (= :bad by-sym)
+                        :bad
+                        ;; each symbol's steps fold through fx/acc in sorted
+                        ;; order (the determinism contract's sorted fold:
+                        ;; mixed signs make fold order observable). fx/acc
+                        ;; saturates at the i53 bound, so a step where it
+                        ;; clamps is a step whose exact sum left the domain
+                        ;; (the clamp branch is the same on both runtimes —
+                        ;; see torihiki.fixed/sadd); this mirror refuses
+                        ;; such a list whole rather than states a clamped
+                        ;; net. Every accepted partial sum stays inside the
+                        ;; domain, so the fold is exact on both runtimes.
+                        (reduce (fn [m [symbol ds]]
+                                  (let [s (reduce (fn [v d]
+                                                    (let [s (fx/acc v d)]
+                                                      (if (= s (+ v d))
+                                                        s
+                                                        (reduced :bad))))
+                                                  0 (sort ds))]
+                                    (if (= :bad s)
+                                      (reduced :bad)
+                                      (assoc m symbol s))))
+                                {} by-sym))]
+              (if (or (= :bad net)
+                      ;; a net the wire cannot state (`string-of` answers
+                      ;; nil) is not a position
+                      (some (fn [[s n]]
+                              (and (not (zero? n))
+                                   (nil? (v/string-of n (get-in st [:syms s :volume-step])))))
+                            net))
                 (-> st (assoc :pending nil) (reject :unrepresentable-position frame))
                 (-> st
                     (assoc :pending nil)

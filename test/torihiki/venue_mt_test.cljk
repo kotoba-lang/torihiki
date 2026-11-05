@@ -63,6 +63,81 @@
                       {"t" "pos-end" "n" 14}] 1000)
       (is (= {:ok []} ((:positions venue)))))))
 
+;; ── the netting sum: exactly inside the domain, or refused whole ────────────
+;;
+;; falsify-8's class at the fifth accumulator: the per-symbol net was a raw
+;; `(fnil + 0)`. A list whose sum walks past 2^53 is held differently by the
+;; two runtimes (longs exact, doubles rounded) with no throw anywhere, and a
+;; raw fold is order-sensitive — the terminal's ordering could change the
+;; answer. The netting now folds each symbol's steps through fx/acc in
+;; sorted order (the determinism contract's sorted fold), refuses the whole
+;; list when a step's sum leaves the i53 domain (fx/acc clamps only there —
+;; an exact net cannot be held), and refuses a net the wire cannot state
+;; (`string-of` answers nil). Nothing a refusal refuses is ever recorded:
+;; the last complete list stands. REASON pins: :unrepresentable-position.
+
+(deftest a-net-the-fold-cannot-hold-is-refused-whole
+  (let [{:keys [st venue]} (rig)]
+    (swap! st feed [{"t" "pos-begin" "n" 6}
+                    {"t" "pos" "n" 7 "s" "EURUSD" "type" "buy" "vol" "0.30"}
+                    {"t" "pos-end" "n" 8}] 1000)
+    (is (= {:ok [{:symbol "EURUSD" :volume "0.30"}]} ((:positions venue))))
+    (testing "a sum past the top edge is refused (the crossing value is 2^53 + 1)"
+      (swap! st feed [{"t" "pos-begin" "n" 9}
+                      {"t" "pos" "n" 10 "s" "EURUSD" "type" "buy" "vol" "90071992547409.91"}
+                      {"t" "pos" "n" 11 "s" "EURUSD" "type" "buy" "vol" "0.02"}
+                      {"t" "pos-end" "n" 12}] 1000)
+      (is (= :unrepresentable-position (:reason (last (:rejects @st)))))
+      (is (nil? (:pending @st)) "the half-built list is abandoned")
+      (is (= {:ok [{:symbol "EURUSD" :volume "0.30"}]} ((:positions venue)))
+          "nothing a refusal refuses is recorded; the last complete list stands"))
+    (testing "a sum past the bottom edge is refused the same way"
+      (swap! st feed [{"t" "pos-begin" "n" 13}
+                      {"t" "pos" "n" 14 "s" "EURUSD" "type" "sell" "vol" "90071992547409.91"}
+                      {"t" "pos" "n" 15 "s" "EURUSD" "type" "sell" "vol" "0.02"}
+                      {"t" "pos-end" "n" 16}] 1000)
+      (is (= :unrepresentable-position (:reason (last (:rejects @st)))))
+      (is (= {:ok [{:symbol "EURUSD" :volume "0.30"}]} ((:positions venue)))))
+    (testing "a net the wire cannot state is refused — string-of would answer nil"
+      ;; every step is representable and the net stays inside the domain, but
+      ;; 2 × 900719925474099 whole steps of a "0.10" volume step exceed what
+      ;; one wire decimal can state
+      (swap! st feed [{"t" "sym" "n" 17 "s" "XAUUSD" "digits" 2 "step" "0.10" "min" "0.10"
+                       "max" "1000.00" "tick" "0.01" "trade" "full"}
+                      {"t" "pos-begin" "n" 18}
+                      {"t" "pos" "n" 19 "s" "XAUUSD" "type" "buy" "vol" "90071992547409.90"}
+                      {"t" "pos" "n" 20 "s" "XAUUSD" "type" "buy" "vol" "90071992547409.90"}
+                      {"t" "pos-end" "n" 21}] 1000)
+      (is (= :unrepresentable-position (:reason (last (:rejects @st)))))
+      (is (= {:ok [{:symbol "EURUSD" :volume "0.30"}]} ((:positions venue)))))
+    (testing "the door still opens: a statable list states"
+      (swap! st feed [{"t" "pos-begin" "n" 22}
+                      {"t" "pos" "n" 23 "s" "EURUSD" "type" "buy" "vol" "0.02"}
+                      {"t" "pos-end" "n" 24}] 1000)
+      (is (= {:ok [{:symbol "EURUSD" :volume "0.02"}]} ((:positions venue)))))))
+
+(deftest the-netting-does-not-depend-on-the-order-the-terminal-sent
+  ;; The same three positions in two arrival orders are the same netting:
+  ;; 2 whole steps ("0.02") however the terminal chose to send them. The
+  ;; fold walks sorted steps, because mixed signs make fold order
+  ;; observable — with the raw fold the first order's intermediate leaves
+  ;; the domain (2^53 + 1) and the runtimes part ways (longs land on 2,
+  ;; doubles on 1), and the second order disagrees with the first.
+  (let [{:keys [st venue]} (rig)]
+    (swap! st feed [{"t" "pos-begin" "n" 6}
+                    {"t" "pos" "n" 7 "s" "EURUSD" "type" "buy" "vol" "90071992547409.91"}
+                    {"t" "pos" "n" 8 "s" "EURUSD" "type" "buy" "vol" "0.02"}
+                    {"t" "pos" "n" 9 "s" "EURUSD" "type" "sell" "vol" "90071992547409.91"}
+                    {"t" "pos-end" "n" 10}] 1000)
+    (is (= {:ok [{:symbol "EURUSD" :volume "0.02"}]} ((:positions venue)))))
+  (let [{:keys [st venue]} (rig)]
+    (swap! st feed [{"t" "pos-begin" "n" 6}
+                    {"t" "pos" "n" 7 "s" "EURUSD" "type" "sell" "vol" "90071992547409.91"}
+                    {"t" "pos" "n" 8 "s" "EURUSD" "type" "buy" "vol" "0.02"}
+                    {"t" "pos" "n" 9 "s" "EURUSD" "type" "buy" "vol" "90071992547409.91"}
+                    {"t" "pos-end" "n" 10}] 1000)
+    (is (= {:ok [{:symbol "EURUSD" :volume "0.02"}]} ((:positions venue))))))
+
 ;; ── it joins the P1 router ──────────────────────────────────────────────────
 
 (deftest reconcile-sees-a-position-we-did-not-open
