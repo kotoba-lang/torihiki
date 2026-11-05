@@ -286,6 +286,45 @@
     (is (= {:ok? false :reason :venue-unreachable} (r/reconcile! router)))
     (is (r/halted? router))))
 
+(deftest reconcile-sums-every-position-record-in-a-symbol
+  ;; A hedging venue reports ONE RECORD PER POSITION: the same symbol can
+  ;; appear several times in :positions. The comparison is against their SUM —
+  ;; the last record standing is not the position.
+  (let [multi (fn [& vols]
+                (fn [] {:ok (mapv (fn [v] {:symbol "EURUSD" :volume v}) vols)}))]
+    (testing "records 0.30 and -0.10 are the +20 lots we hold"
+      (let [{:keys [router]} (rig)]
+        (r/place! router (buy "s1" 20))
+        (let [res (r/reconcile! (assoc-in router [:venue :positions]
+                                          (multi "0.30" "-0.10")))]
+          (is (:ok? res))
+          (is (= [] (:diffs res)))
+          (is (not (r/halted? router))))))
+    (testing "a disagreement carried by the sum is still a disagreement"
+      (let [{:keys [router]} (rig)]
+        (r/place! router (buy "s2" 10))
+        (let [res (r/reconcile! (assoc-in router [:venue :positions]
+                                          (multi "0.30" "-0.10")))]
+          (is (not (:ok? res)))
+          (is (= [{:market 1 :ours 10 :venue 20}] (:diffs res)))
+          (is (r/halted? router)))))
+    (testing "one record off the lot grid poisons the whole position"
+      (let [{:keys [router]} (rig)]
+        (r/place! router (buy "s3" 20))
+        (let [res (r/reconcile! (assoc-in router [:venue :positions]
+                                          (multi "0.305" "-0.10")))]
+          (is (not (:ok? res)))
+          (is (= [{:market 1 :ours 20 :venue 20}] (:diffs res)))
+          (is (r/halted? router)))))
+    (testing "one unstateable record leaves the venue side unstated"
+      (let [{:keys [router]} (rig)]
+        (r/place! router (buy "s4" 20))
+        (let [res (r/reconcile! (assoc-in router [:venue :positions]
+                                          (multi "0.20" "junk")))]
+          (is (not (:ok? res)))
+          (is (= [{:market 1 :ours 20 :venue nil}] (:diffs res)))
+          (is (r/halted? router)))))))
+
 (deftest the-fake-conforms-to-the-contract
   (is (v/conforms? (:venue (:fake (rig)))))
   (is (not (v/conforms? (dissoc (:venue (:fake (rig))) :cancel)))))

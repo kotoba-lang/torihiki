@@ -169,11 +169,21 @@
       (do (halt! router) {:ok? false :reason :venue-unreachable})
       (let [entries (map :entry (vals @(:binds router)))
             by-symbol (into {} (map (juxt :venue-symbol identity)) entries)
+            ;; A hedging venue reports ONE RECORD PER POSITION, so a symbol
+            ;; can appear several times: the position is the SUM of its
+            ;; records, and it is whole-lots only if EVERY record is (a
+            ;; record that cannot be stated leaves the sum unstated).
             venue-lots (reduce (fn [acc {:keys [symbol volume]}]
                                  (if-let [e (by-symbol symbol)]
-                                   (assoc acc (:market e)
-                                          {:lots (v/volume->lots volume e)
-                                           :exact? (some? (v/count-of volume (:lot-size e) :exact))})
+                                   (let [lots (v/volume->lots volume e)
+                                         exact? (some? (v/count-of volume (:lot-size e) :exact))]
+                                     (update acc (:market e)
+                                             (fn [old]
+                                               (let [old (or old {:lots 0 :exact? true})]
+                                                 {:lots (if (or (nil? lots) (nil? (:lots old)))
+                                                          nil
+                                                          (+ (:lots old) lots))
+                                                  :exact? (and (:exact? old) exact?)}))))
                                    (update acc :unmapped (fnil conj []) symbol)))
                                {} (:ok r))
             unmapped (:unmapped venue-lots)
