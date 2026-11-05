@@ -215,7 +215,7 @@
     (map? v) ["m" (mapv (fn [[k vv]] [(enc-val k) (enc-val vv)])
                         (sort-by (fn [[k]] (pr-str (enc-val k))) v))]
     (vector? v) ["v" (mapv enc-val v)]
-    (set? v) ["set" (mapv enc-val (sort-by pr-str v))]
+    (set? v) ["set" (mapv enc-val (sort-by (comp pr-str enc-val) v))]
     :else (throw (ex-info "torihiki.log: value has no wire form" {:value v}))))
 
 (defn- dec-val
@@ -323,6 +323,12 @@
     (and (wire-number? v) (api/int-like? v)) (u-digits v)
     #?(:cljs (instance? js/BigInt v) :clj false) (u-digits v)
     (and (wire-number? v) (== v v)) (d-digits v)
+    ;; a composite renders through the WIRE canon, never raw `str`: raw
+    ;; printing is runtime-local (measured 2026-11-06: `#{1e21 15.0}` printed
+    ;; "#{15 1.0E21}" on the JVM and "#{1e+21 15}" on kbb/nbb — one
+    ;; transaction, two signed payloads). (pr-str (enc-val v)) is the same
+    ;; bytes on both runtimes because the encoding is.
+    (or (map? v) (vector? v) (set? v)) (pr-str (enc-val v))
     :else (str v)))
 
 (defn- kind-str
@@ -336,6 +342,25 @@
     (keyword? k) (subs (str k) 1)
     (string? k) k
     :else (slot-str k)))
+
+(def ^:private slot-keys
+  "The named slots the per-transaction payload line renders positionally.
+  Everything else a transaction carries rides after them as `;key=value`."
+  #{:account :market :side :level :qty :flags :oid :amount :price})
+
+(defn- extra-str
+  "Every entry that is not one of the named slots (or the kind), rendered
+  `;key=value` in the printed-encoding order of the key — the map branch's
+  sort rule, so the order cannot depend on hash iteration. Measured
+  2026-11-06: without this, two DIFFERENT :trigger transactions produced
+  the IDENTICAL payload (\"trigger:1:2:::::::\") and a signature over one
+  verified the other — the payload must commit to every byte."
+  [t]
+  (->> (dissoc t :tx)
+       (remove (fn [[k]] (and (keyword? k) (contains? slot-keys k))))
+       (sort-by (fn [[k]] (pr-str (enc-val k))))
+       (map (fn [[k v]] (str ";" (kind-str k) "=" (slot-str v))))
+       (apply str)))
 
 (defn signing-payload
   "The canonical bytes-as-string a sequencer signs.
@@ -359,7 +384,7 @@
                          (slot-str (:side t)) ":" (slot-str (:level t)) ":"
                          (slot-str (:qty t)) ":" (slot-str (:flags t)) ":"
                          (slot-str (:oid t)) ":" (slot-str (:amount t)) ":"
-                         (slot-str (:price t)) "\n")))))
+                         (slot-str (:price t)) (extra-str t) "\n")))))
 
 ;; ── producing the log ───────────────────────────────────────────────────────
 

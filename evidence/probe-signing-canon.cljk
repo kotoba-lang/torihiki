@@ -1,0 +1,55 @@
+(require '[torihiki.log :as log]
+         '[torihiki.api :as api])
+
+(defn show [label x] (println label "=>" (pr-str x)))
+
+;; ── 1. raw printing at the boundary: is `pr-str` a canon? ──────────────────
+(show "pr-str 1e21" (pr-str 1e21))
+(show "pr-str 15.0" (pr-str 15.0))
+(show "pr-str 1e17" (pr-str 1e17))
+(show "pr-str {:a 1e17}" (pr-str {:a 1e17}))
+(show "pr-str #{1e21 15.0}" (pr-str #{1e21 15.0}))
+
+;; ── 2. the wire encoding of a SET: sorted by RAW pr-str today ─────────────
+(show "tx->wire set" (pr-str (log/tx->wire {:tx :t :s #{1e21 15.0}})))
+(show "tx->wire set2" (pr-str (log/tx->wire {:tx :t :s #{5.5 1e21 25.0}})))
+
+;; ── 3. canon-colliding map keys: 5 and 5.0 are ONE number ────────────────
+;; built at runtime on purpose: a map LITERAL is duplicate-key rejected at
+;; read time on the JS legs ({5 :a 5.0 :b} -> "duplicate key: 5").
+(let [m (into {} [[5 :a] [5.0 :b]])
+      tx {:tx :t :m m}
+      w (log/tx->wire tx)
+      back (log/wire->tx w)]
+  (show "colliding-key source entries" (count m))
+  (show "colliding-key tx->wire" (pr-str w))
+  (show "colliding-key round trip =" (= tx back))
+  (show "colliding-key back" (pr-str back)))
+
+;; ── 4. signing-payload coverage: fields outside the 10 named slots ───────
+(def trig-a {:tx :trigger :account 1 :market 2 :trigger-price 500
+             :direction 1 :order {:tx :order :account 1 :market 2
+                                  :side :buy :level 0 :qty 7 :price 510}})
+(def trig-b {:tx :trigger :account 1 :market 2 :trigger-price 999
+             :direction 1 :order {:tx :order :account 1 :market 2
+                                  :side :buy :level 0 :qty 99999 :price 510}})
+(show "payload trig-a" (pr-str (log/signing-payload 1 2 "r" nil [trig-a])))
+(show "payload trig-b" (pr-str (log/signing-payload 1 2 "r" nil [trig-b])))
+(show "payloads equal for DIFFERENT triggers?"
+      (= (log/signing-payload 1 2 "r" nil [trig-a])
+         (log/signing-payload 1 2 "r" nil [trig-b])))
+
+;; a second kind: :slices/:every are not among the slots either
+(def sl-a {:tx :slices :account 1 :market 2 :side :buy :level 0
+           :qty 100 :slices 4 :every 10 :price 5})
+(def sl-b {:tx :slices :account 1 :market 2 :side :buy :level 0
+           :qty 100 :slices 99 :every 88888 :price 5})
+(show "payloads equal for DIFFERENT slices orders?"
+      (= (log/signing-payload 1 2 "r" nil [sl-a])
+         (log/signing-payload 1 2 "r" nil [sl-b])))
+
+;; ── 5. composite values in covered slots: `str` at the boundary ──────────
+(show "payload flags=set" (pr-str (log/signing-payload 1 2 "r" nil
+                                    [{:tx :t :account 1 :flags #{1e21 15.0}}])))
+(show "payload flags=map" (pr-str (log/signing-payload 1 2 "r" nil
+                                    [{:tx :t :account 1 :flags {:a 1e17}}])))
