@@ -119,6 +119,14 @@
   #?(:clj (if (zero? (.compareTo ^java.math.BigInteger a b)) one zero)
      :cljs (if (jseq a b) one zero)))
 
+(defn- wgt?
+  "`a > b` as a PREDICATE. `wgt` answers a word (one/zero) because that is
+  what the opcode table pushes — and a word 0 is truthy on both runtimes
+  (a BigInteger 0 on the JVM, a 0n BigInt on the node), so `(if (wgt …))` is
+  always true. Every door-side comparison goes through this instead."
+  [a b]
+  (not (wzero? (wgt a b))))
+
 (defn- wand [a b] #?(:clj (.and ^java.math.BigInteger a b) :cljs (wrap (jsand a b))))
 (defn- wor  [a b] #?(:clj (.or ^java.math.BigInteger a b)  :cljs (wrap (jsor a b))))
 (defn- wxor [a b] #?(:clj (.xor ^java.math.BigInteger a b) :cljs (wrap (jsxor a b))))
@@ -167,7 +175,7 @@
   (if (nil? x)
     nil
     (let [v (w x)]
-      (if (wgt v max-host-word)
+      (if (wgt? v max-host-word)
         nil
         #?(:clj (.longValue ^java.math.BigInteger v) :cljs (js/Number v))))))
 
@@ -175,9 +183,15 @@
   "A memory window as host integers: the read/write is bounded work (length
   ≤ `max-mem`) and every key it touches stays inside the shared exact integer
   domain (the node rounds keys above i53-max onto their neighbours and the two
-  runtimes stop holding the same memory)."
+  runtimes stop holding the same memory).
+
+  The fit test is `l ≤ (i53-max + 1) - o`, NOT `o + l - 1 ≤ i53-max`: the sum
+  crosses 2^53 exactly at the boundary it judges, and a JS double rounds it —
+  a window whose true last key is i53-max + 1 rounds onto i53-max and is
+  accepted on the node while the JVM refuses it. The subtraction is exact on
+  both sides (a power of two minus an in-domain integer)."
   [o l]
-  (and (<= 0 o) (<= l max-mem) (or (zero? l) (<= (+ o (dec l)) i53-max))))
+  (and (<= 0 o) (<= l max-mem) (<= l (- (inc i53-max) o))))
 
 (defn- mem-args
   "The offset and length of a memory window — words in, host integers out, or
@@ -245,13 +259,13 @@
   ;; A shift of 256 or more is zero — the EVM's own rule, judged in word
   ;; space, so a shift word no host integer holds is zero rather than a
   ;; truncated shift (2^64 + 10 became 1 << 10 on the JVM and 0 on the node).
-  (if (wgt shift max-shift-word) zero
+  (if (wgt? shift max-shift-word) zero
       (let [n (w->int shift)]
         #?(:clj (wrap (.shiftLeft (biginteger a) n))
            :cljs (wrap (jsshl a (js/BigInt n)))))))
 
 (defn- wshr [shift a]
-  (if (wgt shift max-shift-word) zero
+  (if (wgt? shift max-shift-word) zero
       (let [n (w->int shift)]
         #?(:clj (.shiftRight (biginteger a) n)
            :cljs (wrap (jsshr a (js/BigInt n)))))))
@@ -470,7 +484,7 @@
                0x18 (nxt {:pc (inc pc) :stack (push s2 (wxor a b))})
                0x19 (nxt {:pc (inc pc) :stack (push s1 (wnot a))})
                0x1a (nxt {:pc (inc pc)
-                          :stack (push s2 (if (wgt a max-byte-word) zero
+                          :stack (push s2 (if (wgt? a max-byte-word) zero
                                               (let [i (w->int a)]
                                                 (hex->w (subs (w->hex64 b) (* 2 i) (+ 2 (* 2 i)))))))})
                0x1b (nxt {:pc (inc pc) :stack (push s2 (wshl a b))})
@@ -609,11 +623,14 @@
                0xf5                                                  ; CREATE2
                (let [[salt len off _value] (take-last 4 stack)
                      stk (vec (drop-last 4 stack))
-                     init (mem-read mem (w->int off) (w->int len))
-                     addr (create-address self (w->hex64 salt) (keccak/hex->bytes init))
-                     r (run ex (assoc-in world [self :storage] sto)
-                            {:address addr :caller self :depth (inc (:depth ctx))}
-                            (keccak/hex->bytes init) "0x")]
+                     [tag x y] (mem-args off len)]
+                 (if (not= :ok tag)
+                   (wstop x)
+                   (let [init (mem-read mem x y)
+                         addr (create-address self (w->hex64 salt) (keccak/hex->bytes init))
+                         r (run ex (assoc-in world [self :storage] sto)
+                                {:address addr :caller self :depth (inc (:depth ctx))}
+                                (keccak/hex->bytes init) "0x")]
                  (if (= :return (:status r))
                    ;; What the initcode RETURNED is the deployed code. The
                    ;; initcode itself is not: a constructor that ran and
@@ -623,7 +640,7 @@
                          :stack (push stk (hex->w (subs addr 2)))
                          :world (assoc-in (:world r) [addr :code] (keccak/hex->bytes (:data r)))
                          :logs (into logs (:logs r))})
-                   (nxt {:pc (inc pc) :stack (push stk zero) :world world})))
+                   (nxt {:pc (inc pc) :stack (push stk zero) :world world})))))
 
                (cond
                  (and (>= op 0x60) (<= op 0x7f))
