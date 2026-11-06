@@ -119,17 +119,91 @@
   #?(:clj (if (zero? (.compareTo ^java.math.BigInteger a b)) one zero)
      :cljs (if (jseq a b) one zero)))
 
+(defn- wgt?
+  "`a > b` as a PREDICATE. `wgt` answers a word (one/zero) because that is
+  what the opcode table pushes — and a word 0 is truthy on both runtimes
+  (a BigInteger 0 on the JVM, a 0n BigInt on the node), so `(if (wgt …))` is
+  always true. Every door-side comparison goes through this instead."
+  [a b]
+  (not (wzero? (wgt a b))))
+
 (defn- wand [a b] #?(:clj (.and ^java.math.BigInteger a b) :cljs (wrap (jsand a b))))
 (defn- wor  [a b] #?(:clj (.or ^java.math.BigInteger a b)  :cljs (wrap (jsor a b))))
 (defn- wxor [a b] #?(:clj (.xor ^java.math.BigInteger a b) :cljs (wrap (jsxor a b))))
 (defn- wnot [a] (w- (w- modulus one) (w- a zero)))
 
+;; ── the word door ───────────────────────────────────────────────────────────
+;;
+;; The integers BOTH runtimes hold exactly: 0..2^53-1, the determinism
+;; contract's i53. A word above it has no host integer — see `w->int`.
+
+(def ^:const i53-max 9007199254740991)
+
+(def ^:const max-mem
+  "The largest memory window one step may read or write. **65536** bytes.
+
+  Same kind of limit as `gas-limit` and `max-depth`, for the same reason: a
+  length is a `range`, and a `range` the contract chooses is one step that
+  never returns — gas counts steps, not their size. A contract that needs
+  more than this is a contract this interpreter is not for yet."
+  65536)
+
+(def ^:private max-host-word (w 9007199254740991))
+(def ^:private max-shift-word (w 255))   ; SHL/SHR at 256+ is zero, by EVM rule
+(def ^:private max-byte-word (w 31))     ; BYTE at 32+ is zero, by EVM rule
+
 (defn- w->int
-  "A word as a host integer, for memory offsets and jump targets. Only ever
-  used where the value must be small — an offset that does not fit is a
-  program addressing memory it will not get, and it halts."
+  "A word as a host integer — or nil when no host integer IS the word.
+
+  Where a stack word becomes a host integer (a jump target, a memory offset,
+  a length, a calldata offset) the conversion is a CONSENSUS step: both
+  runtimes must either agree on the integer or refuse together. Inside the
+  shared exact domain 0..2^53-1 (the determinism contract's i53) they do — a
+  long and a double hold the same integer there. Outside it they never can:
+  `.longValue` truncates a BigInteger mod 2^64 on the JVM while `js/Number`
+  rounds to a double on the node, so the same JUMP landed at two pcs and the
+  same offset addressed two keys — a state-root fork inside one call, thrown
+  as nothing. 2^53+1 as a memory key is the measured case: the JVM keeps it,
+  the node rounds it onto 2^53, and the next read answers with whatever each
+  runtime happened to store.
+
+  So the conversion refuses rather than truncates: nil out means the word is
+  not an integer on this machine, and every caller halts with it. (The old
+  code converted silently while this docstring claimed the halting it did not
+  do.)"
   [x]
-  #?(:clj (.longValue ^java.math.BigInteger x) :cljs (js/Number x)))
+  (if (nil? x)
+    nil
+    (let [v (w x)]
+      (if (wgt? v max-host-word)
+        nil
+        #?(:clj (.longValue ^java.math.BigInteger v) :cljs (js/Number v))))))
+
+(defn- span-ok?
+  "A memory window as host integers: the read/write is bounded work (length
+  ≤ `max-mem`) and every key it touches stays inside the shared exact integer
+  domain (the node rounds keys above i53-max onto their neighbours and the two
+  runtimes stop holding the same memory).
+
+  The fit test is `l ≤ (i53-max + 1) - o`, NOT `o + l - 1 ≤ i53-max`: the sum
+  crosses 2^53 exactly at the boundary it judges, and a JS double rounds it —
+  a window whose true last key is i53-max + 1 rounds onto i53-max and is
+  accepted on the node while the JVM refuses it. The subtraction is exact on
+  both sides (a power of two minus an in-domain integer)."
+  [o l]
+  (and (<= 0 o) (<= l max-mem) (<= l (- (inc i53-max) o))))
+
+(defn- mem-args
+  "The offset and length of a memory window — words in, host integers out, or
+  a refusal. `[:refuse reason]`, reason `:word-out-of-domain` for a word with
+  no host integer, `:memory-limit` for a window that does not fit the
+  machine."
+  [wo wl]
+  (let [o (w->int wo) l (w->int wl)]
+    (cond
+      (or (nil? o) (nil? l)) [:refuse :word-out-of-domain]
+      (not (span-ok? o l)) [:refuse :memory-limit]
+      :else [:ok o l])))
 
 (defn- w->hex64 [x]
   (let [s #?(:clj (.toString ^java.math.BigInteger x 16) :cljs (.toString x 16))]
@@ -182,14 +256,17 @@
        :cljs (if (jsgt x y) one zero))))
 
 (defn- wshl [shift a]
-  (let [n (w->int shift)]
-    (if (>= n 256) zero
+  ;; A shift of 256 or more is zero — the EVM's own rule, judged in word
+  ;; space, so a shift word no host integer holds is zero rather than a
+  ;; truncated shift (2^64 + 10 became 1 << 10 on the JVM and 0 on the node).
+  (if (wgt? shift max-shift-word) zero
+      (let [n (w->int shift)]
         #?(:clj (wrap (.shiftLeft (biginteger a) n))
            :cljs (wrap (jsshl a (js/BigInt n)))))))
 
 (defn- wshr [shift a]
-  (let [n (w->int shift)]
-    (if (>= n 256) zero
+  (if (wgt? shift max-shift-word) zero
+      (let [n (w->int shift)]
         #?(:clj (.shiftRight (biginteger a) n)
            :cljs (wrap (jsshr a (js/BigInt n)))))))
 
@@ -231,6 +308,31 @@
                                         h #?(:clj (Integer/toHexString b)
                                              :cljs (.toString b 16))]
                                     (if (= 1 (count h)) (str "0" h) h)))))
+
+(defn- hex-window
+  "The `len` hex characters of `s` at `start`, zero-padded past its end.
+
+  Total. A calldata read past the end is zeroes, as the EVM says it is; the
+  old read was `subs` against a 64-pad string and threw out of `run` the
+  moment the window reached past the pad — measured, both runtimes: a
+  `StringIndexOutOfBounds` on the JVM, `Cannot convert 0x to a BigInt` on the
+  node. One malformed call halting every validator at the same spot."
+  [s start len]
+  (let [n (count s)]
+    (if (>= start n)
+      (apply str (repeat len \0))
+      (let [head (subs s start (min n (+ start len)))]
+        (str head (apply str (repeat (- len (count head)) \0)))))))
+
+(defn- hex-slice
+  "The hex characters of `s` from `start`, at most `len` of them, clamped to
+  what is there. A copy of returndata past its end is a copy of nothing —
+  `subs` with a start past the end threw instead."
+  [s start len]
+  (let [n (count s)]
+    (if (>= start n)
+      ""
+      (subs s start (min n (+ start len))))))
 
 (defn- mem-write [mem off hex]
   (reduce (fn [m i]
@@ -348,9 +450,18 @@
                  ;; The loop below is the only place that recurs, and a branch
                  ;; is terminal exactly when what it returns carries `:status`.
                  nxt (fn [m] (merge st (assoc m :gas (inc gas))))
-                 push (fn [stk v] (conj stk v))]
+                 push (fn [stk v] (conj stk v))
+                 ;; A refusal, as a halt — the shape every opcode uses when
+                 ;; the word door or the memory door says no.
+                 wstop (fn [reason] (done {:status :halt :reason reason :opcode op :pc pc}))]
              (let [r
-                   (case op
+                   ;; The step net. A step that faults (a short stack feeding
+                   ;; `w+` a nil, anything else the doors do not name) HALTS —
+                   ;; it does not throw out of `run`, where it would be one
+                   ;; malformed contract halting every validator at the same
+                   ;; spot (the apply-block contract: never thrown from).
+                   (try
+                     (case op
                      0x00 (done {:status :return})
                0x01 (nxt {:pc (inc pc) :stack (push s2 (w+ a b))})
                0x02 (nxt {:pc (inc pc) :stack (push s2 (w* a b))})
@@ -373,99 +484,153 @@
                0x18 (nxt {:pc (inc pc) :stack (push s2 (wxor a b))})
                0x19 (nxt {:pc (inc pc) :stack (push s1 (wnot a))})
                0x1a (nxt {:pc (inc pc)
-                          :stack (push s2 (let [i (w->int a)]
-                                            (if (>= i 32) zero
+                          :stack (push s2 (if (wgt? a max-byte-word) zero
+                                              (let [i (w->int a)]
                                                 (hex->w (subs (w->hex64 b) (* 2 i) (+ 2 (* 2 i)))))))})
                0x1b (nxt {:pc (inc pc) :stack (push s2 (wshl a b))})
                0x1c (nxt {:pc (inc pc) :stack (push s2 (wshr a b))})
-               0x20 (nxt {:pc (inc pc)
-                          :stack (push s2 (hex->w (keccak/digest-of-hex
-                                                   (mem-read mem (w->int a) (w->int b)))))})
+               0x20 (let [[tag x y] (mem-args a b)]
+                      (if (= :ok tag)
+                        (nxt {:pc (inc pc)
+                              :stack (push s2 (hex->w (keccak/digest-of-hex (mem-read mem x y))))})
+                        (wstop x)))
                0x30 (nxt {:pc (inc pc) :stack (push stack (hex->w (subs self 2)))})   ; ADDRESS
                0x33 (nxt {:pc (inc pc) :stack (push stack (hex->w (subs (:caller ctx) 2)))})
                0x34 (nxt {:pc (inc pc) :stack (push stack zero)})                     ; CALLVALUE
-               0x35 (nxt {:pc (inc pc)
-                          :stack (push s1 (hex->w (subs (str cd (apply str (repeat 64 \0)))
-                                                        (* 2 (w->int a)) (+ (* 2 (w->int a)) 64))))})
+               0x35 (let [o (w->int a)]
+                      (if (nil? o)
+                        (wstop :word-out-of-domain)
+                        (nxt {:pc (inc pc)
+                              :stack (push s1 (hex->w (hex-window cd (* 2 o) 64)))})))
                0x36 (nxt {:pc (inc pc) :stack (push stack (w (quot (count cd) 2)))})
                0x38 (nxt {:pc (inc pc) :stack (push stack (w (count code)))})         ; CODESIZE
                0x3d (nxt {:pc (inc pc) :stack (push stack (w (quot (count rdata) 2)))})
-               0x3e (nxt {:pc (inc pc) :stack s3                                      ; RETURNDATACOPY
-                          :mem (mem-write mem (w->int a)
-                                          (subs rdata (* 2 (w->int b))
-                                                (min (count rdata) (+ (* 2 (w->int b)) (* 2 (w->int c*))))))})
+               0x3e (let [o (w->int a) src (w->int b) n (w->int c*)]                   ; RETURNDATACOPY
+                      (cond
+                        (or (nil? o) (nil? src) (nil? n)) (wstop :word-out-of-domain)
+                        :else
+                        (let [slice (hex-slice rdata (* 2 src) (* 2 n))]
+                          (if (span-ok? o (quot (count slice) 2))
+                            (nxt {:pc (inc pc) :stack s3 :mem (mem-write mem o slice)})
+                            (wstop :memory-limit)))))
                0x50 (nxt {:pc (inc pc) :stack s1})
-               0x51 (nxt {:pc (inc pc) :stack (push s1 (hex->w (mem-read mem (w->int a) 32)))})
-               0x52 (nxt {:pc (inc pc) :stack s2 :mem (mem-write mem (w->int a) (w->hex64 b))})
-               0x53 (nxt {:pc (inc pc) :stack s2 :mem (assoc mem (w->int a) (w->int (wmod b (w 256))))})
+               0x51 (let [[tag x y] (mem-args a 32)]
+                      (if (= :ok tag)
+                        (nxt {:pc (inc pc) :stack (push s1 (hex->w (mem-read mem x y)))})
+                        (wstop x)))
+               0x52 (let [[tag x y] (mem-args a 32)]
+                      (if (= :ok tag)
+                        (nxt {:pc (inc pc) :stack s2 :mem (mem-write mem x (w->hex64 b))})
+                        (wstop x)))
+               0x53 (let [[tag x _y] (mem-args a 1)]
+                      (if (= :ok tag)
+                        (nxt {:pc (inc pc) :stack s2 :mem (assoc mem x (w->int (wmod b (w 256))))})
+                        (wstop x)))
                0x54 (nxt {:pc (inc pc) :stack (push s1 (get sto (w->hex64 a) zero))})
                0x55 (nxt {:pc (inc pc) :stack s2 :sto (assoc sto (w->hex64 a) b)})
-               0x56 (nxt {:pc (w->int a) :stack s1})
-               0x57 (nxt {:pc (if (wzero? b) (inc pc) (w->int a)) :stack s2})
+               0x56 (let [t (w->int a)]
+                      (if (nil? t) (wstop :word-out-of-domain) (nxt {:pc t :stack s1})))
+               0x57 (if (wzero? b)
+                      (nxt {:pc (inc pc) :stack s2})
+                      (let [t (w->int a)]
+                        (if (nil? t) (wstop :word-out-of-domain) (nxt {:pc t :stack s2}))))
                0x58 (nxt {:pc (inc pc) :stack (push stack (w pc))})
                0x59 (nxt {:pc (inc pc)
                           :stack (push stack (w (if (seq mem)
                                                   (* 32 (inc (quot (apply max (keys mem)) 32))) 0)))})
                0x5a (nxt {:pc (inc pc) :stack (push stack (w (- gas-limit gas)))})
                0x5b (nxt {:pc (inc pc)})
-               0xa0 (nxt {:pc (inc pc) :stack s2
-                          :logs (conj logs {:topics []
-                                            :data (mem-read mem (w->int a) (w->int b))})})
-               0xa1 (nxt {:pc (inc pc) :stack s3
-                          :logs (conj logs {:topics [(w->hex64 c*)]
-                                            :data (mem-read mem (w->int a) (w->int b))})})
-               0xf3 (done {:status :return :data (mem-read mem (w->int a) (w->int b))})
-               0xfd (done {:status :revert :data (mem-read mem (w->int a) (w->int b))})
+               0xa0 (let [[tag x y] (mem-args a b)]
+                      (if (= :ok tag)
+                        (nxt {:pc (inc pc) :stack s2
+                              :logs (conj logs {:topics []
+                                                :data (mem-read mem x y)})})
+                        (wstop x)))
+               0xa1 (let [[tag x y] (mem-args a b)]
+                      (if (= :ok tag)
+                        (nxt {:pc (inc pc) :stack s3
+                              :logs (conj logs {:topics [(w->hex64 c*)]
+                                                :data (mem-read mem x y)})})
+                        (wstop x)))
+               0xf3 (let [[tag x y] (mem-args a b)]
+                      (if (= :ok tag)
+                        (done {:status :return :data (mem-read mem x y)})
+                        (wstop x)))
+               0xfd (let [[tag x y] (mem-args a b)]
+                      (if (= :ok tag)
+                        (done {:status :revert :data (mem-read mem x y)})
+                        (wstop x)))
 
                (0xf1 0xf2 0xfa)                                     ; CALL, CALLCODE, STATICCALL
                (let [[rl ro al ao addr _g] (take-last 6 stack)
                      stk (vec (drop-last 6 stack))
-                     args (str "0x" (mem-read mem (w->int ao) (w->int al)))
-                     r (do-call ex (assoc-in world [self :storage] sto)
-                                ctx {:to (addr-of-word addr) :args args})
-                     ok? (= :return (:status r))
-                     out (or (:data r) "")]
-                 (nxt {:pc (inc pc)
-                       :stack (push stk (if ok? one zero))
-                       :world (:world r)
-                       :logs (into logs (:logs r))
-                       :rdata out
-                       :mem (if (and ok? (pos? (w->int rl)))
-                              (mem-write mem (w->int ro)
-                                         (subs out 0 (min (count out) (* 2 (w->int rl)))))
-                              mem)}))
+                     rlo (w->int rl) roo (w->int ro)
+                     argp (mem-args ao al)]
+                 (cond
+                   (or (nil? rlo) (nil? roo)) (wstop :word-out-of-domain)
+                   (= :refuse (first argp)) (wstop (second argp))
+                   :else
+                   (let [[_ ao' al'] argp
+                         args (str "0x" (mem-read mem ao' al'))
+                         r (do-call ex (assoc-in world [self :storage] sto)
+                                    ctx {:to (addr-of-word addr) :args args})
+                         ok? (= :return (:status r))
+                         out (or (:data r) "")
+                         slice (subs out 0 (min (count out) (* 2 rlo)))]
+                     (if (or (not (pos? rlo)) (span-ok? roo (quot (count slice) 2)))
+                       (nxt {:pc (inc pc)
+                             :stack (push stk (if ok? one zero))
+                             :world (:world r)
+                             :logs (into logs (:logs r))
+                             :rdata out
+                             :mem (if (and ok? (pos? rlo))
+                                    (mem-write mem roo slice)
+                                    mem)})
+                       (wstop :memory-limit)))))
 
                0xf4                                                  ; DELEGATECALL
                (let [[rl ro al ao addr _g] (take-last 6 stack)
                      stk (vec (drop-last 6 stack))
-                     args (str "0x" (mem-read mem (w->int ao) (w->int al)))
-                     r (do-call ex (assoc-in world [self :storage] sto)
-                                ctx {:to (addr-of-word addr) :args args :delegate? true})
-                     ok? (= :return (:status r))
-                     out (or (:data r) "")]
-                 (nxt {:pc (inc pc)
-                       :stack (push stk (if ok? one zero))
-                       ;; The callee ran as US, so its storage IS ours and has
-                       ;; to come back into `sto`. Taking the world's copy and
-                       ;; leaving `sto` alone would drop everything a library
-                       ;; wrote the moment this frame returned.
-                       :sto (get-in (:world r) [self :storage] sto)
-                       :world (:world r)
-                       :logs (into logs (:logs r))
-                       :rdata out
-                       :mem (if (and ok? (pos? (w->int rl)))
-                              (mem-write mem (w->int ro)
-                                         (subs out 0 (min (count out) (* 2 (w->int rl)))))
-                              mem)}))
+                     rlo (w->int rl) roo (w->int ro)
+                     argp (mem-args ao al)]
+                 (cond
+                   (or (nil? rlo) (nil? roo)) (wstop :word-out-of-domain)
+                   (= :refuse (first argp)) (wstop (second argp))
+                   :else
+                   (let [[_ ao' al'] argp
+                         args (str "0x" (mem-read mem ao' al'))
+                         r (do-call ex (assoc-in world [self :storage] sto)
+                                    ctx {:to (addr-of-word addr) :args args :delegate? true})
+                         ok? (= :return (:status r))
+                         out (or (:data r) "")
+                         slice (subs out 0 (min (count out) (* 2 rlo)))]
+                     (if (or (not (pos? rlo)) (span-ok? roo (quot (count slice) 2)))
+                       (nxt {:pc (inc pc)
+                             :stack (push stk (if ok? one zero))
+                             ;; The callee ran as US, so its storage IS ours and has
+                             ;; to come back into `sto`. Taking the world's copy and
+                             ;; leaving `sto` alone would drop everything a library
+                             ;; wrote the moment this frame returned.
+                             :sto (get-in (:world r) [self :storage] sto)
+                             :world (:world r)
+                             :logs (into logs (:logs r))
+                             :rdata out
+                             :mem (if (and ok? (pos? rlo))
+                                    (mem-write mem roo slice)
+                                    mem)})
+                       (wstop :memory-limit)))))
 
                0xf5                                                  ; CREATE2
                (let [[salt len off _value] (take-last 4 stack)
                      stk (vec (drop-last 4 stack))
-                     init (mem-read mem (w->int off) (w->int len))
-                     addr (create-address self (w->hex64 salt) (keccak/hex->bytes init))
-                     r (run ex (assoc-in world [self :storage] sto)
-                            {:address addr :caller self :depth (inc (:depth ctx))}
-                            (keccak/hex->bytes init) "0x")]
+                     [tag x y] (mem-args off len)]
+                 (if (not= :ok tag)
+                   (wstop x)
+                   (let [init (mem-read mem x y)
+                         addr (create-address self (w->hex64 salt) (keccak/hex->bytes init))
+                         r (run ex (assoc-in world [self :storage] sto)
+                                {:address addr :caller self :depth (inc (:depth ctx))}
+                                (keccak/hex->bytes init) "0x")]
                  (if (= :return (:status r))
                    ;; What the initcode RETURNED is the deployed code. The
                    ;; initcode itself is not: a constructor that ran and
@@ -475,7 +640,7 @@
                          :stack (push stk (hex->w (subs addr 2)))
                          :world (assoc-in (:world r) [addr :code] (keccak/hex->bytes (:data r)))
                          :logs (into logs (:logs r))})
-                   (nxt {:pc (inc pc) :stack (push stk zero) :world world})))
+                   (nxt {:pc (inc pc) :stack (push stk zero) :world world})))))
 
                (cond
                  (and (>= op 0x60) (<= op 0x7f))
@@ -492,5 +657,7 @@
                    (nxt {:pc (inc pc) :stack (assoc stack i (nth stack j) j (nth stack i))}))
 
                  :else
-                 (done {:status :halt :reason :unknown-opcode :opcode op :pc pc})))]
+                 (done {:status :halt :reason :unknown-opcode :opcode op :pc pc})))
+                     #?(:clj (catch Throwable _ (wstop :step-faulted))
+                        :cljs (catch :default _ (wstop :step-faulted))))]
                (if (:status r) r (recur r))))))))))

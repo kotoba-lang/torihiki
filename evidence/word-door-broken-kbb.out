@@ -1,0 +1,135 @@
+
+Testing torihiki.agent-trigger-totality-test
+
+Testing torihiki.api-test
+
+Testing torihiki.apply-totality-test
+
+Testing torihiki.attest-totality-test
+
+Testing torihiki.auth-test
+
+Testing torihiki.book-test
+
+Testing torihiki.bridge-test
+
+Testing torihiki.commit-test
+
+Testing torihiki.consensus-totality-test
+
+Testing torihiki.evm-interp-test
+
+FAIL in (a-jump-target-outside-the-shared-integer-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:232)
+expected: (= :halt (:status r))
+  actual: (not (= :halt :return))
+
+FAIL in (a-jump-target-outside-the-shared-integer-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:233)
+expected: (= :word-out-of-domain (:reason r))
+  actual: (not (= :word-out-of-domain nil))
+
+FAIL in (a-memory-offset-outside-the-shared-integer-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:241)
+expected: (= :halt (:status r))
+  actual: (not (= :halt :return))
+
+FAIL in (a-memory-offset-outside-the-shared-integer-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:242)
+expected: (= :word-out-of-domain (:reason r))
+  actual: (not (= :word-out-of-domain nil))
+
+FAIL in (a-memory-window-that-leaves-the-exact-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:251)
+expected: (= :halt (:status r))
+  actual: (not (= :halt :return))
+
+FAIL in (a-memory-window-that-leaves-the-exact-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:252)
+expected: (= :memory-limit (:reason r))
+  actual: (not (= :memory-limit nil))
+
+FAIL in (a-memory-length-beyond-the-work-cap-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:259)
+expected: (= :halt (:status r))
+  actual: (not (= :halt :return))
+
+FAIL in (a-memory-length-beyond-the-work-cap-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:260)
+expected: (= :memory-limit (:reason r))
+  actual: (not (= :memory-limit nil))
+
+ERROR in (a-calldata-read-past-the-end-is-zeroes-not-a-throw) (todo:)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Cannot convert 0x to a BigInt", :data {:type :sci/error, :line 138, :column 22, :message "Cannot convert 0x to a BigInt", :sci.impl/callstack #object[cljs.core.Volatile {:val (#sci.impl.utils.StackFrame{:line 266, :column 11, :end-line nil, :end-column nil, :ns #object[at torihiki.evm-interp-test], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/test/torihiki/evm_interp_test.cljk", :f-meta {:arglists ([ex code calldata] [ex world ctx code calldata]), :doc "Execute `code` against the exchange. Returns\n  `{:status :return|:revert|:halt :data hex :world w :logs ls :gas n}`.\n\n  The state is a map rather than a dozen loop bindings. It began as the\n  bindings and grew to nine, and adding `world` and the return-data buffer\n  would have meant editing thirty-five `recur` forms in their right positions\n  — which is a mechanical change that fails silently by putting the memory\n  where the storage goes.\n\n  `world` is `{address {:code [bytes] :storage {}}}`. `ctx` says which account\n  the code is running AS, who called it, and how deep. The exchange itself is\n  read-only from in here: the only way to it is the precompile, and there is\n  no opcode that writes to it.", :line 310, :column 1, :ns #object[at torihiki.evm.interp], :name run, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 325, :column 4, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:declared true, :line 262, :column 1, :ns #object[at torihiki.evm.interp], :name run, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 329, :column 6, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta nil, :special false} #sci.impl.utils.StackFrame{:line 388, :column 43, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:private true, :arglists ([s]), :line 138, :column 1, :ns #object[at torihiki.evm.interp], :name hex->w, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 138, :column 22, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:sci.impl.analyzer/static-access true}, :special false})}], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :cause #object[SyntaxError SyntaxError: Cannot convert 0x to a BigInt]}
+
+ERROR in (a-calldata-offset-outside-the-shared-integer-domain-halts) (todo:)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Cannot convert 0x to a BigInt", :data {:type :sci/error, :line 138, :column 22, :message "Cannot convert 0x to a BigInt", :sci.impl/callstack #object[cljs.core.Volatile {:val (#sci.impl.utils.StackFrame{:line 272, :column 11, :end-line nil, :end-column nil, :ns #object[at torihiki.evm-interp-test], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/test/torihiki/evm_interp_test.cljk", :f-meta {:arglists ([ex code calldata] [ex world ctx code calldata]), :doc "Execute `code` against the exchange. Returns\n  `{:status :return|:revert|:halt :data hex :world w :logs ls :gas n}`.\n\n  The state is a map rather than a dozen loop bindings. It began as the\n  bindings and grew to nine, and adding `world` and the return-data buffer\n  would have meant editing thirty-five `recur` forms in their right positions\n  — which is a mechanical change that fails silently by putting the memory\n  where the storage goes.\n\n  `world` is `{address {:code [bytes] :storage {}}}`. `ctx` says which account\n  the code is running AS, who called it, and how deep. The exchange itself is\n  read-only from in here: the only way to it is the precompile, and there is\n  no opcode that writes to it.", :line 310, :column 1, :ns #object[at torihiki.evm.interp], :name run, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 325, :column 4, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:declared true, :line 262, :column 1, :ns #object[at torihiki.evm.interp], :name run, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 329, :column 6, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta nil, :special false} #sci.impl.utils.StackFrame{:line 388, :column 43, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:private true, :arglists ([s]), :line 138, :column 1, :ns #object[at torihiki.evm.interp], :name hex->w, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 138, :column 22, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:sci.impl.analyzer/static-access true}, :special false})}], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :cause #object[SyntaxError SyntaxError: Cannot convert 0x to a BigInt]}
+
+FAIL in (a-returndata-copy-length-outside-the-shared-integer-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:281)
+expected: (= :halt (:status r))
+  actual: (not (= :halt :return))
+
+FAIL in (a-returndata-copy-length-outside-the-shared-integer-domain-halts) (/var/folders/px/b63lssbx5056kq_1t6pvc1f80000gn/T/kbb-test-33025.cljk:282)
+expected: (= :word-out-of-domain (:reason r))
+  actual: (not (= :word-out-of-domain nil))
+
+ERROR in (a-step-that-cannot-proceed-halts-rather-than-throwing) (todo:)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Cannot convert 0 to a BigInt", :data {:type :sci/error, :line 81, :column 3, :message "Cannot convert 0 to a BigInt", :sci.impl/callstack #object[cljs.core.Volatile {:val (#sci.impl.utils.StackFrame{:line 307, :column 11, :end-line nil, :end-column nil, :ns #object[at torihiki.evm-interp-test], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/test/torihiki/evm_interp_test.cljk", :f-meta {:arglists ([ex code calldata] [ex world ctx code calldata]), :doc "Execute `code` against the exchange. Returns\n  `{:status :return|:revert|:halt :data hex :world w :logs ls :gas n}`.\n\n  The state is a map rather than a dozen loop bindings. It began as the\n  bindings and grew to nine, and adding `world` and the return-data buffer\n  would have meant editing thirty-five `recur` forms in their right positions\n  — which is a mechanical change that fails silently by putting the memory\n  where the storage goes.\n\n  `world` is `{address {:code [bytes] :storage {}}}`. `ctx` says which account\n  the code is running AS, who called it, and how deep. The exchange itself is\n  read-only from in here: the only way to it is the precompile, and there is\n  no opcode that writes to it.", :line 310, :column 1, :ns #object[at torihiki.evm.interp], :name run, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 325, :column 4, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:declared true, :line 262, :column 1, :ns #object[at torihiki.evm.interp], :name run, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 329, :column 6, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta nil, :special false} #sci.impl.utils.StackFrame{:line 355, :column 56, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:private true, :arglists ([a b]), :line 95, :column 1, :ns #object[at torihiki.evm.interp], :name w+, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 95, :column 17, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:private true, :arglists ([x]), :doc "Back into range after an operation.\n\n  `biginteger` first on the JVM, not a cast. Clojure's `+` on two\n  `BigInteger`s returns a `clojure.lang.BigInt` — a different class — and the\n  cast that assumed otherwise threw `ClassCastException` on the first\n  addition. The two big-integer types on one runtime are a hazard this\n  namespace has to absorb rather than pass on.", :line 72, :column 1, :ns #object[at torihiki.evm.interp], :name wrap, :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :special false} #sci.impl.utils.StackFrame{:line 81, :column 3, :end-line nil, :end-column nil, :ns #object[at torihiki.evm.interp], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk", :f-meta {:sci.impl.analyzer/static-access true}, :special false})}], :file "/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261106-0818/src/torihiki/evm/interp.cljk"}, :cause #object[TypeError TypeError: Cannot convert 0 to a BigInt]}
+
+Testing torihiki.evm-test
+
+Testing torihiki.funding-test
+
+Testing torihiki.fuzz-seeded-test
+
+Testing torihiki.governance-test
+
+Testing torihiki.integral-double-test
+
+Testing torihiki.leverage-doors-test
+
+Testing torihiki.light-test
+
+Testing torihiki.liquidation-makers-test
+
+Testing torihiki.log-test
+
+Testing torihiki.mark-test
+
+Testing torihiki.market-totality-test
+
+Testing torihiki.money-totality-test
+
+Testing torihiki.oracle-set-test
+
+Testing torihiki.oracle-test
+
+Testing torihiki.order-margin-test
+
+Testing torihiki.overflow-gates-test
+
+Testing torihiki.principal-test
+
+Testing torihiki.schedule-totality-test
+
+Testing torihiki.settlement-test
+
+Testing torihiki.slab-full-test
+
+Testing torihiki.snapshot-test
+
+Testing torihiki.spot-reservation-test
+
+Testing torihiki.state-test
+
+Testing torihiki.store-totality-test
+
+Testing torihiki.trigger-test
+
+Testing torihiki.validators-test
+
+Testing torihiki.venue-mt-test
+
+Testing torihiki.venue-test
+
+Ran 675 tests containing 5613 assertions.
+10 failures, 3 errors.
+kbb test: 675 test(s), 5600 pass, 10 fail, 3 error
