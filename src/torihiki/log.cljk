@@ -171,6 +171,58 @@
              (frac-expansion v)
              (if (neg? v) "-Infinity" "Infinity"))))
 
+(declare dec-val enc-val)
+
+(defn- bigint-like?
+  "A true BigInt, however the runtime types it: `js/BigInt` on the JS legs,
+  `clojure.lang.BigInt` on the JVM. `(instance? js/BigInt v)` is FALSE on
+  SCI (measured 2026-11-06 — the detector it replaces is dead code there,
+  so a BigInt had no wire form on the JS legs while the JVM encoded the
+  same transaction bare or [\"u\" digits]: one transaction, two verdicts),
+  so the detector is TYPE IDENTITY."
+  [v]
+  #?(:clj (instance? clojure.lang.BigInt v)
+     :cljs (identical? (type v) js/BigInt)))
+
+(defn- bare-int
+  "The bare integer form of a whole value inside the i53 domain. `(long v)`
+  throws on a SCI BigInt (measured), so a BigInt converts through
+  `js/Number` — exact inside the domain."
+  [v]
+  #?(:clj (long v)
+     :cljs (if (bigint-like? v) (js/Number v) (long v))))
+
+(defn- canon-key
+  "The identity `(into {})/(into #{})` merges by: the DECODED CANON FORM of
+  a key — `(dec-val (enc-val k))`. Two keys/elements collide iff their
+  canon forms are `=`; this subsumes identical encodings (5 vs 5.0 — both
+  bare 5), decode-merge across wire forms (bare 5 vs `[\"u\" \"5\"]` —
+  different bytes, one decoded integer) and the re-encode collision
+  (`[\"d\" \"5.0\"]` decodes to a 5.0 that is `=`-distinct from 5 on the JVM
+  yet canonizes to one form). A value with NO wire form (NaN, a function)
+  canonizes to a fresh token per call: it collides with nothing, and its
+  own loud refusal surfaces when it is actually encoded — a singleton NaN
+  key behaves exactly as before."
+  [k]
+  (try (dec-val (enc-val k))
+       (catch #?(:clj Exception :cljs :default) _
+         #?(:clj (Object.) :cljs (js/Object.)))))
+
+(defn- first-collision
+  "The first key/element in `ks` whose canon form repeats an earlier one's,
+  as `{:hit k}`, else nil. The wrapper matters: a colliding key can
+  legitimately be nil or false and a bare return would hide it from
+  `when-let`. Lazy pairwise, so a collision answers at the offending pair
+  and the clean case costs one canonization per key."
+  [ks]
+  (loop [seen [] ks (seq ks)]
+    (when ks
+      (let [k (first ks)
+            c (canon-key k)]
+        (if (some #(= c %) seen)
+          {:hit k}
+          (recur (conj seen c) (next ks)))))))
+
 (defn- enc-val
   "The wire form of one value: bare where the wire format was always bare
   (integers, strings), tagged `[tag payload]` where the type must survive the
@@ -182,19 +234,22 @@
   make the CID depend on hash iteration order."
   [v]
   (cond
-    ;; An in-bounds integral double IS its integer — the canon
-    ;; (`torihiki.api/canon-tx`). `(long v)` is exact for a whole value
-    ;; inside the domain, so `{:qty 5.0}` encodes to the same bare bytes as
-    ;; `{:qty 5}` on both runtimes (it used to throw "no wire form" on the
-    ;; JVM and encode bare on nbb — one transaction, two logs).
-    (and (api/int-like? v) (fx/in-domain? v)) (long v)
+    ;; An in-bounds whole number IS its integer — the canon
+    ;; (`torihiki.api/canon-tx`), and a BigInt however typed with it (the
+    ;; portable detector is `bigint-like?`: `(instance? js/BigInt v)` is
+    ;; false on SCI, measured 2026-11-06). `bare-int` is exact for a whole
+    ;; value inside the domain, so `{:qty 5.0}` and `{:qty (bigint 5)}`
+    ;; encode to the same bare bytes as `{:qty 5}` on both runtimes (5.0
+    ;; used to throw \"no wire form\" on the JVM and encode bare on nbb —
+    ;; one transaction, two logs).
+    (and (or (api/int-like? v) (bigint-like? v)) (fx/in-domain? v)) (bare-int v)
     ;; A whole number OUTSIDE the domain carries its exact digits under "u"
     ;; (Gap 1: it used to throw "no wire form" on the JVM, where `integer?`
     ;; is a TYPE test, and encode bare on JS, where it is a VALUE test — one
     ;; signed block, two logs, and the JVM sequencer halted at the wire).
     ;; A js/BigInt is digits-only here: not `number?`, and `long` throws.
     (or (and (wire-number? v) (api/int-like? v))
-        #?(:cljs (instance? js/BigInt v) :clj false))
+        (bigint-like? v))
     ["u" (u-digits v)]
     ;; A fractional double and a signed infinity carry their exact decimal
     ;; expansion under "d" (Gap 2: both threw "no wire form" on BOTH
@@ -212,10 +267,16 @@
     (keyword? v) ["k" (subs (str v) 1)]
     (boolean? v) ["b" v]
     (nil? v) ["n"]
-    (map? v) ["m" (mapv (fn [[k vv]] [(enc-val k) (enc-val vv)])
-                        (sort-by (fn [[k]] (pr-str (enc-val k))) v))]
+    (map? v) ["m" (do (when-let [{:keys [hit]} (first-collision (keys v))]
+                        (throw (ex-info "torihiki.log: map keys collide under the wire canon"
+                                        {:key hit :value v})))
+                      (mapv (fn [[k vv]] [(enc-val k) (enc-val vv)])
+                            (sort-by (fn [[k]] (pr-str (enc-val k))) v)))]
     (vector? v) ["v" (mapv enc-val v)]
-    (set? v) ["set" (mapv enc-val (sort-by (comp pr-str enc-val) v))]
+    (set? v) ["set" (do (when-let [{:keys [hit]} (first-collision v)]
+                          (throw (ex-info "torihiki.log: set elements collide under the wire canon"
+                                          {:element hit :value v})))
+                        (mapv enc-val (sort-by (comp pr-str enc-val) v)))]
     :else (throw (ex-info "torihiki.log: value has no wire form" {:value v}))))
 
 (defn- dec-val
@@ -238,10 +299,15 @@
                   ;; exact expansion of a double, is the double itself.
                   "d" #?(:clj (Double/parseDouble (second w))
                          :cljs (js/parseFloat (second w)))
-                  "m" (into {} (map (fn [[k v]] [(dec-val k) (dec-val v)])
-                                    (second w)))
+                  "m" (let [ps (second w)]
+                        (when-let [{:keys [hit]} (first-collision (map #(dec-val (first %)) ps))]
+                          (throw (ex-info "torihiki.log: wire map keys collide" {:key hit})))
+                        (into {} (map (fn [[k v]] [(dec-val k) (dec-val v)]) ps)))
                   "v" (mapv dec-val (second w))
-                  "set" (into #{} (map dec-val) (second w))
+                  "set" (let [es (map dec-val (second w))]
+                          (when-let [{:keys [hit]} (first-collision es)]
+                            (throw (ex-info "torihiki.log: wire set elements collide" {:element hit})))
+                          (into #{} es))
                   ;; a bare vector (never produced here) decodes structurally
                   (mapv dec-val w))
     :else w))
@@ -258,6 +324,13 @@
   [tx]
   (let [kind (:tx tx)
         entries (seq (dissoc tx :tx))
+        ;; A tx is a map: its entry keys are judged at the same door as any
+        ;; map's — two keys with one canon form (5 vs 5.0) would tie the
+        ;; sort below (a sort with ties is no sort: the pair order would
+        ;; fall back to hash iteration) and merge at decode.
+        _ (when-let [{:keys [hit]} (first-collision (map key entries))]
+            (throw (ex-info "torihiki.log: map keys collide under the wire canon"
+                            {:key hit :value tx})))
         plain-name (fn [k] (when (and (keyword? k) (nil? (namespace k)))
                              (name k)))
         freq (frequencies (map (comp plain-name key) entries))
@@ -289,12 +362,18 @@
                ;; form above so the two do not decode to the same thing
                (and (vector? kind-w) (= "s" (first kind-w))) (second kind-w)
                (vector? kind-w) (dec-val kind-w)
-               :else kind-w)]
-    (-> (into {:tx kind}
-              (for [[k v] w :when (not (or (= k "tx") (= k pairs-key)))]
-                [(keyword k) (dec-val v)]))
-        (into (map (fn [[k v]] [(dec-val k) (dec-val v)]))
-              (get w pairs-key)))))
+               :else kind-w)
+        flat-ents (for [[k v] w :when (not (or (= k "tx") (= k pairs-key)))]
+                    [(keyword k) (dec-val v)])
+        pair-ents (map (fn [[k v]] [(dec-val k) (dec-val v)])
+                       (get w pairs-key))]
+    ;; One decoded key per entry, judged with the kind slot (:tx) included:
+    ;; a crafted _pairs key decoding to :tx, and a flat key with a pairs
+    ;; twin, would both merge into an existing key at the into below — the
+    ;; round trip would silently lose an entry.
+    (when-let [{:keys [hit]} (first-collision (concat [:tx] (map first flat-ents) (map first pair-ents)))]
+      (throw (ex-info "torihiki.log: wire map keys collide" {:key hit})))
+    (into (into {:tx kind} flat-ents) pair-ents)))
 
 (defn block->wire
   [{:keys [height ts txs]} state-root sig]
@@ -317,11 +396,13 @@
   number canon (exact digits — `str` would print 1e17 as \"1.0E17\" on the
   JVM and \"100000000000000000\" on JS, so the two runtimes would sign
   different bytes over the same block), anything else is `str` — nil as the
-  empty string, as before. Total: it never throws."
+  empty string, as before. Total over everything with a wire form: the one
+  loud class is a composite whose keys collide under the canon — refused
+  like NaN, its payload cannot commit to the tx it renders."
   [v]
   (cond
     (and (wire-number? v) (api/int-like? v)) (u-digits v)
-    #?(:cljs (instance? js/BigInt v) :clj false) (u-digits v)
+    (bigint-like? v) (u-digits v)
     (and (wire-number? v) (== v v)) (d-digits v)
     ;; a composite renders through the WIRE canon, never raw `str`: raw
     ;; printing is runtime-local (measured 2026-11-06: `#{1e21 15.0}` printed
