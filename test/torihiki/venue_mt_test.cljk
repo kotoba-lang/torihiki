@@ -298,3 +298,41 @@
     (testing "a fractional digit count is refused :bad-sym (REASON pin)"
       (swap! st feed [(assoc sym-eurusd "digits" 3.5 "n" 2)] 1000)
       (is (= [:bad-sym] (mapv :reason (:rejects @st)))))))
+
+;; ── the BigInt door reaches the frame parser ───────────────────────────────
+;;
+;; ingest* judges the frame number and the digit count by `v/int-in?` and
+;; stores the long — and `(long v)` THROWS on a SCI BigInt (measured
+;; 2026-11-07, evidence/probe-venue-bigint-door.cljk), so the store goes
+;; through `v/long-of`. A BigInt frame number IS the same frame number as
+;; its long twin on every runtime (the PR #111 carry (b) at this door);
+;; out of the i53 bound it is refused `:bad-seq` like any other value.
+
+(def ^:private BI3 "BigInt 3 — an integer, however the runtime types it."
+  #?(:clj (bigint 3) :cljs (js/BigInt 3)))
+
+(def ^:private BI260 "2^60 — an integer, and outside every i53 door."
+  #?(:clj (bigint 1152921504606846976) :cljs (js/BigInt 1152921504606846976)))
+
+(deftest a-bigint-seq-is-its-frame-number
+  (let [st (atom (mt/empty-state))]
+    (swap! st feed [hello (tick BI3 "1.08490" "1.08500")] 1000)
+    (is (= [] (mapv :reason (:rejects @st))) "VALUE pin — the frame is processed")
+    (is (= 3 (:n @st)) "VALUE pin — the stored seq is the long")
+    (is (= {:bid "1.08490" :ask "1.08500" :rx 1000} (get-in @st [:ticks "EURUSD"]))
+        "VALUE pin — and the frame's data landed")))
+
+(deftest a-bigint-digit-count-is-its-integer
+  (let [st (atom (mt/empty-state))]
+    (swap! st feed [hello (assoc sym-eurusd "n" BI3 "digits" BI3)] 1000)
+    (is (= [] (mapv :reason (:rejects @st))) "VALUE pin — the sym frame is processed")
+    (is (= 3 (:n @st)) "VALUE pin — the stored seq is the long")
+    (is (= 3 (get-in @st [:syms "EURUSD" :digits])) "VALUE pin — the state holds the long")))
+
+(deftest an-out-of-domain-bigint-seq-still-refuses-the-frame
+  (let [st (atom (mt/empty-state))]
+    (swap! st feed [hello (tick BI260 "1.08490" "1.08500")] 1000)
+    (is (= [:bad-seq] (mapv :reason (:rejects @st)))
+        "REASON literal — 2^60 is out of the bound whatever type holds it")
+    (is (= 0 (:n @st)) "VALUE pin — the refused frame stored nothing")
+    (is (= {} (:ticks @st)) "VALUE pin — and changed nothing")))

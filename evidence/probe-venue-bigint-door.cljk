@@ -1,0 +1,51 @@
+(ns probe-venue-bigint-door
+  "Probe: how does torihiki.venue judge a TRUE BigInt integer today
+  (2026-11-07), and which BigInt arithmetic operations are safe on each
+  runtime? The venue/int-like? BigInt door asymmetry carry (PR #111 note
+  (b), PR #112 note unchanged): api/int-like? accepts a BigInt since the
+  BigInt door landed, torihiki.venue/int-like? does not — the same value
+  is an integer at one door and not the other. Run:
+  kbb evidence/probe-venue-bigint-door.cljk (SCI leg),
+  clojure -M -e '(load-file \"evidence/probe-venue-bigint-door.cljk\")' (JVM leg)."
+  (:require [torihiki.venue :as v]))
+
+(def BI3 #?(:clj (bigint 3) :cljs (js/BigInt 3)))
+(def BI5 #?(:clj (bigint 5) :cljs (js/BigInt 5)))
+(def BI260 #?(:clj (bigint 1152921504606846976) :cljs (js/BigInt 1152921504606846976))) ;; 2^60, out of i53
+(def BI-MINUS5 #?(:clj (bigint -5) :cljs (js/BigInt -5)))
+
+(def entry {:market 1 :venue-symbol "EURUSD" :tick-size "0.00001" :lot-size "0.01"})
+(def info3 {:digits 3 :volume-step "0.01" :volume-min "0.01" :volume-max "100"
+            :trade-allowed? true})
+
+(defn safe [f] (try (f) (catch #?(:clj Exception :cljs :default) e (str "THROW: " (ex-message e)))))
+
+(defn -main [& _]
+  (println "=== the venue doors today ===")
+  (println "int-like? BI5        =" (safe #(v/int-like? BI5)))
+  (println "int-like? BI260      =" (safe #(v/int-like? BI260)))
+  (println "int-like? BI-MINUS5  =" (safe #(v/int-like? BI-MINUS5)))
+  (println "int-in? BI3 0..12    =" (safe #(v/int-in? BI3 0 12)))
+  (println "int-in? BI260 0..12  =" (safe #(v/int-in? BI260 0 12)))
+  (println "string-of BI3        =" (safe #(v/string-of BI3 "0.01")))
+  (println "string-of BI260      =" (safe #(v/string-of BI260 "0.01")))
+  (println "->venue-order BI3    =" (safe #(v/->venue-order entry {:cid "p1" :side :buy :qty BI3 :price 108500})))
+  (println "->venue-order px BI3 =" (safe #(v/->venue-order entry {:cid "p1" :side :buy :qty 30 :price BI3})))
+  (println "->venue-order BI260  =" (safe #(v/->venue-order entry {:cid "p1" :side :buy :qty BI260})))
+  (println "->venue-order BI-5   =" (safe #(v/->venue-order entry {:cid "p1" :side :buy :qty BI-MINUS5})))
+  (println "check-entry digits BI3 =" (safe #(v/check-entry entry (assoc info3 :digits BI3))))
+  (println "=== op hazards (the fix routes around what throws) ===")
+  (println "(integer? BI5)        =" (safe #(integer? BI5)))
+  (println "(number? BI5)         =" (safe #(number? BI5)))
+  (println "(pos? BI5)            =" (safe #(pos? BI5)))
+  (println "(neg? BI-MINUS5)      =" (safe #(neg? BI-MINUS5)))
+  (println "(- BI5)               =" (safe #(- BI5)))
+  (println "(rem BI5 1)           =" (safe #(rem BI5 1)))
+  (println "(quot BI5 2)          =" (safe #(quot BI5 2)))
+  (println "(<= 0 BI5 12)         =" (safe #(<= 0 BI5 12)))
+  (println "(<= -12 BI-MINUS5 12) =" (safe #(<= -12 BI-MINUS5 12)))
+  (println "(* BI5 2)             =" (safe #(* BI5 2)))
+  (println "(long BI5)            =" (safe #(long BI5)))
+  (println "(= 5 BI5)             =" (safe #(= 5 BI5))))
+
+(-main)

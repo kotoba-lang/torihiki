@@ -1,0 +1,78 @@
+
+FAIL in (a-bigint-seq-is-its-frame-number) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:320)
+VALUE pin — the frame is processed
+expected: (= [] (mapv :reason (:rejects (clojure.core/deref st))))
+  actual: (not (= [] [:bad-seq]))
+
+FAIL in (a-bigint-seq-is-its-frame-number) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:321)
+VALUE pin — the stored seq is the long
+expected: (= 3 (:n (clojure.core/deref st)))
+  actual: (not (= 3 0))
+
+FAIL in (a-bigint-seq-is-its-frame-number) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:322)
+VALUE pin — and the frame's data landed
+expected: (= {:bid "1.08490", :ask "1.08500", :rx 1000} (get-in (clojure.core/deref st) [:ticks "EURUSD"]))
+  actual: (not (= {:bid "1.08490", :ask "1.08500", :rx 1000} nil))
+
+FAIL in (a-bigint-digit-count-is-its-integer) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:328)
+VALUE pin — the sym frame is processed
+expected: (= [] (mapv :reason (:rejects (clojure.core/deref st))))
+  actual: (not (= [] [:bad-seq]))
+
+FAIL in (a-bigint-digit-count-is-its-integer) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:329)
+VALUE pin — the stored seq is the long
+expected: (= 3 (:n (clojure.core/deref st)))
+  actual: (not (= 3 0))
+
+FAIL in (a-bigint-digit-count-is-its-integer) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:330)
+VALUE pin — the state holds the long
+expected: (= 3 (get-in (clojure.core/deref st) [:syms "EURUSD" :digits]))
+  actual: (not (= 3 nil))
+
+FAIL in (a-bigint-is-an-integer-at-the-venue-door) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:453)
+VALUE pin — one canon: an integer however typed, at every door
+expected: (true? (v/int-like? BI5))
+  actual: (not (true? false))
+
+FAIL in (a-bigint-is-an-integer-at-the-venue-door) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:455)
+VALUE pin — the bounded doors inherit the same judgment
+expected: (true? (v/int-in? BI3 0 12))
+  actual: (not (true? false))
+
+FAIL in (a-bigint-qty-and-price-are-their-integers-at-the-boundary) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:459)
+VALUE pin — a BigInt qty is 3 lots, exactly like the long twin
+expected: (= {:symbol "EURUSD", :side :buy, :volume "0.03", :price "1.08500", :comment "b1", :reduce-only? false} (v/->venue-order entry {:cid "b1", :side :buy, :qty BI3, :price 108500}))
+  actual: (not (= {:symbol "EURUSD", :side :buy, :volume "0.03", :price "1.08500", :comment "b1", :reduce-only? false} {:error :bad-qty}))
+
+FAIL in (a-bigint-qty-and-price-are-their-integers-at-the-boundary) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:463)
+VALUE pin — a BigInt price is 3 ticks
+expected: (= "0.00003" (:price (v/->venue-order entry {:cid "b1", :side :buy, :qty 30, :price BI3})))
+  actual: (not (= "0.00003" nil))
+
+FAIL in (the-value-guards-judge-bigints-as-integers) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:468)
+VALUE pin — 3 whole units of 0.01, however the 3 is typed
+expected: (= "0.03" (v/string-of BI3 "0.01"))
+  actual: (not (= "0.03" nil))
+
+FAIL in (the-value-guards-judge-bigints-as-integers) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:470)
+VALUE pin — a BigInt digit count is a working digit count
+expected: (= [] (v/check-entry entry (assoc eurusd :digits BI5)))
+  actual: (not (= [] [:bad-venue-digits]))
+
+FAIL in (out-of-domain-bigints-are-refused-at-the-bound) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:476)
+REASON literal — 2^60 is out of i53 whatever type holds it
+expected: (= {:error :qty-out-of-range} (v/->venue-order entry {:cid "b2", :side :buy, :qty BI260}))
+  actual: (not (= {:error :qty-out-of-range} {:error :bad-qty}))
+
+FAIL in (out-of-domain-bigints-are-refused-at-the-bound) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0419/script/tests-on-nbb.cljk:479)
+REASON literal — the price bound is a value bound too
+expected: (= {:error :price-out-of-range} (v/->venue-order entry {:cid "b2", :side :buy, :qty 30, :price BI260}))
+  actual: (not (= {:error :price-out-of-range} {:error :bad-price}))
+
+Ran 706 tests containing 5702 assertions.
+14 failures, 0 errors.
+namespaces 38/38
+
+Ran 706 tests containing 5702 assertions.
+14 failures, 0 errors.
+NBB_EXIT=1

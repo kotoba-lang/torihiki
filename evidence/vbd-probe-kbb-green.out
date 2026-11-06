@@ -1,0 +1,26 @@
+=== the venue doors today ===
+int-like? BI5        = true
+int-like? BI260      = true
+int-like? BI-MINUS5  = true
+int-in? BI3 0..12    = true
+int-in? BI260 0..12  = false
+string-of BI3        = 0.03
+string-of BI260      = nil
+->venue-order BI3    = {:symbol EURUSD, :side :buy, :volume 0.03, :comment p1, :reduce-only? false, :price 1.08500}
+->venue-order px BI3 = {:symbol EURUSD, :side :buy, :volume 0.30, :comment p1, :reduce-only? false, :price 0.00003}
+->venue-order BI260  = {:error :qty-out-of-range}
+->venue-order BI-5   = {:error :bad-qty}
+check-entry digits BI3 = [:tick-finer-than-venue]
+=== op hazards (the fix routes around what throws) ===
+(integer? BI5)        = false
+(number? BI5)         = false
+(pos? BI5)            = true
+(neg? BI-MINUS5)      = true
+(- BI5)               = #object[BigInt -5]
+(rem BI5 1)           = THROW: Cannot mix BigInt and other types, use explicit conversions
+(quot BI5 2)          = THROW: Cannot mix BigInt and other types, use explicit conversions
+(<= 0 BI5 12)         = true
+(<= -12 BI-MINUS5 12) = true
+(* BI5 2)             = THROW: Cannot mix BigInt and other types, use explicit conversions
+(long BI5)            = THROW: Cannot convert a BigInt value to a number
+(= 5 BI5)             = false
