@@ -1,0 +1,64 @@
+;; Probe: the book's level-qty accumulator (`lvl-qty`) is a raw slab add!
+;; — the sums series (2026-10-26 raw-sums / weight-sums) swept every other
+;; root-feeding or decision-feeding fold. Two resting orders at ONE level
+;; whose qtys sum past 2^53 leave the domain with no single write wrong
+;; (falsify-8's exact mechanism, one layer down).
+;;
+;; Leg 1 (engine): bk/place! twice at (bid, level 1), read bk/level-qty.
+;; Leg 2 (root):   the same book inside st/new-exchange; encode-book folds
+;;                 bk/level-qty into the state root preimage.
+;; Leg 3 (control): below the ceiling the sum is exact on both runtimes.
+(require '[torihiki.book :as bk]
+         '[torihiki.state :as st]
+         '[torihiki.clearing :as cl]
+         '[torihiki.fixed :as fx])
+
+(def opts {:n-levels 64 :cap 64 :ev-cap 64})
+
+;; ── leg 1: engine ──────────────────────────────────────────────────────────
+(let [b (bk/new-book opts)]
+  (bk/place! b bk/bid 1 (- fx/i53-max 1) 0 1)   ;; qty1 = 2^53 - 2
+  (bk/place! b bk/bid 1 2 0 2)                  ;; qty2 = 2   -> true sum 2^53
+  (println "ENGINE lvl-qty(ceiling+):" (bk/level-qty b bk/bid 1))
+  (println "ENGINE in-domain?:" (fx/in-domain? (bk/level-qty b bk/bid 1))))
+
+;; second shape: true sum 2^53 + 1 (odd — the falsify-13 crossing value)
+(let [b (bk/new-book opts)]
+  (bk/place! b bk/bid 1 (- fx/i53-max 1) 0 1)   ;; 2^53 - 2
+  (bk/place! b bk/bid 1 3 0 2)                  ;; +3 -> true sum 2^53 + 1
+  (println "ENGINE lvl-qty(2^53+1):" (bk/level-qty b bk/bid 1)))
+
+;; ── leg 2: root ────────────────────────────────────────────────────────────
+(let [ex (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                           :book-opts opts})
+      b (get-in ex [:books 1])]
+  (bk/place! b bk/bid 1 (- fx/i53-max 1) 0 1)
+  (bk/place! b bk/bid 1 2 0 2)
+  (println "ROOT (level sum 2^53):" (st/state-root ex)))
+
+;; control: two states differing ONLY past the ceiling must be ONE root
+;; (post-fix shape) — pre-fix they are two roots (the measured fork).
+(let [mk (fn [q2]
+           (let [ex (st/new-exchange {:market (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                                      :book-opts opts})
+                 b (get-in ex [:books 1])]
+             (bk/place! b bk/bid 1 (- fx/i53-max 1) 0 1)
+             (bk/place! b bk/bid 1 q2 0 2)
+             (st/state-root ex)))]
+  (println "ROOT-A (q2=2):" (mk 2))
+  (println "ROOT-B (q2=3):" (mk 3)))
+
+;; ── leg 3: below the ceiling (control — must not change under the fix) ─────
+(let [b (bk/new-book opts)]
+  (bk/place! b bk/bid 1 5 0 1)
+  (bk/place! b bk/bid 1 7 0 2)
+  (println "ENGINE lvl-qty(below):" (bk/level-qty b bk/bid 1)))
+
+;; ── leg 4: decrement after saturation (hysteresis shape) ───────────────────
+(let [b (bk/new-book opts)]
+  (bk/place! b bk/bid 1 (- fx/i53-max 1) 0 1)
+  (bk/place! b bk/bid 1 3 0 2)
+  (let [oid2 (bk/oid-of b 1)] ;; slot 1 = second order
+    (println "ENGINE lvl-qty after sat:" (bk/level-qty b bk/bid 1))
+    (println "cancel second:" (bk/cancel! b oid2 2))
+    (println "ENGINE lvl-qty after cancel:" (bk/level-qty b bk/bid 1))))

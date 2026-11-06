@@ -1,0 +1,10 @@
+ENGINE lvl-qty(ceiling+): 9007199254740991
+ENGINE in-domain?: true
+ENGINE lvl-qty(2^53+1): 9007199254740991
+ROOT (level sum 2^53): 2a055183e0a6d6de6f43fe3e128d6bbd2d7e0d0ebe5164e5813b07be4a9efe31
+ROOT-A (q2=2): 2a055183e0a6d6de6f43fe3e128d6bbd2d7e0d0ebe5164e5813b07be4a9efe31
+ROOT-B (q2=3): 236e87f231b098bbb3f78a7548fecc47d2a1b72c724e41422e5458a40d8a2afe
+ENGINE lvl-qty(below): 12
+ENGINE lvl-qty after sat: 9007199254740991
+cancel second: 3
+ENGINE lvl-qty after cancel: 9007199254740988
