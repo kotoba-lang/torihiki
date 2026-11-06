@@ -81,7 +81,7 @@
       (not (and (v/int-in? n 0 v/i53-max) (> n (:n st)))) (reject st :bad-seq frame)
 
       :else
-      (let [st (assoc st :n (long n))]
+      (let [st (assoc st :n (v/long-of n))]
         (case t
           "sym"
           (let [s (get frame "s")]
@@ -91,7 +91,7 @@
                      (pos-dec? (get frame "max")) (pos-dec? (get frame "tick"))
                      (contains? trade-modes (get frame "trade")))
               (assoc-in st [:syms s]
-                        {:digits (long (get frame "digits"))
+                        {:digits (v/long-of (get frame "digits"))
                          :volume-step (get frame "step")
                          :volume-min (get frame "min")
                          :volume-max (get frame "max")

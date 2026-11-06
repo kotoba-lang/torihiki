@@ -423,3 +423,66 @@
                            {:digits 3.0 :volume-step "0.01" :volume-min "0.01"
                             :volume-max "100.00" :trade-allowed? true}))
       "VALUE pin: digits 3.0 is a working digit count"))
+
+;; ── the BigInt door at the venue: one integer, one verdict ─────────────────
+;;
+;; The PR #111 carry (b), measured 2026-11-07 (evidence/probe-venue-bigint-
+;; door.cljk): `torihiki.api/int-like?` has judged a true BigInt as its
+;; integer since the BigInt door landed, while `torihiki.venue/int-like?` —
+;; the venue layer's own re-implementation — refused it on the JS legs
+;; (`(integer? (js/BigInt 5))` is FALSE there and `(number? (js/BigInt 5))`
+;; is FALSE too, so neither branch of the predicate could see it, while the
+;; JVM's `integer?` answers true for its own BigInt). The SAME request — a
+;; BigInt qty — was refused `:bad-qty` on kbb and sent as volume "0.03" on
+;; the JVM: one request, two ledgers. One canon answers for all of them: an
+;; integer however typed, stored as its long (`v/long-of` — `(long v)`
+;; THROWS on a SCI BigInt, measured; it converts through `js/Number`, exact
+;; inside i53).
+
+(def ^:private BI3 "BigInt 3 — an integer, however the runtime types it."
+  #?(:clj (bigint 3) :cljs (js/BigInt 3)))
+
+(def ^:private BI5 #?(:clj (bigint 5) :cljs (js/BigInt 5)))
+
+(def ^:private BI260 "2^60 — an integer, and outside every i53 door."
+  #?(:clj (bigint 1152921504606846976) :cljs (js/BigInt 1152921504606846976)))
+
+(def ^:private BI-NEG5 #?(:clj (bigint -5) :cljs (js/BigInt -5)))
+
+(deftest a-bigint-is-an-integer-at-the-venue-door
+  (is (true? (v/int-like? BI5))
+      "VALUE pin — one canon: an integer however typed, at every door")
+  (is (true? (v/int-in? BI3 0 12))
+      "VALUE pin — the bounded doors inherit the same judgment"))
+
+(deftest a-bigint-qty-and-price-are-their-integers-at-the-boundary
+  (is (= {:symbol "EURUSD" :side :buy :volume "0.03" :price "1.08500"
+          :comment "b1" :reduce-only? false}
+         (v/->venue-order entry {:cid "b1" :side :buy :qty BI3 :price 108500}))
+      "VALUE pin — a BigInt qty is 3 lots, exactly like the long twin")
+  (is (= "0.00003"
+         (:price (v/->venue-order entry {:cid "b1" :side :buy :qty 30 :price BI3})))
+      "VALUE pin — a BigInt price is 3 ticks"))
+
+(deftest the-value-guards-judge-bigints-as-integers
+  (is (= "0.03" (v/string-of BI3 "0.01"))
+      "VALUE pin — 3 whole units of 0.01, however the 3 is typed")
+  (is (= [] (v/check-entry entry (assoc eurusd :digits BI5)))
+      "VALUE pin — a BigInt digit count is a working digit count"))
+
+(deftest out-of-domain-bigints-are-refused-at-the-bound
+  ;; The bounds are VALUE bounds — the same verdicts the long twins get —
+  ;; and every refusal is a verdict, never a throw.
+  (is (= {:error :qty-out-of-range}
+         (v/->venue-order entry {:cid "b2" :side :buy :qty BI260}))
+      "REASON literal — 2^60 is out of i53 whatever type holds it")
+  (is (= {:error :price-out-of-range}
+         (v/->venue-order entry {:cid "b2" :side :buy :qty 30 :price BI260}))
+      "REASON literal — the price bound is a value bound too")
+  (is (= {:error :bad-qty}
+         (v/->venue-order entry {:cid "b2" :side :buy :qty BI-NEG5}))
+      "REASON literal — a negative BigInt is not a positive qty")
+  (is (nil? (v/string-of BI260 "0.01"))
+      "VALUE pin — the overflow verdict is nil, not a throw")
+  (is (= [:bad-venue-digits] (v/check-entry entry (assoc eurusd :digits BI260)))
+      "REASON literal — a digit count past max-scale is refused whole"))

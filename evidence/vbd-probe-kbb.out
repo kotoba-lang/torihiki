@@ -1,0 +1,26 @@
+=== the venue doors today ===
+int-like? BI5        = false
+int-like? BI260      = false
+int-like? BI-MINUS5  = false
+int-in? BI3 0..12    = false
+int-in? BI260 0..12  = false
+string-of BI3        = nil
+string-of BI260      = nil
+->venue-order BI3    = {:error :bad-qty}
+->venue-order px BI3 = {:error :bad-price}
+->venue-order BI260  = {:error :bad-qty}
+->venue-order BI-5   = {:error :bad-qty}
+check-entry digits BI3 = [:bad-venue-digits]
+=== op hazards (the fix routes around what throws) ===
+(integer? BI5)        = false
+(number? BI5)         = false
+(pos? BI5)            = true
+(neg? BI-MINUS5)      = true
+(- BI5)               = #object[BigInt -5]
+(rem BI5 1)           = THROW: Cannot mix BigInt and other types, use explicit conversions
+(quot BI5 2)          = THROW: Cannot mix BigInt and other types, use explicit conversions
+(<= 0 BI5 12)         = true
+(<= -12 BI-MINUS5 12) = true
+(* BI5 2)             = THROW: Cannot mix BigInt and other types, use explicit conversions
+(long BI5)            = THROW: Cannot convert a BigInt value to a number
+(= 5 BI5)             = false

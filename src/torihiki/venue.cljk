@@ -47,9 +47,28 @@
 ;; and the other does not is two ledgers. One canon answers for all of
 ;; them: an integer however typed.
 
+(defn- bigint-like?
+  "A true BigInt, however the runtime types it: `clojure.lang.BigInt` on the
+  JVM, `js/BigInt` on the JS legs — where `(integer? (js/BigInt 5))` is FALSE
+  and `(number? (js/BigInt 5))` is FALSE too (measured 2026-11-07,
+  evidence/probe-venue-bigint-door.cljk), so neither `integer?` nor `number?`
+  can see it. `(instance? js/BigInt v)` is ALSO false on SCI (measured
+  2026-11-06 — the `torihiki.log` detector note), so the detector is TYPE
+  IDENTITY. The same words live in `torihiki.log` / `torihiki.api`; the
+  venue layer is a leaf — it must not require the engine surface to judge a
+  number — so they are re-implemented here."
+  [v]
+  #?(:clj (instance? clojure.lang.BigInt v)
+     :cljs (identical? (type v) js/BigInt)))
+
 (defn int-like?
-  "Whether `v` is an INTEGER however it is typed: a true integer, or a whole
-  number held in a double (5.0 is 5; 2.5 is nothing). Provenance: the
+  "Whether `v` is an INTEGER however it is typed: a true integer — a BigInt
+  included (`clojure.lang.BigInt` / `js/BigInt`; `(integer? (js/BigInt 5))`
+  is FALSE on the JS legs while the JVM answers true for its own BigInt, so
+  a predicate that trusted `integer?` refused the SAME request at one
+  runtime's door and sent it at the other's — measured 2026-11-07,
+  evidence/probe-venue-bigint-door.cljk) — or a whole number held in a
+  double (5.0 is 5; 2.5 is nothing). Provenance: the
   `kotoba.spec.int-like` predicate / `torihiki.api/int-like?`, re-implemented
   here because the venue layer is a leaf — it must not require the engine
   surface to judge a number.
@@ -64,12 +83,24 @@
   every domain below, where the bounded doors refuse it."
   [v]
   (or (integer? v)
+      (bigint-like? v)
       (and (number? v) (== (- v v) 0) (== v (- v (rem v 1))))))
+
+(defn long-of
+  "The long of a whole in-bounds value — what every bounded door's caller
+  stores (`int-in?`). `(long v)` THROWS on a SCI BigInt (measured — the
+  hazard `torihiki.log/bare-int` routes around the same way), so a BigInt
+  converts through `js/Number`, which is exact inside the domain; the
+  bounded doors refuse what is outside it FIRST, so no BigInt is ever
+  converted out of domain (where the conversion would be lossy)."
+  [v]
+  #?(:clj (long v)
+     :cljs (if (bigint-like? v) (js/Number v) (long v))))
 
 (defn int-in?
   "Whether `v` is an integer however typed (see `int-like?`) within
-  lo..hi inclusive — the bounded doors' one judgment. The caller stores
-  the long: `(long v)` is exact for a whole in-bounds value."
+  lo..hi inclusive — the bounded doors' one judgment. The caller stores the
+  long through `long-of`, which is exact for a whole in-bounds value."
   [v lo hi]
   (and (int-like? v) (<= lo v) (<= v hi)))
 
@@ -160,7 +191,7 @@
   (let [u (parse-decimal unit)]
     (when (and (int-like? n) u (pos? (:units u))
                (<= (abs* n) (quot i53-max (:units u))))
-      (let [total (* (long n) (:units u))
+      (let [total (* (long-of n) (:units u))
             sc (:scale u)
             neg? (neg? total)
             ds (str (abs* total))
@@ -198,7 +229,7 @@
   "The venue's smallest price step for `digits` decimals, as a string."
   [digits]
   (when (int-in? digits 0 max-scale)
-    (let [d (long digits)]
+    (let [d (long-of digits)]
       (if (zero? d) "1" (str "0." (apply str (repeat (dec d) "0")) "1")))))
 
 (defn check-entry
