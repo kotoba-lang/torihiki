@@ -60,6 +60,7 @@
     :not-the-bridge
     :bad-cid
     :canon-collision
+    :no-wire-form
     :malformed-principal})
 
 ;; ── the integral-number canon ───────────────────────────────────────────────
@@ -193,7 +194,8 @@
   loses an entry the same way. The wrapper matters: a colliding key can
   legitimately be nil or false and a bare return would hide it from
   `if-let`. NaN keys are not collisions — `(= ##NaN ##NaN)` is false and
-  `canon-val` merges nothing, consistent with the wire's singleton NaN.
+  `canon-val` merges nothing; they are refused `:no-wire-form` at their own
+  door (`first-no-wire-form`), where the wire's loud refusal lives.
   Total: `canon-val` and `=` are total. No throw, ever — this runs in front
   of the canon on `validate`, and the apply-path contract (a refused
   transaction is a rejection record, never a halted chain) holds because
@@ -219,6 +221,62 @@
                            (some walk x))
               (vector? x) (some walk x)
               :else nil))]
+    (walk v)))
+
+(defn- wire-number?
+  "The number TYPES the wire canon covers — `torihiki.log/wire-number?`'s
+  words, duplicated here because the wire requires this namespace and cannot
+  be required back: doubles and true integers on the JVM, every JS number. A
+  JVM Ratio or BigDecimal is NOT covered — its wire form would be a value
+  decision the canon has not made — and a js/BigInt is handled by its own
+  detector (`bigint-like?`)."
+  [v]
+  #?(:clj (or (instance? Double v) (integer? v))
+     :cljs (number? v)))
+
+(defn- wire-able?
+  "Whether the wire can encode this value AT ALL — `torihiki.log/enc-val`'s
+  acceptance, duplicated here for the same reason as `exact-digits`. The
+  canon's decisions are inside it: an in-domain whole value (however typed —
+  a whole double, a BigDecimal, a BigInt) is its long and encodes bare; an
+  out-of-domain whole number that is a wire number or a BigInt carries its
+  exact digits under \"u\"; a fractional double and a signed infinity carry
+  their expansion under \"d\". Everything else — NaN, a function, a symbol, a
+  list, a JVM Ratio or a BigDecimal the routes above did not take — would
+  throw `\"value has no wire form\"` at the wire. Structures are answerable
+  here but only through their elements; the walk (`first-no-wire-form`)
+  recurses first. Total: every predicate here is total."
+  [v]
+  (or (and (or (int-like? v) (bigint-like? v)) (fx/in-domain? v))
+      (and (wire-number? v) (int-like? v))
+      (bigint-like? v)
+      (and (wire-number? v) (== v v))
+      (string? v) (keyword? v) (boolean? v) (nil? v)
+      (map? v) (vector? v) (set? v)))
+
+(defn- first-no-wire-form
+  "The first value, at any depth — a map key included, a set element, a
+  vector item — that the wire could not encode (`torihiki.log/enc-val` would
+  throw `\"value has no wire form\"`), as `{:hit v}`, else nil.
+
+  This is the validate half of the wire's loud refusal: before this door, a
+  transaction carrying a NaN, a function, a symbol, a list, or (on the JVM) a
+  Ratio or a non-wire-number BigDecimal PASSED `validate` and threw AT THE
+  WIRE — one signed transaction from a halted commit (the PR #111 carry,
+  measured 2026-11-07). The door judges the CANONIZED transaction, exactly
+  the values `enc-val` will see, so the canon's declared normalisations
+  (an in-domain whole value becomes its long) are honored rather than
+  refused. No throw, ever — the refusal is `:no-wire-form`, a keyword from
+  `reasons`, and the apply-path contract (a refused transaction is a
+  rejection record, never a halted chain) holds."
+  [v]
+  (letfn [(walk [x]
+            (cond
+              (map? x) (or (some walk (keys x)) (some walk (vals x)))
+              (set? x) (some walk x)
+              (vector? x) (some walk x)
+              (wire-able? x) nil
+              :else {:hit x}))]
     (walk v)))
 
 (defn canon-tx
@@ -1601,11 +1659,24 @@
   canon runs: the merge is a silent one-transaction-two-successor-states,
   and the door refuses exactly its domain, nothing else (NaN keys collide
   with nothing; a lone 5.0 is the canon's declared normalisation and still
-  passes)."
+  passes).
+
+  And a value the wire could never ENCODE — NaN, a function, a symbol, a
+  list, or (on the JVM) a Ratio or a BigDecimal outside the canon's routes
+  (`wire-able?`) — is refused `:no-wire-form` AFTER the shape gates: its
+  wire form would be a value decision the canon has not made, so the wire's
+  loud refusal is mirrored here and no transaction can pass `validate` and
+  then throw at `torihiki.log/enc-val`. The door runs on the CANONIZED
+  transaction (the values the wire will judge), so an in-domain whole value
+  however typed — 5.0, BigDecimal 5, BigInt 5 — becomes its long and passes;
+  a shape refusal (`:bad-amount` and friends) still answers first, keeping
+  every pinned reason stable."
   [ex tx]
   (if (first-canon-collision tx)
     :canon-collision
-    (validate* ex (canon-tx tx))))
+    (let [canon (canon-tx tx)]
+      (or (validate* ex canon)
+          (when (first-no-wire-form canon) :no-wire-form)))))
 
 ;; ── read models ─────────────────────────────────────────────────────────────
 ;;

@@ -139,8 +139,9 @@
 (deftest clean-collections-still-validate
   ;; Over-refusal guard (VALUE pins, green from birth): only entries that
   ;; would actually MERGE are refused. NaN keys collide with nothing —
-  ;; `(= ##NaN ##NaN)` is false and the canon merges nothing, consistent
-  ;; with the wire's singleton NaN.
+  ;; `(= ##NaN ##NaN)` is false and the canon merges nothing (the NaN pair
+  ;; is refused at the no-wire-form door below, a different verdict for a
+  ;; different reason — the wire THROWS on it).
   (let [ex (funded)]
     (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra {5 :a}}))
         "VALUE pin — a single key is never a collision")
@@ -150,10 +151,7 @@
         "VALUE pin — distinct set elements pass")
     (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
                                 :extra {:m {5 :a} :v [[5] 5.0]}}))
-        "VALUE pin — nested clean maps pass; a vector never merges its elements")
-    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
-                                :extra (into {} [[##NaN :a] [##NaN :b]])}))
-        "VALUE pin — NaN keys collide with nothing")))
+        "VALUE pin — nested clean maps pass; a vector never merges its elements")))
 
 (deftest the-canon-collision-reason-is-in-the-closed-set
   (is (contains? api/reasons :canon-collision)
@@ -262,6 +260,107 @@
           "VALUE pin — the in-domain BigInt deposit applied, stored as its long")
       (is (= 100000005 (get-in ex' [:clearing :accounts 2 :collateral]))
           "VALUE pin — the good transaction on either side of the refusal still executed"))))
+
+;; ── the no-wire-form door: what the wire cannot encode, validate refuses ───
+;; Measured 2026-11-07 (the PR #111 carry): a value the wire could never
+;; encode — NaN, a function, a symbol, a list, and on the JVM a Ratio or a
+;; BigDecimal outside the bare route — passed `validate` and threw
+;; "value has no wire form" AT THE WIRE (`torihiki.log/enc-val`), one signed
+;; transaction from a halted commit. The wire's loud refusal is not a
+;; validate verdict only because no door asked the question; the canon has
+;; NOT made the value decision a Ratio's wire form would be (the
+;; `torihiki.log/wire-number?` note), so the answer is the wire's own: the
+;; value is refused, at validate, with a keyword from `reasons`. The door
+;; judges the CANONIZED transaction — exactly the values `enc-val` will see
+;; — so the canon's declared decisions survive: an in-domain whole value
+;; however typed (5.0, BigDecimal 5, BigInt 5) becomes its long and passes.
+
+(deftest a-value-with-no-wire-form-is-refused-at-validate
+  (let [ex (funded)]
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra ##NaN}))
+        "REASON literal — NaN has no canonical form and the wire throws on it")
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra (fn [] 1)}))
+        "REASON literal — a function has no wire form")
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra (symbol "x")}))
+        "REASON literal — a symbol has no wire form")
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra (list 1)}))
+        "REASON literal — a list has no wire form (the wire takes vectors only)")
+    (is (= #?(:clj :no-wire-form :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra (/ 2 3)}))
+        "REASON literal — a JVM Ratio has no wire form; the same source text
+         is a fractional DOUBLE on the JS legs, which the wire encodes under \"d\"")
+    (is (= #?(:clj :no-wire-form :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra #?(:clj (bigdec "1.5") :cljs 1.5)}))
+        "REASON literal — a fractional BigDecimal has no wire form; the JS
+         stand-in is the double the wire carries under \"d\"")
+    (is (= #?(:clj :no-wire-form :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra #?(:clj (bigdec "1e17") :cljs 1e17)}))
+        "REASON literal — whole, OUT of i53, and still no wire form: a
+         BigDecimal is not `wire-number?`, so neither \"u\" nor \"d\" takes it
+         (the int-like? trap — the JS double 1e17 rides \"u\" digits)")))
+
+(deftest no-wire-form-is-refused-at-any-depth
+  (let [ex (funded)]
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra {:deep [(list 1)]}}))
+        "REASON literal — nested inside a value, like the collision door")
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra {(fn [] 1) :v}}))
+        "REASON literal — a map KEY is encoded too; the walk covers keys")
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra #{(symbol "x")}}))
+        "REASON literal — a set element at the same door")
+    (is (= :no-wire-form
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra (into {} [[##NaN :a] [##NaN :b]])}))
+        "REASON literal — NaN keys collide with NOTHING (not :canon-collision)
+         but the wire throws on them; they are refused here instead")))
+
+(deftest values-with-wire-form-still-validate
+  ;; Over-refusal guard (VALUE pins): the door refuses exactly the wire's
+  ;; loud-refusal domain, nothing else.
+  (let [ex (funded)]
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra 5.5}))
+        "VALUE pin — a fractional double is the wire's \"d\" route")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra 1e17}))
+        "VALUE pin — an out-of-domain whole double is the wire's \"u\" route")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra "s"}))
+        "VALUE pin — strings, keywords, booleans and nil are bare wire forms")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra {:k [1 "a" :b true nil 5.0 #{5}]}}))
+        "VALUE pin — clean composites pass at every depth")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra #?(:clj (bigint 5) :cljs (js/BigInt 5))}))
+        "VALUE pin — a BigInt has a wire form (bare or \"u\", PR #111's door)")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra #?(:clj (bigdec "5") :cljs 5)}))
+        "VALUE pin — an in-domain whole BigDecimal is the canon's long; the
+         canon's decision is honored and the stored form encodes")))
+
+(deftest the-no-wire-form-reason-is-in-the-closed-set
+  (is (contains? api/reasons :no-wire-form)
+      "the door's keyword joins the closed set — `reasons` is the whole list"))
+
+(deftest a-no-wire-form-transaction-is-rejected-never-a-halt
+  (testing "the refusal is a rejection record — the apply path keeps its total contract"
+    (let [ex (funded)
+          ex' (st/apply-block ex {:height 1 :ts 1
+                                  :txs [{:tx :deposit :account 2 :amount 5}
+                                        {:tx :deposit :account 1 :amount 5 :extra (fn [] 1)}
+                                        {:tx :deposit :account 2 :amount 7}]})]
+      (is (= [:no-wire-form] (mapv :reason (:rejected ex')))
+          "REASON literal — refused as a record, at the stated door")
+      (is (= [1] (mapv :index (:rejected ex'))))
+      (is (= 100000000 (get-in ex' [:clearing :accounts 1 :collateral]))
+          "VALUE pin — the refused deposit credits nothing")
+      (is (= 100000012 (get-in ex' [:clearing :accounts 2 :collateral]))
+          "VALUE pin — the good transactions on either side of the refusal still executed"))))
 
 ;; ── the liveness property ───────────────────────────────────────────────────
 

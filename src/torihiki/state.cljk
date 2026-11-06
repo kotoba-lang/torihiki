@@ -2572,6 +2572,12 @@
    ;; would merge two keys/elements and lose one. Appended like everything
    ;; after 18.
    :canon-collision 23
+   ;; 24: the no-wire-form refusal (:no-wire-form), the validate-layer door
+   ;; mirroring `torihiki.log/enc-val`'s loud refusal — a value the wire
+   ;; could never encode (NaN, a function, a symbol, a list, a JVM Ratio or
+   ;; a BigDecimal outside the canon's routes) is refused here rather than
+   ;; throwing at the wire. Appended like everything after 18.
+   :no-wire-form 24
    })
 
 (defn- encode-rejections
