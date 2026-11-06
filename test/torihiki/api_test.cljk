@@ -64,6 +64,110 @@
         (is (contains? api/reasons r)
             (str "reason " r " is outside the closed set, for " t))))))
 
+;; ── the canon-collision door: refuse the merge, never perform it ───────────
+;; Measured 2026-11-06 (probe ground truth in the 182x scoped record): on the
+;; JVM, map keys whose CANON FORMS are `=` — `(into {} [[5 :a] [5.0 :b]])` —
+;; are TWO distinct entries (Long 5 and Double 5.0 never merge at
+;; construction), and `canon-tx`'s `(into {})` folds them into ONE with a
+;; hash-order-local winner: one transaction, two successor states, decided by
+;; iteration order, and `validate*` judges the ALREADY-MERGED tx — the loss
+;; is invisible at every door. Same class at set elements and inside
+;; composites. The fix is a door in front of the canon: a transaction whose
+;; canon would lose an entry is refused `:canon-collision` and never merged.
+;; On the JS legs the bare-vs-bare and composite classes collapse in the
+;; CALLER (5 ≡ 5.0 at construction) and the BigInt twin is untouched by the
+;; canon (no merge, no loss — the validate/wire domain difference is the
+;; BigInt-asymmetry carry, out of this package), so the same deftests pin the
+;; measured VALUE answer there. One `is` per line — identical counters on all
+;; three legs.
+
+(def ^:private collide-map
+  "A map with two DISTINCT keys sharing one canon form. Constructed, never
+  literal — the reader's duplicate-key check fires even in a skipped branch
+  (log_test's `collide-map`, same construction, same reason) — and the
+  constructible pair differs per runtime: the JVM keeps 5/5.0 apart while JS
+  merges them at construction, leaving 5/(js/BigInt 5) as the JS pair (which
+  the canon leaves apart — pinned below as the VALUE answer)."
+  #?(:clj (into {} [[5 :a] [5.0 :b]])
+     :cljs (into {} [[5 :a] [(js/BigInt 5) :b]])))
+
+(def ^:private collide-set
+  "The set twin of `collide-map`. Never a set literal: `#{5 5.0}` is a cljs
+  reader error."
+  #?(:clj (conj #{5} 5.0)
+     :cljs (conj #{5} (js/BigInt 5))))
+
+(deftest map-keys-that-collide-under-the-canon-are-refused-at-validate
+  (let [ex (funded)]
+    (is (= #?(:clj :canon-collision :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10 :extra collide-map}))
+        "REASON literal — the two keys canonize to one form and (into {}) loses one")
+    (is (= #?(:clj :canon-collision :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra (into {} [[5.0 :a]
+                                              [#?(:clj (bigint 5) :cljs (js/BigInt 5)) :b]])}))
+        "REASON literal — 5.0 and 5N are distinct keys on the JVM and canonize to one form")
+    (is (= #?(:clj :canon-collision :cljs nil)
+           (api/validate ex (assoc collide-map :tx :deposit :account 1 :amount 10)))
+        "REASON literal — a tx is a map: its own entry keys are judged at the same door")))
+
+(deftest set-elements-that-collide-under-the-canon-are-refused-at-validate
+  (is (= #?(:clj :canon-collision :cljs nil)
+         (api/validate (funded) {:tx :deposit :account 1 :amount 10 :extra collide-set}))
+      "REASON literal — the set folds its colliding elements silently today"))
+
+(deftest composite-keys-that-collide-under-the-canon-are-refused
+  (is (= #?(:clj :canon-collision :cljs nil)
+         (api/validate (funded) {:tx :deposit :account 1 :amount 10
+                                 :extra (into {} [[[5] :a] [[5.0] :b]])}))
+      "REASON literal — the vector keys [5] and [5.0] canonize to one form"))
+
+(deftest collisions-are-refused-at-any-depth
+  (let [ex (funded)]
+    (is (= #?(:clj :canon-collision :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra {:deep [(into {} [[5 :a] [5.0 :b]])]}}))
+        "REASON literal — a colliding map inside a value is refused at the same door")
+    (is (= #?(:clj :canon-collision :cljs nil)
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra {(into {} [[5 :a] [5.0 :b]]) :v}}))
+        "REASON literal — a colliding map inside a KEY: the canon merges the key's own entries")))
+
+(deftest clean-collections-still-validate
+  ;; Over-refusal guard (VALUE pins, green from birth): only entries that
+  ;; would actually MERGE are refused. NaN keys collide with nothing —
+  ;; `(= ##NaN ##NaN)` is false and the canon merges nothing, consistent
+  ;; with the wire's singleton NaN.
+  (let [ex (funded)]
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra {5 :a}}))
+        "VALUE pin — a single key is never a collision")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra {5 :a 6 :b}}))
+        "VALUE pin — distinct canon forms pass")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10 :extra #{5 6}}))
+        "VALUE pin — distinct set elements pass")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra {:m {5 :a} :v [[5] 5.0]}}))
+        "VALUE pin — nested clean maps pass; a vector never merges its elements")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra (into {} [[##NaN :a] [##NaN :b]])}))
+        "VALUE pin — NaN keys collide with nothing")))
+
+(deftest the-canon-collision-reason-is-in-the-closed-set
+  (is (contains? api/reasons :canon-collision)
+      "the door's keyword joins the closed set — `reasons` is the whole list"))
+
+(deftest a-colliding-transaction-is-rejected-never-a-halt
+  (testing "the refusal is a rejection record — the apply path keeps its total contract"
+    (let [ex (funded)
+          ex' (st/apply-block ex {:height 1 :ts 1
+                                  :txs [(assoc collide-map :tx :deposit :account 1 :amount 10)
+                                        {:tx :order :account 2 :market 1 :side 0 :level 1001 :qty 5}
+                                        {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 5}]})]
+      (is (= #?(:clj [:canon-collision] :cljs []) (mapv :reason (:rejected ex'))))
+      (is (= 5 (:size (cl/position (:clearing ex') 2 1)))
+          "the good transactions on either side still executed")
+      (is (= -5 (:size (cl/position (:clearing ex') 1 1)))))))
+
 ;; ── the liveness property ───────────────────────────────────────────────────
 
 (deftest a-malformed-transaction-cannot-halt-a-block
