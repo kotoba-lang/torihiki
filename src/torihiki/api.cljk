@@ -59,6 +59,7 @@
     :oracle-is-aggregated
     :not-the-bridge
     :bad-cid
+    :canon-collision
     :malformed-principal})
 
 ;; ── the integral-number canon ───────────────────────────────────────────────
@@ -100,7 +101,10 @@
   walk is deep through maps, vectors and sets so a nested 5.0 cannot survive
   anywhere a transaction can carry it. Everything else — integers already,
   fractional doubles, out-of-domain numbers, strings, keywords — is
-  returned as it arrived. Idempotent by construction."
+  returned as it arrived. Idempotent by construction. The `(into {})`/`(into
+  #{})` here MERGES keys and elements whose canon forms are `=` — reachable
+  only un-validated: `validate` refuses exactly those transactions
+  (`:canon-collision`) before the canon runs (see `first-canon-collision`)."
   [v]
   (cond
     (and (int-like? v) (fx/in-domain? v)) (long v)
@@ -108,6 +112,44 @@
     (vector? v) (mapv canon-val v)
     (set? v) (into #{} (map canon-val) v)
     :else v))
+
+(defn- first-canon-collision
+  "The first key or element, at any depth, whose canon form repeats an
+  earlier one's — exactly what `canon-val`'s `(into {})/(into #{})` would
+  merge and silently lose — as `{:hit x}`, else nil.
+
+  The walk is deep and covers KEYS as well as values: `canon-val` canonizes
+  a map key's own structure too, so a colliding map hidden inside a key
+  loses an entry the same way. The wrapper matters: a colliding key can
+  legitimately be nil or false and a bare return would hide it from
+  `if-let`. NaN keys are not collisions — `(= ##NaN ##NaN)` is false and
+  `canon-val` merges nothing, consistent with the wire's singleton NaN.
+  Total: `canon-val` and `=` are total. No throw, ever — this runs in front
+  of the canon on `validate`, and the apply-path contract (a refused
+  transaction is a rejection record, never a halted chain) holds because
+  the refusal is a keyword from `reasons`, not an exception."
+  [v]
+  (letfn [(dup [x seen]
+            (let [c (canon-val x)]
+              (if (some #(= c %) seen) {:hit x} nil)))
+          (walk [x]
+            (cond
+              (map? x) (or (loop [seen [] ks (seq (keys x))]
+                             (when ks
+                               (or (dup (first ks) seen)
+                                   (recur (conj seen (canon-val (first ks)))
+                                          (next ks)))))
+                           (some walk (keys x))
+                           (some walk (vals x)))
+              (set? x) (or (loop [seen [] es (seq x)]
+                             (when es
+                               (or (dup (first es) seen)
+                                   (recur (conj seen (canon-val (first es)))
+                                          (next es)))))
+                           (some walk x))
+              (vector? x) (some walk x)
+              :else nil))]
+    (walk v)))
 
 (defn canon-tx
   "The canonical form of a transaction: `{:qty 5.0}` and `{:qty 5}` are the
@@ -1479,9 +1521,19 @@
   One canon in front of every judgment: the transaction is canonicalised
   (`canon-tx`) first, so `{:qty 5.0}` and `{:qty 5}` are the same
   transaction and are answered the same — an in-bounds integral number IS
-  its integer, at every door and on both runtimes."
+  its integer, at every door and on both runtimes.
+
+  A transaction whose canon would LOSE an entry — two map keys or set
+  elements (at any depth, keys included) whose canon forms are `=`, which
+  `canon-tx`'s `(into {})` merges with a hash-order-local winner — is
+  refused `:canon-collision` BEFORE the canon runs: the merge is a silent
+  one-transaction-two-successor-states, and the door refuses exactly its
+  domain, nothing else (NaN keys collide with nothing; a lone 5.0 is the
+  canon's declared normalisation and still passes)."
   [ex tx]
-  (validate* ex (canon-tx tx)))
+  (if (first-canon-collision tx)
+    :canon-collision
+    (validate* ex (canon-tx tx))))
 
 ;; ── read models ─────────────────────────────────────────────────────────────
 ;;
