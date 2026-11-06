@@ -75,11 +75,14 @@
 ;; composites. The fix is a door in front of the canon: a transaction whose
 ;; canon would lose an entry is refused `:canon-collision` and never merged.
 ;; On the JS legs the bare-vs-bare and composite classes collapse in the
-;; CALLER (5 ≡ 5.0 at construction) and the BigInt twin is untouched by the
-;; canon (no merge, no loss — the validate/wire domain difference is the
-;; BigInt-asymmetry carry, out of this package), so the same deftests pin the
-;; measured VALUE answer there. One `is` per line — identical counters on all
-;; three legs.
+;; CALLER (5 ≡ 5.0 at construction), so the same deftests pin the measured
+;; VALUE answer there. The BigInt twin — untouched by the canon before the
+;; BigInt door landed — collides like every other twin now: the wire refused
+;; the pair while `validate` passed it (measured 2026-11-07,
+;; evidence/probe-bigint-door.cljk — the validate/wire domain alignment is
+;; the BigInt door's own), so every pair whose two entries survive
+;; construction is `:canon-collision` on every leg. One `is` per line —
+;; identical counters on all three legs.
 
 (def ^:private collide-map
   "A map with two DISTINCT keys sharing one canon form. Constructed, never
@@ -87,7 +90,7 @@
   (log_test's `collide-map`, same construction, same reason) — and the
   constructible pair differs per runtime: the JVM keeps 5/5.0 apart while JS
   merges them at construction, leaving 5/(js/BigInt 5) as the JS pair (which
-  the canon leaves apart — pinned below as the VALUE answer)."
+  the canon folds to one form like every other twin)."
   #?(:clj (into {} [[5 :a] [5.0 :b]])
      :cljs (into {} [[5 :a] [(js/BigInt 5) :b]])))
 
@@ -99,20 +102,20 @@
 
 (deftest map-keys-that-collide-under-the-canon-are-refused-at-validate
   (let [ex (funded)]
-    (is (= #?(:clj :canon-collision :cljs nil)
+    (is (= :canon-collision
            (api/validate ex {:tx :deposit :account 1 :amount 10 :extra collide-map}))
         "REASON literal — the two keys canonize to one form and (into {}) loses one")
-    (is (= #?(:clj :canon-collision :cljs nil)
+    (is (= :canon-collision
            (api/validate ex {:tx :deposit :account 1 :amount 10
                              :extra (into {} [[5.0 :a]
                                               [#?(:clj (bigint 5) :cljs (js/BigInt 5)) :b]])}))
         "REASON literal — 5.0 and 5N are distinct keys on the JVM and canonize to one form")
-    (is (= #?(:clj :canon-collision :cljs nil)
+    (is (= :canon-collision
            (api/validate ex (assoc collide-map :tx :deposit :account 1 :amount 10)))
         "REASON literal — a tx is a map: its own entry keys are judged at the same door")))
 
 (deftest set-elements-that-collide-under-the-canon-are-refused-at-validate
-  (is (= #?(:clj :canon-collision :cljs nil)
+  (is (= :canon-collision
          (api/validate (funded) {:tx :deposit :account 1 :amount 10 :extra collide-set}))
       "REASON literal — the set folds its colliding elements silently today"))
 
@@ -163,10 +166,102 @@
                                   :txs [(assoc collide-map :tx :deposit :account 1 :amount 10)
                                         {:tx :order :account 2 :market 1 :side 0 :level 1001 :qty 5}
                                         {:tx :order :account 1 :market 1 :side 1 :level 1001 :qty 5}]})]
-      (is (= #?(:clj [:canon-collision] :cljs []) (mapv :reason (:rejected ex'))))
+      (is (= [:canon-collision] (mapv :reason (:rejected ex'))))
       (is (= 5 (:size (cl/position (:clearing ex') 2 1)))
           "the good transactions on either side still executed")
       (is (= -5 (:size (cl/position (:clearing ex') 1 1)))))))
+
+;; ── the BigInt door: one integer, one verdict ───────────────────────────────
+;; Measured 2026-11-07 (evidence/probe-bigint-door.cljk, kbb + JVM): a true
+;; BigInt is an INTEGER however the runtime types it — `clojure.lang.BigInt`
+;; on the JVM, `js/BigInt` on the JS legs, where `(integer? (js/BigInt 5))` is
+;; FALSE and `(number? ...)` is FALSE too. Before this door, `int-like?` (a
+;; `number?`-shaped predicate) answered false for it on the JS legs, so the
+;; SAME transaction was refused `:bad-quantity`/`:bad-amount` at one runtime's
+;; validate and admitted at the other's (the JVM: `(integer? 5N)` is true) —
+;; one transaction, two successor states, the falsify-6/7 class at the door.
+;; And the wire (`torihiki.log/enc-val`, PR #109) encodes a BigInt bare or
+;; under "u" digits on BOTH legs while `validate` refused it on the JS side:
+;; the validate domain and the wire domain disagreed. This door aligns them —
+;; `int-like?` accepts a true BigInt, the canon stores it as its long (exact
+;; inside i53; `(long v)` THROWS on a SCI BigInt, measured — it converts
+;; through `js/Number`), and the collision door's identity covers the twins
+;; the wire refuses (numeric twins, in and out of i53) so no tx can pass
+;; `validate` and then throw at the wire.
+
+(def ^:private BI5 "BigInt 5 — the door's smallest integer, however typed."
+  #?(:clj (bigint 5) :cljs (js/BigInt 5)))
+
+(def ^:private BI10 #?(:clj (bigint 10) :cljs (js/BigInt 10)))
+
+(def ^:private BI260 "2^60 — an integer, and outside every i53 door."
+  #?(:clj (bigint 1152921504606846976) :cljs (js/BigInt 1152921504606846976)))
+
+(def ^:private BI1e17 "BigInt 1e17 — whole, out of i53, exact digits."
+  #?(:clj (bigint 1e17) :cljs (js/BigInt 1e17)))
+
+(deftest a-bigint-is-judged-as-its-integer-at-every-door
+  (let [ex (funded)]
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount BI10}))
+        "VALUE pin — a BigInt amount is the integer 10 at the same door")
+    (is (nil? (api/validate ex {:tx :order :account 1 :market 1 :side 0 :level 999 :qty BI5}))
+        "VALUE pin — a BigInt qty is judged as 5, exactly like the long twin")))
+
+(deftest the-canon-stores-a-bigint-as-its-long
+  (is (= {:qty 5} (api/canon-tx {:qty BI5}))
+      "VALUE pin — the stored form is the long; no BigInt reaches the slab")
+  (is (= {:qty 2.5} (api/canon-tx {:qty 2.5}))
+      "VALUE pin — a fractional double is untouched"))
+
+(deftest out-of-domain-bigints-stay-refused-at-the-bounded-doors
+  (let [ex (funded)]
+    (is (= :bad-amount (api/validate ex {:tx :deposit :account 1 :amount BI260}))
+        "REASON literal — 2^60 is out of i53 whatever type holds it")
+    (is (= :bad-quantity (api/validate ex {:tx :order :account 1 :market 1 :side 0 :level 999 :qty BI260}))
+        "REASON literal — the qty bound is a value bound, not a type bound")))
+
+(deftest numeric-twins-the-wire-refuses-are-refused-at-validate
+  ;; The validate/wire domain alignment, measured (probe-bigint-door): the
+  ;; wire's collision doors refuse these pairs — its criterion is the decoded
+  ;; canon form, where an out-of-domain whole number is its exact "u" digits —
+  ;; while `validate` passed them and the throw surfaced AT THE WIRE, one
+  ;; signed transaction from an apply-path halt. The collision door refuses
+  ;; exactly the pairs whose canon forms are one form, in i53 (the BigInt twin
+  ;; folds to its long) and out of it (the twins share their digits).
+  (let [ex (funded)]
+    (is (= :canon-collision
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra (into {} [[1e17 :a] [BI1e17 :b]])}))
+        "REASON literal — 1e17 and its BigInt twin decode to one wire form")
+    (is (= :canon-collision
+           (api/validate ex {:tx :deposit :account 1 :amount 10
+                             :extra (into #{} [1e17 BI1e17])}))
+        "REASON literal — set elements at the same door")))
+
+(deftest distinct-numeric-forms-still-validate
+  ;; Over-refusal guard (VALUE pins, green from birth): twins refuse, distinct
+  ;; forms pass — the door refuses exactly what the wire refuses.
+  (let [ex (funded)]
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra (into {} [[1e17 :a] [2e17 :b]])}))
+        "VALUE pin — distinct digits are distinct forms")
+    (is (nil? (api/validate ex {:tx :deposit :account 1 :amount 10
+                                :extra (into {} [[BI5 :a] [6 :b]])}))
+        "VALUE pin — a BigInt key's neighbor pair is clean")))
+
+(deftest a-bigint-transaction-is-applied-or-rejected-never-a-halt
+  (testing "the BigInt door is a verdict like any other — the apply path keeps its total contract"
+    (let [ex (funded)
+          ex' (st/apply-block ex {:height 1 :ts 1
+                                  :txs [{:tx :deposit :account 1 :amount BI10}
+                                        {:tx :deposit :account 1 :amount BI260}
+                                        {:tx :deposit :account 2 :amount 5}]})]
+      (is (= [:bad-amount] (mapv :reason (:rejected ex')))
+          "REASON literal — only the out-of-domain twin is refused, and as a record")
+      (is (= 100000010 (get-in ex' [:clearing :accounts 1 :collateral]))
+          "VALUE pin — the in-domain BigInt deposit applied, stored as its long")
+      (is (= 100000005 (get-in ex' [:clearing :accounts 2 :collateral]))
+          "VALUE pin — the good transaction on either side of the refusal still executed"))))
 
 ;; ── the liveness property ───────────────────────────────────────────────────
 

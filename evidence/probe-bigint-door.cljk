@@ -1,0 +1,54 @@
+(ns probe-bigint-door
+  "Probe: how do api/validate, api/canon-tx, st/apply-tx and log/tx->wire
+  judge a TRUE BigInt integer today (2026-11-07)? The api/int-like? BigInt
+  door asymmetry carry. Run: kbb evidence/probe-bigint-door.cljk (SCI leg),
+  clojure -M -e '(load-file \"evidence/probe-bigint-door.cljk\")' (JVM leg)."
+  (:require [torihiki.clearing :as cl]
+            [torihiki.api :as api]
+            [torihiki.state :as st]
+            [torihiki.log :as log]))
+
+(def BI5 #?(:clj (bigint 5) :cljs (js/BigInt 5)))
+(def BI10 #?(:clj (bigint 10) :cljs (js/BigInt 10)))
+(def BI260 #?(:clj (bigint 1152921504606846976) :cljs (js/BigInt 1152921504606846976))) ;; 2^60, out of i53
+
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate 350000 :maker-fee-rate 0))
+
+(defn fresh []
+  (st/new-exchange {:market mkt :book-opts {:n-levels 4096 :cap 8192 :ev-cap 8192}}))
+
+(defn funded []
+  (-> (fresh)
+      (st/apply-tx {:tx :deposit :account 1 :amount 100000000})
+      (st/apply-tx {:tx :oracle :market 1 :price 1000})))
+
+(defn safe [f] (try (f) (catch #?(:clj Exception :cljs :default) e (str "THROW: " (ex-message e)))))
+
+(defn -main [& _]
+  (let [ex (funded)]
+    (println "int-like? BI5        =" (api/int-like? BI5))
+    (println "int-like? BI260      =" (api/int-like? BI260))
+    (println "validate deposit BI10=" (safe #(api/validate ex {:tx :deposit :account 1 :amount BI10})))
+    (println "validate order BI5   =" (safe #(api/validate ex {:tx :order :account 1 :market 1 :side 0 :level 999 :qty BI5})))
+    (println "validate deposit BI260=" (safe #(api/validate ex {:tx :deposit :account 1 :amount BI260})))
+    (println "canon-tx {:qty BI5}  =" (safe #(api/canon-tx {:qty BI5})))
+    (println "canon-tx {:qty BI260}=" (safe #(api/canon-tx {:qty BI260})))
+    (println "wire deposit BI10    =" (safe #(log/tx->wire {:tx :deposit :account 1 :amount BI10})))
+    (println "wire twin-key map    =" (safe #(log/tx->wire {:tx :deposit :account 1 :amount 10
+                                                            :extra (into {} [[5 :a] [BI5 :b]])})))
+    (println "validate twin-key map=" (safe #(api/validate ex {:tx :deposit :account 1 :amount 10
+                                                               :extra (into {} [[5 :a] [BI5 :b]])})))
+    (println "validate ood-twin    =" (safe #(api/validate ex {:tx :deposit :account 1 :amount 10
+                                                               :extra (into {} [[1e17 :a] [#?(:clj (bigint 1e17) :cljs (js/BigInt 1e17)) :b]])})))
+    (println "wire ood-twin        =" (safe #(log/tx->wire {:tx :deposit :account 1 :amount 10
+                                                            :extra (into {} [[1e17 :a] [#?(:clj (bigint 1e17) :cljs (js/BigInt 1e17)) :b]])})))
+    (println "apply-block BI10 tx  =" (safe #(-> (st/apply-block ex {:height 1 :ts 1
+                                                                     :txs [{:tx :deposit :account 1 :amount BI10}]})
+                                                 :rejected)))
+    (println "<= mixed             =" (safe #(<= 1 BI5)))
+    (println "long BI5             =" (safe #(long BI5)))
+    (println "= 5 BI5              =" (= 5 BI5))
+    (println "= BI5 BI5            =" (= BI5 BI5))))
+
+(-main)

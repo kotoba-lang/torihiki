@@ -73,9 +73,27 @@
 ;; probes on both runtimes). The fix is one canon: an in-bounds integral
 ;; number IS its integer, at every door and on both runtimes.
 
+(defn- bigint-like?
+  "A true BigInt, however the runtime types it: `clojure.lang.BigInt` on the
+  JVM, `js/BigInt` on the JS legs — where `(integer? (js/BigInt 5))` is FALSE
+  and `(number? (js/BigInt 5))` is FALSE too (measured 2026-11-07,
+  evidence/probe-bigint-door.cljk), so neither `integer?` nor `number?` can
+  see it. `(instance? js/BigInt v)` is ALSO false on SCI (measured 2026-11-06
+  — `torihiki.log`'s detector note), so the detector is TYPE IDENTITY. The
+  same words live in `torihiki.log/bigint-like?`; the wire requires this
+  namespace, so it cannot be required back."
+  [v]
+  #?(:clj (instance? clojure.lang.BigInt v)
+     :cljs (identical? (type v) js/BigInt)))
+
 (defn int-like?
-  "Whether `v` is an INTEGER however it is typed: a true integer, or a whole
-  number held in a double (5.0 is 5; 2.5 is nothing). Provenance: the
+  "Whether `v` is an INTEGER however it is typed: a true integer — a BigInt
+  included (`clojure.lang.BigInt` / `js/BigInt`; `(integer? (js/BigInt 5))`
+  is FALSE on the JS legs while the JVM answers true for its own BigInt, so a
+  predicate that trusted `integer?` refused the SAME transaction
+  `:bad-quantity` at one runtime's door and admitted it at the other's —
+  measured 2026-11-07, evidence/probe-bigint-door.cljk) — or a whole number
+  held in a double (5.0 is 5; 2.5 is nothing). Provenance: the
   `kotoba.spec.int-like` predicate, re-implemented here because that library
   is not in this repository's dependency closure.
 
@@ -93,12 +111,23 @@
   below, where it stays untouched and is refused at the bounded doors."
   [v]
   (or (integer? v)
+      (bigint-like? v)
       (and (number? v) (== (- v v) 0) (== v (- v (rem v 1))))))
+
+(defn- int-canon
+  "The long of an in-domain whole value — exact, because the value is whole
+  and inside i53. `(long v)` THROWS on a SCI BigInt (measured — the hazard
+  `torihiki.log/bare-int` routes around the same way), so a BigInt converts
+  through `js/Number`, which is exact inside the domain."
+  [v]
+  #?(:clj (long v)
+     :cljs (if (bigint-like? v) (js/Number v) (long v))))
 
 (defn- canon-val
   "One value's canonical form: an in-bounds integral number becomes its long
-  (`(long v)` — exact, because the value is whole and inside i53), and the
-  walk is deep through maps, vectors and sets so a nested 5.0 cannot survive
+  (`int-canon` — exact, because the value is whole and inside i53; a BigInt
+  becomes the same long on both runtimes, so no BigInt reaches a slab), and
+  the walk is deep through maps, vectors and sets so a nested 5.0 cannot survive
   anywhere a transaction can carry it. Everything else — integers already,
   fractional doubles, out-of-domain numbers, strings, keywords — is
   returned as it arrived. Idempotent by construction. The `(into {})`/`(into
@@ -107,16 +136,57 @@
   (`:canon-collision`) before the canon runs (see `first-canon-collision`)."
   [v]
   (cond
-    (and (int-like? v) (fx/in-domain? v)) (long v)
+    (and (int-like? v) (fx/in-domain? v)) (int-canon v)
     (map? v) (into {} (map (fn [[k vv]] [(canon-val k) (canon-val vv)])) v)
     (vector? v) (mapv canon-val v)
     (set? v) (into #{} (map canon-val) v)
     :else v))
 
+(defn- exact-digits
+  "The exact decimal digits of a whole number — `torihiki.log/u-digits`'
+  semantics, duplicated here because the wire requires this namespace and
+  cannot be required back. JVM: the BigDecimal double CONSTRUCTOR is exact
+  (1e17 prints its integer digits, not its shortest form); JS: `js/BigInt`'s
+  string conversion of the double is exact. Arithmetic through BigInt is
+  deliberately avoided — the SCI multiply-loop corruption
+  (evidence/wnc-kbb-probe.cljk)."
+  [v]
+  #?(:clj (if (instance? Double v)
+            (str (.toBigIntegerExact (BigDecimal. (double v))))
+            (str v))
+     :cljs (.toString (js/BigInt v))))
+
+(defn- collision-form
+  "The identity the collision door compares by — `canon-val`'s merge identity
+  made total over the values the WIRE also judges (its criterion is
+  `dec-val`∘`enc-val`, torihiki.log/canon-key): an in-domain whole number is
+  its long (what the canon stores and merges), and an OUT-OF-DOMAIN whole
+  number is its exact digits — the wire's \"u\" form — so a numeric twin the
+  wire refuses ({1e17, 1e17N}: distinct keys, one decoded integer) is
+  refused HERE too, instead of passing `validate` and throwing at the wire —
+  one signed transaction from an apply-path halt (measured 2026-11-07,
+  evidence/probe-bigint-door.cljk: validate answered nil where tx->wire
+  refused). The digits ride a LIST: a symbol-carrying list has no wire form,
+  so no user value can ever `=` one of these forms (a bare string or vector
+  tag could collide with a legitimate key). Everything else is compared as
+  itself, exactly as `canon-val` leaves it. Comparison only — never stored,
+  never returned to a caller."
+  [v]
+  (cond
+    (int-like? v) (if (fx/in-domain? v)
+                    (int-canon v)
+                    (list 'u-digits (exact-digits v)))
+    (map? v) (into {} (map (fn [[k vv]] [(collision-form k) (collision-form vv)])) v)
+    (vector? v) (mapv collision-form v)
+    (set? v) (into #{} (map collision-form) v)
+    :else v))
+
 (defn- first-canon-collision
-  "The first key or element, at any depth, whose canon form repeats an
-  earlier one's — exactly what `canon-val`'s `(into {})/(into #{})` would
-  merge and silently lose — as `{:hit x}`, else nil.
+  "The first key or element, at any depth, whose COLLISION FORM repeats an
+  earlier one's — exactly what `canon-val`'s `(into {})`/`(into #{})` would
+  merge and silently lose, plus the numeric twins the wire refuses (see
+  `collision-form`; the two criteria agree on every wire-encodable value) —
+  as `{:hit x}`, else nil.
 
   The walk is deep and covers KEYS as well as values: `canon-val` canonizes
   a map key's own structure too, so a colliding map hidden inside a key
@@ -130,21 +200,21 @@
   the refusal is a keyword from `reasons`, not an exception."
   [v]
   (letfn [(dup [x seen]
-            (let [c (canon-val x)]
+            (let [c (collision-form x)]
               (if (some #(= c %) seen) {:hit x} nil)))
           (walk [x]
             (cond
               (map? x) (or (loop [seen [] ks (seq (keys x))]
                              (when ks
                                (or (dup (first ks) seen)
-                                   (recur (conj seen (canon-val (first ks)))
+                                   (recur (conj seen (collision-form (first ks)))
                                           (next ks)))))
                            (some walk (keys x))
                            (some walk (vals x)))
               (set? x) (or (loop [seen [] es (seq x)]
                              (when es
                                (or (dup (first es) seen)
-                                   (recur (conj seen (canon-val (first es)))
+                                   (recur (conj seen (collision-form (first es)))
                                           (next es)))))
                            (some walk x))
               (vector? x) (some walk x)
@@ -1524,12 +1594,14 @@
   its integer, at every door and on both runtimes.
 
   A transaction whose canon would LOSE an entry — two map keys or set
-  elements (at any depth, keys included) whose canon forms are `=`, which
-  `canon-tx`'s `(into {})` merges with a hash-order-local winner — is
-  refused `:canon-collision` BEFORE the canon runs: the merge is a silent
-  one-transaction-two-successor-states, and the door refuses exactly its
-  domain, nothing else (NaN keys collide with nothing; a lone 5.0 is the
-  canon's declared normalisation and still passes)."
+  elements (at any depth, keys included) whose collision forms are `=`,
+  which `canon-tx`'s `(into {})` merges with a hash-order-local winner, and
+  the numeric twins the wire's own collision doors refuse (`collision-form`
+  — the two criteria agree) — is refused `:canon-collision` BEFORE the
+  canon runs: the merge is a silent one-transaction-two-successor-states,
+  and the door refuses exactly its domain, nothing else (NaN keys collide
+  with nothing; a lone 5.0 is the canon's declared normalisation and still
+  passes)."
   [ex tx]
   (if (first-canon-collision tx)
     :canon-collision
