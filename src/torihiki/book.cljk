@@ -584,7 +584,7 @@
                         traded (min remaining avail)]
                     (emit-fill! b owner (slab/get o-owner head) (oid-of b head)
                                 bl traded side)
-                    (slab/add! lvl-qty k (- traded))
+                    (slab/set! lvl-qty k (fx/acc (slab/get lvl-qty k) (- traded)))
                     (slab/set! ctl ctl-last-price bl)
                     (if (= traded avail)
                       (do (unlink! b opp bl head)
@@ -607,7 +607,9 @@
                         (slab/set! o-side slot side)
                         (slab/set! o-level slot level)
                         (link-tail! b side level slot)
-                        (slab/add! lvl-qty (+ (* side n-levels) level) remaining)
+                        (slab/set! lvl-qty (+ (* side n-levels) level)
+                                   (fx/acc (slab/get lvl-qty (+ (* side n-levels) level))
+                                           remaining))
                         (slab/add! ctl ctl-resting 1)
                         (oid-of b slot))))))))))))
 
@@ -647,7 +649,11 @@
             level (slab/get (slab/field b o-level) slot)
             q (slab/get (slab/field b o-qty) slot)]
         (unlink! b side level slot)
-        (slab/add! (slab/field b lvl-qty) (+ (* side (long (slab/field b n-levels))) level) (- q))
+        (slab/set! (slab/field b lvl-qty)
+                   (+ (* side (long (slab/field b n-levels))) level)
+                   (fx/acc (slab/get (slab/field b lvl-qty)
+                                     (+ (* side (long (slab/field b n-levels))) level))
+                           (- q)))
         (release-slot! b slot)
         (slab/add! (slab/field b ctl) ctl-resting -1)
         q))))
@@ -691,8 +697,11 @@
                 level (slab/get (slab/field b o-level) slot)
                 removed (- q new-qty)]
             (slab/set! (slab/field b o-qty) slot new-qty)
-            (slab/add! (slab/field b lvl-qty)
-                       (+ (* side (long (slab/field b n-levels))) level) (- removed))
+            (slab/set! (slab/field b lvl-qty)
+                       (+ (* side (long (slab/field b n-levels))) level)
+                       (fx/acc (slab/get (slab/field b lvl-qty)
+                                         (+ (* side (long (slab/field b n-levels))) level))
+                               (- removed)))
             removed))))))
 
 ;; ── read-only views ─────────────────────────────────────────────────────────

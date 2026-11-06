@@ -1,0 +1,28 @@
+
+FAIL in (level-qty-saturates-at-the-ceiling) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0621/script/tests-on-nbb.cljk:1217)
+true sum 2^53 + 1 — held by no two runtimes alike
+expected: (= fx/i53-max (bk/level-qty b bk/bid 1))
+  actual: (not (= 9007199254740991 9007199254740992))
+
+FAIL in (level-qty-saturates-at-the-ceiling) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0621/script/tests-on-nbb.cljk:1219)
+the root preimage carries no value the runtimes store differently
+expected: (fx/in-domain? (bk/level-qty b bk/bid 1))
+  actual: (not (fx/in-domain? 9007199254740992))
+
+FAIL in (level-qty-saturates-at-the-ceiling) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0621/script/tests-on-nbb.cljk:1226)
+a decrement folds the SATED value — the rounded residue used to outlive the cancel (was 9007199254740989 on JS vs 9007199254740990 on the JVM)
+expected: (= (- fx/i53-max 3) (bk/level-qty b bk/bid 1))
+  actual: (not (= 9007199254740988 9007199254740989))
+
+FAIL in (level-qty-saturates-at-the-ceiling) (/Users/junkawasaki/github/wt/fleet/bot-torihiki-fix-20261107-0621/script/tests-on-nbb.cljk:1237)
+a crossing fill subtracts through the accumulator too
+the sated fold minus the fill — one value, both runtimes
+expected: (= (- fx/i53-max 5) (bk/level-qty b bk/bid 1))
+  actual: (not (= 9007199254740986 9007199254740987))
+
+Ran 707 tests containing 5708 assertions.
+4 failures, 0 errors.
+namespaces 38/38
+
+Ran 707 tests containing 5708 assertions.
+4 failures, 0 errors.
