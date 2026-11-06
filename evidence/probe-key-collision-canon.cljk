@@ -1,0 +1,4 @@
+(println :feature #?(:clj :clj-selected :cljs :cljs-selected :neither))
+(println :instance-bigint (try (instance? js/BigInt (js/BigInt 5)) (catch :default e (str "THREW " (ex-message e)))))
+(println :into-cljbranch (into {} [[5 :a] [5.0 :b]]))
+(println :into-bigint (into {} [[5 :a] [(js/BigInt 5) :b]]))
