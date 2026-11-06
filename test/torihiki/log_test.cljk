@@ -560,3 +560,21 @@
   (is (= ["m" [[5 ["k" "a"]]]]
          (get (log/tx->wire {:tx :t :flags {5.0 :a}}) "flags"))
       "single-key {5.0 :a} keeps its wire — 5.0 ≡ 5 is the canon's own normalization"))
+
+(deftest a-bigint-carries-exact-digits-under-the-number-canon
+  ;; Wire-form parity VALUE pins. Measured 2026-11-06 (probe ground truth in
+  ;; the tick record): `(instance? js/BigInt v)` is FALSE on SCI — the old
+  ;; detector was dead code, so a js/BigInt had NO wire form on the JS legs
+  ;; ("value has no wire form") while the JVM encoded the same transaction
+  ;; bare / ["u" digits]: one transaction, two verdicts. An in-domain BigInt
+  ;; encodes BARE exactly as the JVM's `(long v)` does; an out-of-domain
+  ;; BigInt carries its exact digits under "u".
+  (is (= 5 (get (log/tx->wire {:tx :t :qty #?(:clj (bigint 5)
+                                             :cljs (js/BigInt 5))})
+                "qty"))
+      "VALUE pin — an in-domain BigInt encodes bare, byte-identical to the JVM long form")
+  (is (= ["u" "9007199254740993"]
+         (get (log/tx->wire {:tx :t :qty #?(:clj (bigint "9007199254740993")
+                                            :cljs (js/BigInt "9007199254740993"))})
+              "qty"))
+      "VALUE pin — an out-of-domain BigInt carries its exact digits under \"u\""))
