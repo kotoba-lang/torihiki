@@ -201,3 +201,109 @@
         "CREATE2 of empty initcode from the zero address with a zero salt is a
          published vector; a different answer means every deployment lands
          somewhere no tool expects")))
+
+;; ── the word door ───────────────────────────────────────────────────────────
+;;
+;; A stack word is 256 bits and a host integer is not. Where one becomes the
+;; other — a jump target, a memory offset, a length, a calldata offset — the
+;; conversion used to TRUNCATE: `.longValue` cuts a BigInteger mod 2^64 on the
+;; JVM and `js/Number` rounds to a double on the node. The same JUMP then
+;; lands at two different pcs, the same offset addresses two different keys,
+;; and the two runtimes fork inside one call with nothing thrown. The
+;; determinism contract's shared integer domain is i53; outside it there is no
+;; host integer that IS the word, and the door refuses rather than guesses.
+
+(defn- word64
+  "A 32-byte word from a decimal literal, as 64 hex characters — so a test can
+  say `2^64 + 5` in a comment and push exactly that."
+  [s]
+  (let [h (.toString #?(:clj (java.math.BigInteger. ^String s)
+                        :cljs (js/BigInt s)) 16)]
+    (str (apply str (repeat (- 64 (count h)) \0)) h)))
+
+(def ^:private two-64 (word64 "18446744073709551616"))        ; 2^64
+(def ^:private i53-max-plus-1 (word64 "9007199254740993"))    ; 2^53 + 1
+
+(deftest a-jump-target-outside-the-shared-integer-domain-halts
+  ;; 2^64 as a jump target. The JVM truncates it to 0 and loops over the same
+  ;; PUSH32; the node rounds it and falls off the code, RETURNING SUCCESS.
+  ;; One contract, two answers — and neither is a refusal.
+  (let [r (evm/run {} (into (push32 two-64) [0x56]) "0x")]
+    (is (= :halt (:status r)))
+    (is (= :word-out-of-domain (:reason r)))))
+
+(deftest a-memory-offset-outside-the-shared-integer-domain-halts
+  ;; MSTORE at 2^53 + 1 — the first integer no double holds exactly. Both
+  ;; runtimes accepted it: the JVM at key 2^53+1, the node at key 2^53
+  ;; (rounded), so the next read at either address answers with whatever each
+  ;; runtime happened to store. Measured divergence, refused at the door.
+  (let [r (evm/run {} (into [0x60 0x07] (concat (push32 i53-max-plus-1) [0x52 0x00])) "0x")]
+    (is (= :halt (:status r)))
+    (is (= :word-out-of-domain (:reason r)))))
+
+(deftest a-memory-window-that-leaves-the-exact-domain-halts
+  ;; MSTORE at i53-max - 5 writes 32 byte keys, up to i53-max + 26 — above the
+  ;; domain, where the node's rounded keys collide (2^53+1 lands ON 2^53) and
+  ;; the two runtimes stop holding the same memory. The window as a whole must
+  ;; fit, not just its offset.
+  (let [r (evm/run {} (into [0x60 0x07]
+                            (concat (push32 (word64 "9007199254740986")) [0x52 0x00])) "0x")]
+    (is (= :halt (:status r)))
+    (is (= :memory-limit (:reason r)))))
+
+(deftest a-memory-length-beyond-the-work-cap-halts
+  ;; RETURN of 65537 bytes. One step must be bounded work — a length is a
+  ;; range, and a range the contract chooses is a step that never returns
+  ;; (gas counts steps, not their size). 65536 bytes is the cap.
+  (let [r (evm/run {} [0x62 0x01 0x00 0x01 0x60 0x00 0xf3] "0x")]
+    (is (= :halt (:status r)))
+    (is (= :memory-limit (:reason r)))))
+
+(deftest a-calldata-read-past-the-end-is-zeroes-not-a-throw
+  ;; CALLDATALOAD at byte 40 of a 2-byte calldata. The EVM answers zero-padded;
+  ;; this read was `subs` past the end of a 64-pad string — a throw out of
+  ;; `run` on the JVM, which apply-block does not survive.
+  (let [r (evm/run {} [0x60 0x28 0x35 0x60 0x00 0x52 0x60 0x20 0x60 0x00 0xf3] "0xabcd")]
+    (is (= :return (:status r)) (pr-str r))
+    (is (= 64 (count (:data r))))
+    (is (= 0 (hex->n (:data r))) "a read past calldata is zeroes, not garbage")))
+
+(deftest a-calldata-offset-outside-the-shared-integer-domain-halts
+  (let [r (evm/run {} (into (push32 two-64) [0x35 0x00]) "0xabcd")]
+    (is (= :halt (:status r)))
+    (is (= :word-out-of-domain (:reason r)))))
+
+(deftest a-returndata-copy-length-outside-the-shared-integer-domain-halts
+  ;; RETURNDATACOPY length of 2^64 + 32. The length was multiplied into a
+  ;; `subs` bound and whatever came back was written into memory.
+  (let [r (evm/run {} (into (push32 (word64 "18446744073709551648"))
+                            [0x60 0x40 0x60 0x00 0x3e 0x00]) "0x")]
+    (is (= :halt (:status r)))
+    (is (= :word-out-of-domain (:reason r)))))
+
+(deftest a-returndata-copy-past-the-end-is-empty-not-a-throw
+  ;; RETURNDATACOPY of 32 bytes from offset 64 with no returndata at all.
+  ;; `subs` with a start past the end threw; a copy of nothing is nothing.
+  (let [r (evm/run {} [0x60 0x20 0x60 0x40 0x60 0x00 0x3e
+                       0x60 0x00 0x51 0x60 0x00 0x52 0x60 0x20 0x60 0x00 0xf3] "0x")]
+    (is (= :return (:status r)) (pr-str r))
+    (is (= 64 (count (:data r))))
+    (is (= 0 (hex->n (:data r))))))
+
+(deftest a-shift-by-a-word-no-host-integer-holds-is-zero-not-a-truncated-shift
+  ;; SHL by 2^64 + 10. A shift of at least 256 is zero — the EVM's own rule,
+  ;; judgeable in word space. The truncated conversion turned it into 1 << 10
+  ;; on the JVM and 0 on the node: two answers again.
+  (let [r (evm/run {} (into [0x60 0x01]
+                            (concat (push32 (word64 "18446744073709551626"))
+                                    [0x1b 0x60 0x00 0x52 0x60 0x20 0x60 0x00 0xf3])) "0x")]
+    (is (= :return (:status r)) (pr-str r))
+    (is (= 0 (hex->n (:data r))))))
+
+(deftest a-step-that-cannot-proceed-halts-rather-than-throwing
+  ;; ADD with an empty stack: the pops are `nil` and `+` throws — out of
+  ;; `run`, out of apply-block, one malformed contract halting every validator
+  ;; at the same spot. A step that faults halts; the fault does not travel.
+  (let [r (evm/run {} [0x01 0x00] "0x")]
+    (is (= :halt (:status r)))
+    (is (= :step-faulted (:reason r)))))

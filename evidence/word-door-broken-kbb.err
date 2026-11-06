@@ -1,0 +1,12 @@
+kbb: io.github.kotoba-lang/spec is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/spec
+kbb: io.github.kotoba-lang/coll is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/coll
+kbb: io.github.kotoba-lang/fs is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/fs
+kbb: io.github.kotoba-lang/process is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/process
+kbb: io.github.kotoba-lang/json is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/json
+kbb: io.github.kotoba-lang/http is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/http
+kbb: io.github.kotoba-lang/error is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/error
+kbb: 2 dep(s) are not :local/root and are NOT on the classpath (kbb resolves :local/root and :git/sha coordinates, not Maven; a jar cannot load on this engine): org.clojure/tools.namespace, org.clojure/tools.cli
+kbb: test runner substitution: running 38 namespace(s) under ("test") with cljs.test (the JVM runner named by the alias does not exist on this engine)
+Downloading dependencies...
+Extracting dependencies...
+Done.
