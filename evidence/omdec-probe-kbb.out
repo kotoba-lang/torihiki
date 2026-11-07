@@ -1,0 +1,23 @@
+kbb: io.github.kotoba-lang/http is NOT on the classpath: stdlib sibling not checked out at /Users/junkawasaki/github/kotoba-lang/http
+kbb: io.github.kotoba-lang/process-exec is NOT on the classpath: could not clone https://github.com/kotoba-lang/process-exec.git
+Downloading dependencies...
+Extracting dependencies...
+Done.
+2^53 + 1 => 9007199254740992
+2^53 + 3 => 9007199254740996
+integer? 3.0 => true
+=== seed A: forward (true verdict REFUSE)
+A equity => -9007199254740991
+A bonded => 0
+A committed => 1
+A available (production, om/available) => -9007199254740992
+A available-raw (equity - bonded - committed) => -9007199254740992
+A orders-allowed? (PRODUCTION) => true
+=== seed B: reverse (true verdict ALLOW)
+B equity => -9007199254740991
+B bonded => 1
+B committed => 3
+B available (production, om/available) => -9007199254740996
+B available-raw (equity - bonded - committed) => -9007199254740996
+B orders-allowed? (PRODUCTION) => false
+PROBE-DONE

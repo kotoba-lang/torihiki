@@ -1,0 +1,91 @@
+;; 2026-11-07 torihiki-fix tick — the REAL probe for the order-margin
+;; decision path (the 08:1x tick's model is NOT the measurement; this file
+;; runs the two seed tuples through PRODUCTION `om/orders-allowed?`).
+;;
+;; Seeds (synthetic-seed, labelled): the clearing values (collateral /
+;; bonds / committed / one cross position) are written directly; every
+;; engine path under test — available, requirement, consume, the verdict —
+;; is production code, untouched.
+;;
+;; Run:  kbb evidence/probe-om-decision-sums.cljk            (SCI/JS leg)
+;;       kbb --backend sci --classpath "$CP" evidence/probe-om-decision-sums.cljk   (nbb leg)
+;;       (JVM leg: renamed-copy workdir, clojure -M -e '(load-file ...)')
+(require '[torihiki.fixed :as fx]
+         '[torihiki.book :as bk]
+         '[torihiki.clearing :as cl]
+         '[torihiki.order-margin :as om]
+         '[torihiki.state :as st])
+
+(defn show [label x] (println label "=>" (pr-str x)))
+
+;; ── 0. runtime fingerprint: where does f64 stop being exact? ───────────────
+(show "2^53 + 1" (+ 9007199254740992 1))
+(show "2^53 + 3" (+ 9007199254740992 3))
+(show "integer? 3.0" (integer? 3.0))
+
+;; ── the market: 40x, tick 1, lot 1 — notional = level x qty, IM 2.5% ──────
+(def mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                :taker-fee-rate 0 :maker-fee-rate 0))
+
+(defn chain []
+  (-> (st/new-exchange {:markets [mkt]
+                        :book-opts {:n-levels 256 :cap 4096 :ev-cap 4096}})
+      (assoc-in [:protocol :version] 2)))
+
+(defn block [ex h txs] (st/apply-block ex {:height h :ts h :txs txs} nil))
+(def oracle {:tx :oracle :market 1 :price 2})
+(defn deposit [a n] {:tx :deposit :account a :amount n})
+(defn order [a side level qty] {:tx :order :account a :market 1 :side side :level level :qty qty :flags 0})
+
+(defn report [label ex oo orders]
+  (let [c (:clearing ex) marks (:marks ex) markets (:markets ex)
+        acct 1 mkt-id 1
+        ;; the same quantities the verdict used to be built from — computed
+        ;; HERE with raw ops, to show what each runtime's `-`/`+` produce
+        equity (cl/equity c acct marks)
+        bonded (cl/bonded c acct)
+        committed (get-in c [:committed acct 0] 0)
+        avail-raw (- equity bonded committed)
+        _ (show (str label " equity") equity)
+        _ (show (str label " bonded") bonded)
+        _ (show (str label " committed") committed)
+        _ (show (str label " available (production, om/available)")
+                (om/available c acct marks))
+        _ (show (str label " available-raw (equity - bonded - committed)")
+                avail-raw)
+        verdict (om/orders-allowed? ex oo acct mkt-id orders)
+        _ (show (str label " orders-allowed? (PRODUCTION)") verdict)]
+    verdict))
+
+;; ── seed A (the forward direction): the order RAISES the shortfall ────────
+;; equity = i53-min, bonded = 0, committed = 1; the incoming order is a
+;; resting bid of 20 at level 1 (book empty, mark 2): req0 = 0, req1 = 1,
+;; delta = 0.  before = req0 - avail = 2^53; after = req1 - avail = 2^53+1.
+;; Exact integer arithmetic: after > before -> the shortfall grows -> REFUSE.
+(println "=== seed A: forward (true verdict REFUSE)")
+(let [ex (-> (chain)
+             (block 1 [oracle (deposit 1 1000) (deposit 2 1000)])
+             ;; synthetic-seed, labelled:
+             (assoc-in [:clearing :accounts 1 :collateral] -9007199254740991)
+             (assoc-in [:clearing :committed 1 0] 1))]
+  (report "A" ex {} [[bk/bid 1 20 0]]))
+
+;; ── seed B (the reverse direction): true before == after -> ALLOW ─────────
+;; equity = i53-min, bonded = 1, committed = 3; account 1 holds a cross
+;; position of size 20 (req0 = 1); the incoming bid of 21 at level 1 takes
+;; 1 from account 2's resting ask at level 1 and rests 20 (req1 = 2,
+;; delta = +1 = mark*size - cost = 2 - 1).  before = 1 - avail;
+;; after = 2 - (avail + 1) = before.  Exact: the shortfall does not grow ->
+;; ALLOW.
+(println "=== seed B: reverse (true verdict ALLOW)")
+(let [ex (-> (chain)
+             (block 1 [oracle (deposit 1 1000) (deposit 2 1000)])
+             (block 2 [(order 2 bk/ask 1 1)])
+             ;; synthetic-seed, labelled:
+             (assoc-in [:clearing :accounts 1 :collateral] -9007199254740991)
+             (assoc-in [:clearing :accounts 1 :positions 1] {:size 20 :entry-notional 40})
+             (assoc-in [:clearing :bonds 1 7] 1)
+             (assoc-in [:clearing :committed 1 0] 3))]
+  (report "B" ex (:open-orders ex) [[bk/bid 1 21 0]]))
+
+(println "PROBE-DONE")

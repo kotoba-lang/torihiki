@@ -1,0 +1,18 @@
+2^53 + 1 => 9007199254740993
+2^53 + 3 => 9007199254740995
+integer? 3.0 => false
+=== seed A: forward (true verdict REFUSE)
+A equity => -9007199254740991
+A bonded => 0
+A committed => 1
+A available (production, om/available) => -9007199254740992
+A available-raw (equity - bonded - committed) => -9007199254740992
+A orders-allowed? (PRODUCTION) => false
+=== seed B: reverse (true verdict ALLOW)
+B equity => -9007199254740991
+B bonded => 1
+B committed => 3
+B available (production, om/available) => -9007199254740995
+B available-raw (equity - bonded - committed) => -9007199254740995
+B orders-allowed? (PRODUCTION) => true
+PROBE-DONE

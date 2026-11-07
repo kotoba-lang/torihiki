@@ -1465,6 +1465,96 @@
                                                          :maintenance-margin-rate 12500}]}}))
           "a tier's :max-leverage is optional and, when present, a count"))))
 
+;; ── the margin decision path: one verdict on both runtimes ─────────────────
+;;
+;; 2026-11-07, evidence/probe-om-decision-sums.cljk run on all three legs
+;; (kbb, JVM, nbb): the LAST falsify-8-class surface — the raw sums and
+;; differences that feed the `orders-allowed?` VERDICT. Not a stored value:
+;; the decision itself. Two seeds, one signed order each, no throw anywhere:
+;;
+;;   seed A (equity at the floor, bonded 0, committed 1; a resting bid of 20
+;;   at level 1 against mark 2): before = 2^53, after = 2^53 + 1. Exact
+;;   integer arithmetic: the shortfall grows -> REFUSE. kbb/nbb ALLOWED —
+;;   f64 rounds `after` to 2^53 and the comparison decided the other way.
+;;
+;;   seed B (equity at the floor, bonded 1, committed 3, a cross position of
+;;   20; the incoming bid of 21 takes 1 at level 1 and rests 20): before ==
+;;   after -> ALLOW. kbb/nbb REFUSED — f64 rounded `avail` to -...996 and
+;;   the two differences stopped cancelling.
+;;
+;; The verdict now decides WITHOUT forming those differences. `avail`
+;; cancels out of `after <= before` exactly — `req1 - req0 <= delta`, every
+;; term in-domain and its difference inside the domain with room to spare,
+;; so the comparison is the exact one on both runtimes — and `after <= 0`
+;; becomes `req1 <= avail + delta`, whose right side saturates like every
+;; sum here (and whose clamp can never flip a comparison against a
+;; non-negative req1). `available` itself folds through `fx/sadd`: the
+;; VALUE pin below is that clamp.
+
+(deftest the-margin-verdict-is-one-value-on-both-runtimes
+  (let [mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                   :taker-fee-rate 0 :maker-fee-rate 0)
+        chain (fn []
+                (-> (st/new-exchange {:markets [mkt]
+                                      :book-opts {:n-levels 64 :cap 64 :ev-cap 64}})
+                    (assoc-in [:protocol :version] 2)))
+        block (fn [ex h txs] (st/apply-block ex {:height h :ts h :txs txs} nil))]
+    (testing "seed A — the order RAISES the shortfall: REFUSE
+              (measured: kbb/nbb answered ALLOW, the JVM REFUSE)"
+      (let [ex (-> (chain)
+                   (block 1 [{:tx :oracle :market 1 :price 2}
+                             {:tx :deposit :account 1 :amount 1000}
+                             {:tx :deposit :account 2 :amount 1000}])
+                   ;; synthetic-seed, labelled — the clearing values are
+                   ;; written directly (as the falsify probes did); every
+                   ;; engine path under test is production code.
+                   (assoc-in [:clearing :accounts 1 :collateral] (- fx/i53-max))
+                   (assoc-in [:clearing :committed 1 0] 1))]
+        (is (false? (om/orders-allowed? ex {} 1 1 [[bk/bid 1 20 0]]))
+            "VERDICT: req1 - req0 = 1 > delta = 0 — the shortfall grows")
+        (is (= :insufficient-margin
+               (api/validate ex {:tx :order :account 1 :market 1 :side bk/bid
+                                 :level 1 :qty 20 :flags 0}))
+            "REASON: the api layer reports the same refusal")))
+    (testing "seed B — the taken part pays for the requirement it adds: ALLOW
+              (measured: kbb/nbb answered REFUSE, the JVM ALLOW)"
+      (let [ex (-> (chain)
+                   (block 1 [{:tx :oracle :market 1 :price 2}
+                             {:tx :deposit :account 1 :amount 1000}
+                             {:tx :deposit :account 2 :amount 1000}])
+                   (block 2 [{:tx :order :account 2 :market 1 :side bk/ask
+                              :level 1 :qty 1 :flags 0}])
+                   (assoc-in [:clearing :accounts 1 :collateral] (- fx/i53-max))
+                   (assoc-in [:clearing :accounts 1 :positions 1]
+                             {:size 20 :entry-notional 40})
+                   (assoc-in [:clearing :bonds 1 7] 1)
+                   (assoc-in [:clearing :committed 1 0] 3))]
+        (is (true? (om/orders-allowed? ex (:open-orders ex) 1 1 [[bk/bid 1 21 0]]))
+            "VERDICT: req1 - req0 = 1 <= delta = 1 — the shortfall does not grow")
+        (is (nil? (api/validate ex {:tx :order :account 1 :market 1 :side bk/bid
+                                    :level 1 :qty 21 :flags 0}))
+            "REASON: no refusal — the decision exact integer arithmetic makes")))))
+
+(deftest available-reports-a-sated-value
+  (testing "below the ceiling the subtraction is byte-identical to the raw one"
+    (is (= -135 (om/available {:accounts {1 {:collateral -100}}
+                               :bonds {1 {7 30}}
+                               :committed {1 {0 5}}} 1 {}))))
+  (testing "VALUE: past it the fold saturates — one number on every runtime
+            (seed A's raw difference was -9007199254740992 on both, seed B's
+            was -9007199254740995 on the JVM and -9007199254740996 on JS)"
+    (let [mkt (assoc (cl/market {:id 1 :max-leverage 40 :tick 1 :lot 1})
+                     :taker-fee-rate 0 :maker-fee-rate 0)
+          ex (-> (st/new-exchange {:markets [mkt]
+                                   :book-opts {:n-levels 64 :cap 64 :ev-cap 64}})
+                 (st/apply-block {:height 1 :ts 1
+                                  :txs [{:tx :oracle :market 1 :price 2}]} nil)
+                 (assoc-in [:clearing :accounts 1 :collateral] (- fx/i53-max))
+                 (assoc-in [:clearing :bonds 1 7] 1)
+                 (assoc-in [:clearing :committed 1 0] 3))]
+      (is (= fx/i53-min (om/available (:clearing ex) 1 (:marks ex)))
+          "the true -9007199254740995 clamps to the floor — both runtimes"))))
+
 (deftest flat-spec-shape-gate-is-a-no-op-in-the-engine-too
   ;; The validate-layer gate answers with its REASON; the engine's own net —
   ;; the one a direct `apply-tx` caller meets — answers with a no-op, so an
