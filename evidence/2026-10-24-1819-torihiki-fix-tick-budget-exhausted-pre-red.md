@@ -1,0 +1,17 @@
+# 2026-10-24 18:19 torihiki-fix tick — NOT LANDED (runtime budget exhausted before the RED run)
+
+Gate: host load 18:17–18:18 直測 12.83/17.09/24.56 (1-min/5-min <20; tick gate = all windows >20 → stop, not triggered) → tick proceeded.
+
+## What was measured this tick (read-only audit)
+- maturity.md NEXT のコード項目は**全て着地済み**と確認: ② validate-i53-halt fix パッケージ = PR #52 (3e7ec56 i53 fix) / #54 (c4b4a8a rate caps) / #55+#56 (a51877c fx/acc accumulator sweep) / #58 (c2a327a validate residual i53 caps); bench 3-part fix = 66c206f; fuzz 常設化 = #53 (7385332); 再現性 3 (HEAD bench n=1M 3x) = #59 (3fb5add); test legs in-repo = #60/#61/#62. IN-FLIGHT fixed.cljk +36 / slab.cljk +1 (frame-561/565/569/571 記載) は**消滅** (git diff HEAD -- src/ = 0 bytes) — landing 確認: fx/sum 素形は fx/sadd + fx/acc として fixed.cljk に現存 (PR #52/#55 経由で着地と判断)。
+- HEAD (local) = 5eb4a64 (bot/hermes/anchor-tx), origin/main = 7f32214 (PR #62) — worktree は origin/main から切った: `bot/torihiki-fix-20261024-1819` @ ~/github/wt/fleet/bot-torihiki-fix-20261024-1819.
+
+## Next fix package identified (UNLANDED, not yet measured — hypothesis until the RED run)
+「notional money math is total」: `fx/notional` (fixed.cljk) は `(check :notional (* price size))` — 積を**界限なしに計算してから** check する。in-domain な被乗数×乗数でも積が 2^53 を超える経路 (apply-fill-to-position FLIP の realized = notional(price, old-size)、REDUCING の notional(price, closed)、unrealized = notional(mark, size)、funding/liquidation/margin の mark×size) で、JVM は 2^63 未満で ex-info :notional throw / 2^63 以上で bare ArithmeticException、nbb は無音丸め後に throw — falsify-9/11 secondary (JVM bare overflow / nbb silent rounding 非対称) と同一クラスで apply-block 内 throw = halted chain。さらに notional 項の `reduce + 0` 和 (order_margin market-requirement の loss-b/loss-a/no-mark 分岐, requirement fold, orders-allowed? の cost/filled/:delta, clearing equity/maintenance/initial folds, stake-of/vault-shares, state.cljk:1552-3/1583-4) は raw `+` のまま — 2 項目で 2^53 超, im/mul-rate 入力 check で throw door (no-mark 分岐)、または JS 丸めで root 分岐 (falsify-8 クラス)。parity-cases.json 38 件 + parity-cases-result.json 20 件は全て in-domain (notional ケースは 100×200 / 3000000000×3000000 / 0×0 のみ) → clamp 化は parity 安全と確認。
+
+## Plan (resume here)
+1. Tests first in test/torihiki/overflow_gates_test.cljk (ns に `[torihiki.order-margin :as om]` 追加済み — 本 tick の唯一の working-tree 変更, worktree 内 uncommitted): (a) fx/notional clamp pins (exact 3 + clamp 5: (notional i53-max i53-max) → i53-max 等), (b) unrealized pins (in-domain 1000 / 1.8e19 積 → 9002199254740991 / 2^54−2 差 → i53-max), (c) FLIP fill pins (size 1000000000000, entry-notional i53-max, collateral −7566199254740991; pos {:size −2000000000000 :entry-notional −1440000000000000}, delta 3000000000000, price 720000, fee 0), (d) om/requirement mark 分岐: oo {1 {1 {:bids {2 4503599627370495, 3 2251799813685249}}}}, marks {1 1}, markets {1 {:initial-margin-rate (fx/pct 10)}} → pin i53-max (pre-fix 9672739191482567 JVM / …566 nbb — 分岐), (e) no-mark 分岐 marks {1 0} → pin 900719925474099 (pre-fix mul-rate input check で両 runtime throw = halt door), (f) equity 2-position fold → pin i53-max (pre-fix 36028797018964964 JVM / …968 nbb — 分岐)。
+2. RED run 両 leg (`kbb -M:test` SCI leg + `script/jvm-test.sh` JVM leg) で BROKEN を実測 → その後 fix: notional = pmul-based clamp, 差は fx/sadd, 和は reduce fx/acc (上記 site)。
+3. GREEN run 両 leg → commit → PR → merge。
+
+Test counts not run this tick: suite baseline は本 tick 未実測 (直近正本は measurement bots の記録参照)。次 tick は上記 worktree (branch bot/torihiki-fix-20261024-1819, 1 uncommitted edit) を再利用できる。
