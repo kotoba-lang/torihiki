@@ -1,0 +1,18 @@
+machine: Darwin 25.4.0 arm64 | Apple M1 Max | hw.ncpu=10 | hw.memsize=34359738368
+rustc: 1.99.1
+generating a 20,000,000-operation tape (1 markets)...
+warming up...
+measuring 20,000,000 operations [steady-state 43% cancel / 12% cross / 45% quote, 1 market(s)]...
+
+  mix               steady-state 43% cancel / 12% cross / 45% quote, 1 market(s) (mode=match)
+  operations        20,000,000
+  placed            9,002,335
+  cancelled         6,007,915
+  fills             3,654,223
+  resting at end    1,506,831
+  state hash        b76b02ef01348edaf67c4bb24f425d38ba148b8a393c9056d6cf456e1960d3cb
+  elapsed           1.225 s
+
+  THROUGHPUT        16,330,391 ops/sec
+  latency           61 ns/op
+
